@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "**/dist",
+    "**/build",
+    "**/docs",
+    "**/.tsbuildinfo",
+    "!scratchpad/**/*",
+    "node_modules/**",
+    "**/node_modules",
+    ".agents/**/*",
+    ".dotai/**/*"
+  ],
+  "jsPlugins": [],
+  "overrides": [
+    {
+      "files": ["**/{test,dtslint,examples,benchmark,bundle,scripts,scratchpad}/**"],
+      "rules": {}
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+    "tsBuildInfoFile": "./dist/tsconfig.tools.tsbuildinfo"
+  },
+  "include": ["vitest.config.ts", "vitest.setup.ts"]
+}
