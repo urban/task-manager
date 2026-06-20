@@ -29,13 +29,14 @@ Implemented today:
 - enforce the three-level hierarchy (`Epic -> Task -> Subtask`),
 - add and remove dependencies with `tm block` and `tm unblock`,
 - claim and release advisory Agent Claims with `tm claim` and `tm release`,
+- complete Work Items with structured Results and verification evidence,
 - show a Work Item by full ID or unique prefix,
 - list the open backlog tree,
 - select the next actionable Work Item with `tm next`,
 - emit JSON output with `--json`, and
 - perform atomic writes with a transient lock file.
 
-Planned but not fully implemented yet: completion Results, cancellation, update, move, delete, and external issue sync.
+Planned but not fully implemented yet: cancellation, update, move, delete, and external issue sync.
 
 ## Core concepts
 
@@ -46,7 +47,7 @@ Planned but not fully implemented yet: completion Results, cancellation, update,
 - **Subject**: short, scannable title using Git-style subject-line rules.
 - **Description**: human-facing Markdown explaining the requested work.
 - **Agent Context**: execution handoff context for an AI agent.
-- **Result**: planned completion record with summary, decisions, and verification evidence.
+- **Result**: completion record with summary, decisions, and verification evidence.
 
 See [`CONTEXT.md`](./CONTEXT.md) for the project vocabulary and [`docs/README.md`](./docs/README.md) for the longer user guide.
 
@@ -105,6 +106,10 @@ bun packages/cli/src/bin.ts unblock wi_api... --by wi_model...
 bun packages/cli/src/bin.ts list
 bun packages/cli/src/bin.ts next
 bun packages/cli/src/bin.ts claim wi_api... --agent codex-session
+bun packages/cli/src/bin.ts complete wi_api... \
+  --agent codex-session \
+  --summary "Implemented API endpoint" \
+  --verification "bun run check: passed"
 bun packages/cli/src/bin.ts next --include-claimed --json
 bun packages/cli/src/bin.ts release wi_api... --agent codex-session
 bun packages/cli/src/bin.ts validate --json

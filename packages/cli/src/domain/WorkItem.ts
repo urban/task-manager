@@ -334,6 +334,37 @@ export const clearWorkItemClaim = (options: {
     updatedAt: options.updatedAt,
   }) satisfies WorkItem;
 
+export const completeWorkItem = (options: {
+  readonly item: WorkItem;
+  readonly summary: string;
+  readonly details: string;
+  readonly decisions: ReadonlyArray<string>;
+  readonly verification: ReadonlyArray<string>;
+  readonly completedAt: DateTime.Utc;
+  readonly completedBy: string;
+}): WorkItem =>
+  ({
+    schemaVersion: options.item.schemaVersion,
+    id: options.item.id,
+    level: options.item.level,
+    status: "done",
+    subject: options.item.subject,
+    description: options.item.description,
+    agentContext: options.item.agentContext,
+    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
+    ...(options.item.blockedBy === undefined ? {} : { blockedBy: options.item.blockedBy }),
+    result: {
+      summary: options.summary,
+      details: options.details,
+      decisions: [...options.decisions],
+      verification: [...options.verification],
+      completedAt: options.completedAt,
+      completedBy: options.completedBy,
+    },
+    createdAt: options.item.createdAt,
+    updatedAt: options.completedAt,
+  }) satisfies WorkItem;
+
 export const updateWorkItemDependencies = Effect.fnUntraced(function* (options: {
   readonly item: WorkItem;
   readonly blockedBy: ReadonlyArray<string>;

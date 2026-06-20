@@ -858,6 +858,444 @@ describe("tm cli", () => {
     ),
   );
 
+  it.effect("completes Work Items with structured flags and clears same-agent claims", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Complete structured work");
+        const claimed = yield* claimWorkItem(directory, item.id, "codex-session");
+        yield* TestClock.adjust("1 minute");
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Added complete command",
+          "--details",
+          "Implemented the lifecycle transition and tests.",
+          "--decision",
+          "Used structured Result storage",
+          "--decision",
+          "Cleared claims on completion",
+          "--verification",
+          "bun run test: passed",
+          "--verification",
+          "bun run typecheck: passed",
+          "--json",
+        ]);
+        assert.strictEqual(result.exit._tag, "Success");
+        const completed = decodeItemOutput(String(result.logs[0])).item;
+
+        assert.strictEqual(completed.status, "done");
+        assert.strictEqual(completed.claim, undefined);
+        assert.isAbove(
+          DateTime.toEpochMillis(completed.updatedAt),
+          DateTime.toEpochMillis(claimed.updatedAt),
+        );
+        const completionResult = completed.result;
+        if (completionResult === undefined) {
+          assert.fail("Expected completion to persist a Result.");
+        } else {
+          assert.strictEqual(completionResult.summary, "Added complete command");
+          assert.strictEqual(
+            completionResult.details,
+            "Implemented the lifecycle transition and tests.",
+          );
+          assert.deepStrictEqual(completionResult.decisions, [
+            "Used structured Result storage",
+            "Cleared claims on completion",
+          ]);
+          assert.deepStrictEqual(completionResult.verification, [
+            "bun run test: passed",
+            "bun run typecheck: passed",
+          ]);
+          assert.strictEqual(completionResult.completedBy, "codex-session");
+          assert.strictEqual(
+            DateTime.toEpochMillis(completionResult.completedAt),
+            DateTime.toEpochMillis(completed.updatedAt),
+          );
+        }
+      }),
+    ),
+  );
+
+  it.effect("parses Git-style result-message input", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Complete message work");
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--result-message",
+          "Add login endpoint\n\nImplemented route and tests.\n\nDecisions:\n- Return generic 401\n\nVerification:\n- bun run check: passed",
+          "--json",
+        ]);
+        assert.strictEqual(result.exit._tag, "Success");
+        const completed = decodeItemOutput(String(result.logs[0])).item;
+        const completionResult = completed.result;
+        if (completionResult === undefined) {
+          assert.fail("Expected result-message completion to persist a Result.");
+        } else {
+          assert.strictEqual(completionResult.summary, "Add login endpoint");
+          assert.strictEqual(completionResult.details, "Implemented route and tests.");
+          assert.deepStrictEqual(completionResult.decisions, ["Return generic 401"]);
+          assert.deepStrictEqual(completionResult.verification, ["bun run check: passed"]);
+        }
+      }),
+    ),
+  );
+
+  it.effect("completes from --result-message-file and TM_AGENT", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Complete file work");
+        const fs = yield* FileSystem.FileSystem;
+        const messageFile = `${directory}/result-message.txt`;
+        yield* fs.writeFileString(
+          messageFile,
+          "Document file result\n\nCompleted using a message file.\n\nVerification:\n- bun run test: passed",
+        );
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--result-message-file",
+          messageFile,
+          "--json",
+        ]).pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                TM_AGENT: "file-agent",
+              }),
+            ),
+          ),
+        );
+        assert.strictEqual(result.exit._tag, "Success");
+        const completed = decodeItemOutput(String(result.logs[0])).item;
+        const completionResult = completed.result;
+        if (completionResult === undefined) {
+          assert.fail("Expected file completion to persist a Result.");
+        } else {
+          assert.strictEqual(completionResult.summary, "Document file result");
+          assert.strictEqual(completionResult.details, "Completed using a message file.");
+          assert.deepStrictEqual(completionResult.verification, ["bun run test: passed"]);
+          assert.strictEqual(completionResult.completedBy, "file-agent");
+        }
+      }),
+    ),
+  );
+
+  it.effect("rejects complete without Agent Identity", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Require complete agent");
+        const before = yield* readTasksFile(directory);
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--summary",
+          "Implemented complete work",
+          "--verification",
+          "bun run test: passed",
+        ]).pipe(Effect.provide(emptyConfigLayer));
+        assert.strictEqual(result.exit._tag, "Failure");
+        assert.isTrue(String(result.errors[0]).includes("Agent Identity is required"));
+
+        const after = yield* readTasksFile(directory);
+        assert.strictEqual(after, before);
+      }),
+    ),
+  );
+
+  it.effect("rejects complete without a summary", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Require result summary");
+        const before = yield* readTasksFile(directory);
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--verification",
+          "bun run test: passed",
+        ]);
+        assert.strictEqual(result.exit._tag, "Failure");
+        assert.isTrue(String(result.errors[0]).includes("Result summary is required"));
+
+        const afterMissing = yield* readTasksFile(directory);
+        assert.strictEqual(afterMissing, before);
+
+        const vagueResult = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "done",
+          "--verification",
+          "bun run test: passed",
+        ]);
+        assert.strictEqual(vagueResult.exit._tag, "Failure");
+        assert.isTrue(String(vagueResult.errors[0]).includes("describe what changed"));
+
+        const afterVague = yield* readTasksFile(directory);
+        assert.strictEqual(afterVague, before);
+      }),
+    ),
+  );
+
+  it.effect("requires verification unless --allow-no-verification is used", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Allow missing verification");
+        const before = yield* readTasksFile(directory);
+
+        const missingVerification = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Completed without evidence",
+        ]);
+        assert.strictEqual(missingVerification.exit._tag, "Failure");
+        assert.isTrue(String(missingVerification.errors[0]).includes("Verification evidence"));
+        assert.strictEqual(yield* readTasksFile(directory), before);
+
+        const forcedWithoutVerification = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Completed without evidence",
+          "--force",
+        ]);
+        assert.strictEqual(forcedWithoutVerification.exit._tag, "Failure");
+        assert.isTrue(
+          String(forcedWithoutVerification.errors[0]).includes("Verification evidence"),
+        );
+        assert.strictEqual(yield* readTasksFile(directory), before);
+
+        const allowed = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Completed with explicit escape hatch",
+          "--allow-no-verification",
+          "--json",
+        ]);
+        assert.strictEqual(allowed.exit._tag, "Success");
+        const completed = decodeItemOutput(String(allowed.logs[0])).item;
+        const completionResult = completed.result;
+        if (completionResult === undefined) {
+          assert.fail("Expected allow-no-verification to still persist a Result.");
+        } else {
+          assert.deepStrictEqual(completionResult.verification, []);
+        }
+      }),
+    ),
+  );
+
+  it.effect("rejects completing parents with open children", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const parent = yield* createWorkItem(directory, "Complete parent work");
+        yield* createWorkItem(directory, "Keep child open", {
+          level: "subtask",
+          parent: parent.id,
+        });
+        const before = yield* readTasksFile(directory);
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          parent.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Completed parent work",
+          "--verification",
+          "bun run test: passed",
+        ]);
+        assert.strictEqual(result.exit._tag, "Failure");
+        assert.isTrue(String(result.errors[0]).includes("open children"));
+        assert.strictEqual(yield* readTasksFile(directory), before);
+      }),
+    ),
+  );
+
+  it.effect("requires force to complete with incomplete dependencies", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const target = yield* createWorkItem(directory, "Complete blocked work");
+        const dependency = yield* createWorkItem(directory, "Leave dependency open");
+        yield* run(["--cwd", directory, "block", target.id, "--by", dependency.id]);
+        const before = yield* readTasksFile(directory);
+
+        const blocked = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          target.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Completed blocked work",
+          "--verification",
+          "bun run test: passed",
+        ]);
+        assert.strictEqual(blocked.exit._tag, "Failure");
+        assert.isTrue(String(blocked.errors[0]).includes("incomplete dependencies"));
+        assert.strictEqual(yield* readTasksFile(directory), before);
+
+        const forced = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          target.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Completed blocked work intentionally",
+          "--verification",
+          "Manual dependency review: obsolete",
+          "--force",
+          "--json",
+        ]);
+        assert.strictEqual(forced.exit._tag, "Success");
+        const completed = decodeItemOutput(String(forced.logs[0])).item;
+        assert.strictEqual(completed.status, "done");
+        assert.deepStrictEqual(completed.blockedBy, [dependency.id]);
+      }),
+    ),
+  );
+
+  it.effect("requires force to complete another agent's active claim", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Protect complete claim");
+        yield* claimWorkItem(directory, item.id, "agent-a");
+        const before = yield* readTasksFile(directory);
+
+        const conflict = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "agent-b",
+          "--summary",
+          "Completed claimed work",
+          "--verification",
+          "bun run test: passed",
+        ]);
+        assert.strictEqual(conflict.exit._tag, "Failure");
+        assert.isTrue(String(conflict.errors[0]).includes("actively claimed by agent-a"));
+        assert.strictEqual(yield* readTasksFile(directory), before);
+
+        const forced = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "agent-b",
+          "--summary",
+          "Completed claimed work with takeover",
+          "--verification",
+          "bun run test: passed",
+          "--force",
+          "--json",
+        ]);
+        assert.strictEqual(forced.exit._tag, "Success");
+        const completed = decodeItemOutput(String(forced.logs[0])).item;
+        assert.strictEqual(completed.claim, undefined);
+        const completionResult = completed.result;
+        if (completionResult === undefined) {
+          assert.fail("Expected forced completion to persist a Result.");
+        } else {
+          assert.strictEqual(completionResult.completedBy, "agent-b");
+        }
+      }),
+    ),
+  );
+
+  it.effect("completed Work Items leave the default list and render Result in show", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Hide completed work");
+
+        const completeResult = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Completed list filtering",
+          "--verification",
+          "bun run test: passed",
+        ]);
+        assert.strictEqual(completeResult.exit._tag, "Success");
+        assert.isTrue(String(completeResult.logs[0]).includes("Summary: Completed list filtering"));
+        assert.isTrue(String(completeResult.logs[0]).includes("- bun run test: passed"));
+
+        const listResult = yield* run(["--cwd", directory, "list"]);
+        assert.strictEqual(listResult.exit._tag, "Success");
+        assert.strictEqual(String(listResult.logs[0]), "No open Work Items.");
+
+        const showResult = yield* run(["--cwd", directory, "show", item.id]);
+        assert.strictEqual(showResult.exit._tag, "Success");
+        const output = String(showResult.logs[0]);
+        assert.isTrue(output.includes("Status: done"));
+        assert.isTrue(output.includes("Summary: Completed list filtering"));
+        assert.isTrue(output.includes("Verification:"));
+        assert.isTrue(output.includes("- bun run test: passed"));
+      }),
+    ),
+  );
+
   it.effect("skips active claims by default and includes them with flag", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
