@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import { ValidationFailure, type ValidationIssue } from "../errors/TmErrors";
 import {
   buildTree,
+  isClaimActive,
   type WorkItem,
   type WorkItemLevel,
   type WorkItemTreeNode,
@@ -350,21 +351,26 @@ const hasCompletedDependencies = (
 const isActionableTreeNode = (
   node: WorkItemTreeNode,
   itemsById: ReadonlyMap<string, WorkItem>,
+  now: DateTime.Utc,
+  includeClaimed: boolean,
 ): boolean =>
   node.item.status === "open" &&
   node.children.length === 0 &&
-  hasCompletedDependencies(node.item, itemsById);
+  hasCompletedDependencies(node.item, itemsById) &&
+  (includeClaimed || !isClaimActive(node.item.claim, now));
 
 const findFirstActionableNode = (
   nodes: ReadonlyArray<WorkItemTreeNode>,
   itemsById: ReadonlyMap<string, WorkItem>,
+  now: DateTime.Utc,
+  includeClaimed: boolean,
 ): WorkItem | undefined => {
   for (const node of nodes) {
-    if (isActionableTreeNode(node, itemsById)) {
+    if (isActionableTreeNode(node, itemsById, now, includeClaimed)) {
       return node.item;
     }
 
-    const child = findFirstActionableNode(node.children, itemsById);
+    const child = findFirstActionableNode(node.children, itemsById, now, includeClaimed);
     if (child !== undefined) {
       return child;
     }
@@ -375,15 +381,17 @@ const findFirstActionableNode = (
 
 export const findNextActionableWorkItem = (
   items: ReadonlyArray<WorkItem>,
-  options?: {
+  options: {
+    readonly now: DateTime.Utc;
     readonly root?: WorkItem;
+    readonly includeClaimed?: boolean;
   },
 ): WorkItem | undefined => {
   const itemsById = indexItemsById(items);
   const tree = buildTree(items, {
-    ...(options?.root === undefined ? {} : { root: options.root }),
+    ...(options.root === undefined ? {} : { root: options.root }),
     openOnly: true,
   });
 
-  return findFirstActionableNode(tree, itemsById);
+  return findFirstActionableNode(tree, itemsById, options.now, options.includeClaimed ?? false);
 };

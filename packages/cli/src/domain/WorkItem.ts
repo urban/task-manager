@@ -23,6 +23,7 @@ export const ClaimSchema = Schema.Struct({
   claimedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
 });
+export type WorkItemClaim = typeof ClaimSchema.Type;
 
 export const ResultSchema = Schema.Struct({
   summary: Schema.String,
@@ -80,6 +81,14 @@ const rootLevelOrder = (level: WorkItemLevel): number => {
       return 2;
   }
 };
+
+const claimTtlHours = 1;
+
+export const claimExpiresAt = (claimedAt: DateTime.Utc): DateTime.Utc =>
+  claimedAt.pipe(DateTime.add({ hours: claimTtlHours }));
+
+export const isClaimActive = (claim: WorkItemClaim | undefined, now: DateTime.Utc): boolean =>
+  claim !== undefined && DateTime.isGreaterThan(claim.expiresAt, now);
 
 const toMillis = (value: DateTime.Utc): number => DateTime.toEpochMillis(value);
 
@@ -289,6 +298,41 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
 
   return workItem;
 });
+
+export const updateWorkItemClaim = (options: {
+  readonly item: WorkItem;
+  readonly agent: string;
+  readonly claimedAt: DateTime.Utc;
+}): WorkItem =>
+  ({
+    ...options.item,
+    claim: {
+      agent: options.agent,
+      claimedAt: options.claimedAt,
+      expiresAt: claimExpiresAt(options.claimedAt),
+    },
+    updatedAt: options.claimedAt,
+  }) satisfies WorkItem;
+
+export const clearWorkItemClaim = (options: {
+  readonly item: WorkItem;
+  readonly updatedAt: DateTime.Utc;
+}): WorkItem =>
+  ({
+    schemaVersion: options.item.schemaVersion,
+    id: options.item.id,
+    level: options.item.level,
+    status: options.item.status,
+    subject: options.item.subject,
+    description: options.item.description,
+    agentContext: options.item.agentContext,
+    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
+    ...(options.item.blockedBy === undefined ? {} : { blockedBy: options.item.blockedBy }),
+    ...(options.item.result === undefined ? {} : { result: options.item.result }),
+    ...(options.item.cancellation === undefined ? {} : { cancellation: options.item.cancellation }),
+    createdAt: options.item.createdAt,
+    updatedAt: options.updatedAt,
+  }) satisfies WorkItem;
 
 export const updateWorkItemDependencies = Effect.fnUntraced(function* (options: {
   readonly item: WorkItem;

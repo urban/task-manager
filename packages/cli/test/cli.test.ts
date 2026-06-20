@@ -1,13 +1,14 @@
 /** @effect-diagnostics anyUnknownInErrorContext:skip-file strictEffectProvide:skip-file */
 import * as PlatformNode from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stdio from "effect/Stdio";
-import { TestConsole } from "effect/testing";
+import { TestClock, TestConsole } from "effect/testing";
 import * as CliOutput from "effect/unstable/cli/CliOutput";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
@@ -31,6 +32,8 @@ const childProcessLayer = Layer.succeed(
   ChildProcessSpawner.ChildProcessSpawner,
   ChildProcessSpawner.make(() => Effect.die("Not implemented")),
 );
+
+const emptyConfigLayer = ConfigProvider.layer(ConfigProvider.fromUnknown({}));
 
 const baseLayer = Layer.mergeAll(
   TestConsole.layer,
@@ -100,6 +103,30 @@ const createWorkItem = (
       `${subject} description.`,
       "--context",
       `${subject} context.`,
+      "--json",
+    ]);
+    assert.strictEqual(result.exit._tag, "Success");
+    return decodeItemOutput(String(result.logs[0])).item;
+  });
+
+const claimWorkItem = (
+  directory: string,
+  id: string,
+  agent: string,
+  options?: {
+    readonly force?: boolean;
+  },
+) =>
+  Effect.gen(function* () {
+    const forceArgs = options?.force === true ? ["--force"] : [];
+    const result = yield* run([
+      "--cwd",
+      directory,
+      "claim",
+      id,
+      "--agent",
+      agent,
+      ...forceArgs,
       "--json",
     ]);
     assert.strictEqual(result.exit._tag, "Success");
@@ -540,6 +567,327 @@ describe("tm cli", () => {
         const doneRootResult = yield* run(["--cwd", directory, "next", "--root", item.id]);
         assert.strictEqual(doneRootResult.exit._tag, "Failure");
         assert.isTrue(String(doneRootResult.errors[0]).includes("is not open"));
+      }),
+    ),
+  );
+
+  it.effect("claims Work Items with agent flag in human and JSON modes", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Claim flag work");
+
+        const humanResult = yield* run([
+          "--cwd",
+          directory,
+          "claim",
+          item.id,
+          "--agent",
+          "codex-session",
+        ]);
+        assert.strictEqual(humanResult.exit._tag, "Success");
+        assert.isTrue(String(humanResult.logs[0]).includes("codex-session"));
+        assert.isTrue(String(humanResult.logs[0]).includes("until"));
+
+        yield* TestClock.adjust("10 minutes");
+        const jsonResult = yield* run([
+          "--cwd",
+          directory,
+          "claim",
+          item.id,
+          "--agent",
+          "codex-session",
+          "--json",
+        ]);
+        assert.strictEqual(jsonResult.exit._tag, "Success");
+        const claimed = decodeItemOutput(String(jsonResult.logs[0])).item;
+        const claim = claimed.claim;
+        if (claim === undefined) {
+          assert.fail("Expected JSON claim output to include the persisted claim.");
+        } else {
+          assert.strictEqual(claim.agent, "codex-session");
+          assert.strictEqual(
+            DateTime.toEpochMillis(claim.expiresAt) - DateTime.toEpochMillis(claim.claimedAt),
+            3_600_000,
+          );
+          assert.strictEqual(
+            DateTime.toEpochMillis(claimed.updatedAt),
+            DateTime.toEpochMillis(claim.claimedAt),
+          );
+        }
+      }),
+    ),
+  );
+
+  it.effect("claims Work Items with TM_AGENT fallback", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Claim env work");
+        const result = yield* run(["--cwd", directory, "claim", item.id, "--json"]).pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                TM_AGENT: "env-agent",
+              }),
+            ),
+          ),
+        );
+
+        assert.strictEqual(result.exit._tag, "Success");
+        const claimed = decodeItemOutput(String(result.logs[0])).item;
+        const claim = claimed.claim;
+        if (claim === undefined) {
+          assert.fail("Expected TM_AGENT claim output to include the persisted claim.");
+        } else {
+          assert.strictEqual(claim.agent, "env-agent");
+        }
+      }),
+    ),
+  );
+
+  it.effect("rejects missing and blank Agent Identity", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Require claim agent");
+        const before = yield* readTasksFile(directory);
+
+        const missingResult = yield* run(["--cwd", directory, "claim", item.id]).pipe(
+          Effect.provide(emptyConfigLayer),
+        );
+        assert.strictEqual(missingResult.exit._tag, "Failure");
+        assert.isTrue(String(missingResult.errors[0]).includes("Agent Identity is required"));
+
+        const blankResult = yield* run(["--cwd", directory, "claim", item.id, "--agent", "   "]);
+        assert.strictEqual(blankResult.exit._tag, "Failure");
+        assert.isTrue(String(blankResult.errors[0]).includes("must not be empty"));
+
+        const after = yield* readTasksFile(directory);
+        assert.strictEqual(after, before);
+      }),
+    ),
+  );
+
+  it.effect("refreshes same-agent claims", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Refresh claim work");
+        const firstClaimed = yield* claimWorkItem(directory, item.id, "codex-session");
+        yield* TestClock.adjust("10 minutes");
+        const refreshed = yield* claimWorkItem(directory, item.id, "codex-session");
+
+        const firstClaim = firstClaimed.claim;
+        const refreshedClaim = refreshed.claim;
+        if (firstClaim === undefined || refreshedClaim === undefined) {
+          assert.fail("Expected both claim writes to include claims.");
+        } else {
+          assert.strictEqual(refreshedClaim.agent, "codex-session");
+          assert.isAbove(
+            DateTime.toEpochMillis(refreshedClaim.claimedAt),
+            DateTime.toEpochMillis(firstClaim.claimedAt),
+          );
+          assert.isAbove(
+            DateTime.toEpochMillis(refreshedClaim.expiresAt),
+            DateTime.toEpochMillis(firstClaim.expiresAt),
+          );
+          assert.strictEqual(
+            DateTime.toEpochMillis(refreshed.updatedAt),
+            DateTime.toEpochMillis(refreshedClaim.claimedAt),
+          );
+        }
+      }),
+    ),
+  );
+
+  it.effect("rejects other-agent active claim replacement without force", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Protect active claim");
+        yield* claimWorkItem(directory, item.id, "agent-a");
+        const before = yield* readTasksFile(directory);
+
+        const result = yield* run(["--cwd", directory, "claim", item.id, "--agent", "agent-b"]);
+        assert.strictEqual(result.exit._tag, "Failure");
+        assert.isTrue(String(result.errors[0]).includes("actively claimed by agent-a"));
+        assert.isTrue(String(result.errors[0]).includes("--force"));
+        const after = yield* readTasksFile(directory);
+        assert.strictEqual(after, before);
+      }),
+    ),
+  );
+
+  it.effect("force replaces another active claim", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Force claim work");
+        yield* claimWorkItem(directory, item.id, "agent-a");
+        yield* TestClock.adjust("1 minute");
+
+        const replaced = yield* claimWorkItem(directory, item.id, "agent-b", { force: true });
+        const claim = replaced.claim;
+        if (claim === undefined) {
+          assert.fail("Expected force replacement to persist a claim.");
+        } else {
+          assert.strictEqual(claim.agent, "agent-b");
+        }
+      }),
+    ),
+  );
+
+  it.effect("replaces expired claims without force", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Replace expired claim");
+        yield* claimWorkItem(directory, item.id, "agent-a");
+        yield* TestClock.adjust("1 hour");
+
+        const replaced = yield* claimWorkItem(directory, item.id, "agent-b");
+        const claim = replaced.claim;
+        if (claim === undefined) {
+          assert.fail("Expected expired claim replacement to persist a claim.");
+        } else {
+          assert.strictEqual(claim.agent, "agent-b");
+        }
+      }),
+    ),
+  );
+
+  it.effect("releases own claims and fails clearly when no claim exists", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Release own claim");
+        const claimed = yield* claimWorkItem(directory, item.id, "agent-a");
+
+        const missingAgentResult = yield* run(["--cwd", directory, "release", item.id]).pipe(
+          Effect.provide(emptyConfigLayer),
+        );
+        assert.strictEqual(missingAgentResult.exit._tag, "Failure");
+        assert.isTrue(String(missingAgentResult.errors[0]).includes("Agent Identity is required"));
+
+        yield* TestClock.adjust("1 minute");
+        const releaseResult = yield* run([
+          "--cwd",
+          directory,
+          "release",
+          item.id,
+          "--agent",
+          "agent-a",
+          "--json",
+        ]);
+        assert.strictEqual(releaseResult.exit._tag, "Success");
+        const released = decodeItemOutput(String(releaseResult.logs[0])).item;
+        assert.strictEqual(released.claim, undefined);
+        assert.isAbove(
+          DateTime.toEpochMillis(released.updatedAt),
+          DateTime.toEpochMillis(claimed.updatedAt),
+        );
+
+        const duplicateReleaseResult = yield* run([
+          "--cwd",
+          directory,
+          "release",
+          item.id,
+          "--agent",
+          "agent-a",
+        ]);
+        assert.strictEqual(duplicateReleaseResult.exit._tag, "Failure");
+        assert.isTrue(String(duplicateReleaseResult.errors[0]).includes("has no claim to release"));
+      }),
+    ),
+  );
+
+  it.effect("requires force to release another active claim", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Protect release claim");
+        yield* claimWorkItem(directory, item.id, "agent-a");
+        const before = yield* readTasksFile(directory);
+
+        const result = yield* run(["--cwd", directory, "release", item.id, "--agent", "agent-b"]);
+        assert.strictEqual(result.exit._tag, "Failure");
+        assert.isTrue(String(result.errors[0]).includes("actively claimed by agent-a"));
+        assert.isTrue(String(result.errors[0]).includes("--force"));
+        const after = yield* readTasksFile(directory);
+        assert.strictEqual(after, before);
+
+        const forcedResult = yield* run([
+          "--cwd",
+          directory,
+          "release",
+          item.id,
+          "--agent",
+          "agent-b",
+          "--force",
+          "--json",
+        ]);
+        assert.strictEqual(forcedResult.exit._tag, "Success");
+        const released = decodeItemOutput(String(forcedResult.logs[0])).item;
+        assert.strictEqual(released.claim, undefined);
+      }),
+    ),
+  );
+
+  it.effect("lets another agent release expired claims without force", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Release expired claim");
+        yield* claimWorkItem(directory, item.id, "agent-a");
+        yield* TestClock.adjust("1 hour");
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "release",
+          item.id,
+          "--agent",
+          "agent-b",
+          "--json",
+        ]);
+        assert.strictEqual(result.exit._tag, "Success");
+        const released = decodeItemOutput(String(result.logs[0])).item;
+        assert.strictEqual(released.claim, undefined);
+      }),
+    ),
+  );
+
+  it.effect("skips active claims by default and includes them with flag", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const first = yield* createWorkItem(directory, "Claimed next work");
+        yield* TestClock.adjust("1 second");
+        const second = yield* createWorkItem(directory, "Unclaimed next work");
+        yield* claimWorkItem(directory, first.id, "agent-a");
+
+        const defaultResult = yield* run(["--cwd", directory, "next", "--json"]);
+        assert.strictEqual(defaultResult.exit._tag, "Success");
+        const defaultSelection = decodeItemOutput(String(defaultResult.logs[0]));
+        assert.strictEqual(defaultSelection.item.id, second.id);
+
+        const includeClaimedResult = yield* run([
+          "--cwd",
+          directory,
+          "next",
+          "--include-claimed",
+          "--json",
+        ]);
+        assert.strictEqual(includeClaimedResult.exit._tag, "Success");
+        const includeClaimedSelection = decodeItemOutput(String(includeClaimedResult.logs[0]));
+        assert.strictEqual(includeClaimedSelection.item.id, first.id);
+
+        yield* TestClock.adjust("1 hour");
+        const expiredResult = yield* run(["--cwd", directory, "next", "--json"]);
+        assert.strictEqual(expiredResult.exit._tag, "Success");
+        const expiredSelection = decodeItemOutput(String(expiredResult.logs[0]));
+        assert.strictEqual(expiredSelection.item.id, first.id);
       }),
     ),
   );

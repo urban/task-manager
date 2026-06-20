@@ -1,5 +1,6 @@
 import * as Config from "effect/Config";
 import * as Console from "effect/Console";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -11,12 +12,16 @@ import * as Argument from "effect/unstable/cli/Argument";
 
 import {
   buildTree,
+  clearWorkItemClaim,
   encodeWorkItem,
   ensureValidSubject,
+  isClaimActive,
   makeOpenWorkItem,
   makeWorkItemId,
   resolveWorkItem,
+  updateWorkItemClaim,
   updateWorkItemDependencies,
+  type WorkItemClaim,
   type WorkItemEncoded,
   type WorkItem,
 } from "./domain/WorkItem";
@@ -53,6 +58,12 @@ const cwdFlag = Flag.directory("cwd").pipe(
 );
 
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Emit machine-readable JSON"));
+
+const agentFlag = Flag.string("agent").pipe(
+  Flag.withDescription("Agent Identity (or TM_AGENT)"),
+  Flag.withFallbackConfig(Config.string("TM_AGENT")),
+  Flag.optional,
+);
 
 const tmBase = Command.make("tm").pipe(
   Command.withDescription("Local-first agent task manager"),
@@ -146,6 +157,9 @@ const renderWorkItemHuman = (item: WorkItem): string => {
     `Subject: ${encoded.subject}`,
     `Parent: ${encoded.parentId ?? "-"}`,
     `Dependencies: ${dependencies === 0 ? "-" : (encoded.blockedBy?.join(", ") ?? "-")}`,
+    `Claim: ${
+      encoded.claim === undefined ? "-" : `${encoded.claim.agent} until ${encoded.claim.expiresAt}`
+    }`,
     "",
     "Description:",
     encoded.description === "" ? "-" : encoded.description,
@@ -192,6 +206,28 @@ const renderTreeJson = (
     subject: node.item.subject,
     children: renderTreeJson(node.children),
   }));
+
+const resolveAgentIdentity = (
+  agent: Option.Option<string>,
+): Effect.Effect<string, CommandFailure> =>
+  Option.match(agent, {
+    onNone: () =>
+      Effect.fail(
+        new CommandFailure({
+          message: "Agent Identity is required. Pass --agent <name> or set TM_AGENT.",
+        }),
+      ),
+    onSome: (value) => {
+      const identity = value.trim();
+      return identity.length === 0
+        ? Effect.fail(
+            new CommandFailure({
+              message: "Agent Identity must not be empty. Pass --agent <name> or set TM_AGENT.",
+            }),
+          )
+        : Effect.succeed(identity);
+    },
+  });
 
 const resolveTextInput = (
   inline: Option.Option<string>,
@@ -476,10 +512,13 @@ const nextCommand = Command.make("next", {
     Flag.withDescription("Select only within a Work Item subtree"),
     Flag.optional,
   ),
+  includeClaimed: Flag.boolean("include-claimed").pipe(
+    Flag.withDescription("Include actively claimed Work Items"),
+  ),
 }).pipe(
   Command.withDescription("Select the next actionable Work Item"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ root: requestedRoot }) {
+    Effect.fnUntraced(function* ({ root: requestedRoot, includeClaimed }) {
       const root = yield* tmBase;
       yield* executeCommand(
         root.json,
@@ -497,10 +536,12 @@ const nextCommand = Command.make("next", {
             });
           }
 
-          const nextItem = findNextActionableWorkItem(
-            items,
-            subtreeRoot === undefined ? {} : { root: subtreeRoot },
-          );
+          const now = yield* DateTime.now;
+          const nextItem = findNextActionableWorkItem(items, {
+            ...(subtreeRoot === undefined ? {} : { root: subtreeRoot }),
+            now,
+            includeClaimed,
+          });
 
           yield* Console.log(
             nextItem === undefined
@@ -528,6 +569,132 @@ const replaceWorkItem = (
   updatedItem: WorkItem,
 ): ReadonlyArray<WorkItem> =>
   items.map((item) => (item.id === updatedItem.id ? updatedItem : item));
+
+const renderClaimedHuman = (item: WorkItem): string => {
+  const claim = item.claim;
+  return claim === undefined
+    ? `Claimed ${item.subject} (${item.id}).`
+    : `Claimed ${item.subject} (${item.id}) for ${claim.agent} until ${DateTime.formatIso(claim.expiresAt)}.`;
+};
+
+const renderReleasedHuman = (item: WorkItem, claim: WorkItemClaim): string =>
+  `Released claim on ${item.subject} (${item.id}) held by ${claim.agent} until ${DateTime.formatIso(
+    claim.expiresAt,
+  )}.`;
+
+const activeClaimConflictMessage = (item: WorkItem, claim: WorkItemClaim, action: string): string =>
+  `Work Item ${item.id} is actively claimed by ${claim.agent} until ${DateTime.formatIso(
+    claim.expiresAt,
+  )}. Use --force to ${action}.`;
+
+const claimCommand = Command.make("claim", {
+  id: Argument.string("id"),
+  agent: agentFlag,
+  force: Flag.boolean("force").pipe(Flag.withDescription("Replace another active claim")),
+}).pipe(
+  Command.withDescription("Claim an open Work Item for an Agent Identity"),
+  Command.withHandler(
+    Effect.fnUntraced(function* ({ id, agent, force }) {
+      const root = yield* tmBase;
+      yield* executeCommand(
+        root.json,
+        Effect.gen(function* () {
+          const identity = yield* resolveAgentIdentity(agent);
+          const paths = yield* resolveStorePaths(root);
+          yield* ensureStoreExists(paths);
+          const items = yield* loadStore(paths);
+          const item = yield* resolveWorkItem(items, id);
+
+          if (item.status !== "open") {
+            return yield* new CommandFailure({
+              message: `Work Item ${item.id} is ${item.status} and cannot be claimed.`,
+            });
+          }
+
+          const now = yield* DateTime.now;
+          const currentClaim = item.claim;
+          if (
+            currentClaim !== undefined &&
+            isClaimActive(currentClaim, now) &&
+            currentClaim.agent !== identity &&
+            !force
+          ) {
+            return yield* new CommandFailure({
+              message: activeClaimConflictMessage(item, currentClaim, "replace it"),
+            });
+          }
+
+          const updatedItem = updateWorkItemClaim({
+            item,
+            agent: identity,
+            claimedAt: now,
+          });
+          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
+          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+
+          yield* Console.log(
+            root.json
+              ? renderJson({
+                  ok: true,
+                  item: encodeItemForOutput(persistedItem),
+                })
+              : renderClaimedHuman(persistedItem),
+          );
+        }),
+      );
+    }),
+  ),
+);
+
+const releaseCommand = Command.make("release", {
+  id: Argument.string("id"),
+  agent: agentFlag,
+  force: Flag.boolean("force").pipe(Flag.withDescription("Release another active claim")),
+}).pipe(
+  Command.withDescription("Release an Agent Claim"),
+  Command.withHandler(
+    Effect.fnUntraced(function* ({ id, agent, force }) {
+      const root = yield* tmBase;
+      yield* executeCommand(
+        root.json,
+        Effect.gen(function* () {
+          const identity = yield* resolveAgentIdentity(agent);
+          const paths = yield* resolveStorePaths(root);
+          yield* ensureStoreExists(paths);
+          const items = yield* loadStore(paths);
+          const item = yield* resolveWorkItem(items, id);
+          const currentClaim = item.claim;
+
+          if (currentClaim === undefined) {
+            return yield* new CommandFailure({
+              message: `Work Item ${item.id} has no claim to release.`,
+            });
+          }
+
+          const now = yield* DateTime.now;
+          if (isClaimActive(currentClaim, now) && currentClaim.agent !== identity && !force) {
+            return yield* new CommandFailure({
+              message: activeClaimConflictMessage(item, currentClaim, "release it"),
+            });
+          }
+
+          const updatedItem = clearWorkItemClaim({ item, updatedAt: now });
+          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
+          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+
+          yield* Console.log(
+            root.json
+              ? renderJson({
+                  ok: true,
+                  item: encodeItemForOutput(persistedItem),
+                })
+              : renderReleasedHuman(persistedItem, currentClaim),
+          );
+        }),
+      );
+    }),
+  ),
+);
 
 const blockCommand = Command.make("block", {
   id: Argument.string("id"),
@@ -637,6 +804,8 @@ const tmCommand = tmBase.pipe(
     showCommand,
     listCommand,
     nextCommand,
+    claimCommand,
+    releaseCommand,
     blockCommand,
     unblockCommand,
   ]),
