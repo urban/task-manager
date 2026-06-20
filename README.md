@@ -18,7 +18,7 @@ Task Manager is an offline, repository-backed workflow for planning, handoff, an
 
 ## Current status
 
-The CLI binary is currently named `tm`.
+The public MVP product name is Task Manager, and the CLI binary is `tm`.
 
 Implemented today:
 

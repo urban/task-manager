@@ -5,9 +5,11 @@ description: Use the globally installed tm CLI to initialize local task storage 
 
 # Task Manager
 
+Task Manager is the public MVP product name, and `tm` is its primary CLI binary.
+
 Use the globally installed `tm` CLI to create durable, local-first Work Items from a PRD, specification, or plan.
 
-This skill teaches the current `tm` workflow: initialize storage, validate storage, create Work Items, inspect Work Items, and list the backlog tree.
+This skill teaches the `tm` workflow: initialize storage, validate storage, create Work Items, inspect Work Items, and list the backlog tree.
 
 ## Preflight
 
