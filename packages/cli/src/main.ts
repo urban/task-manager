@@ -16,6 +16,7 @@ import {
   makeOpenWorkItem,
   makeWorkItemId,
   resolveWorkItem,
+  updateWorkItemDependencies,
   type WorkItemEncoded,
   type WorkItem,
 } from "./domain/WorkItem";
@@ -65,7 +66,22 @@ const renderJson = (value: unknown): string => encodeJson(value);
 
 const encodeItemForOutput = (item: WorkItem): WorkItemEncoded => encodeWorkItem(item);
 const isValidationFailure = Schema.is(ValidationFailure);
-const isCommandFailure = Schema.is(CommandFailure);
+
+const errorMessage = (error: Exclude<TmError, ValidationFailure>): string => {
+  switch (error._tag) {
+    case "CommandFailure":
+    case "StorageFailure":
+      return error.message;
+    case "StorageNotInitialized":
+      return `Task store is not initialized at ${error.tasksFile}. Run tm init first.`;
+    case "WorkItemNotFound":
+      return `Work Item ${error.query} was not found.`;
+    case "WorkItemAmbiguous":
+      return `Work Item prefix ${error.query} is ambiguous. Matches: ${error.matches.join(", ")}.`;
+    case "LockUnavailable":
+      return `Task store is locked at ${error.lockFile}. Try again after the current write finishes.`;
+  }
+};
 
 const renderErrorJson = (error: TmError): string => {
   if (isValidationFailure(error)) {
@@ -79,21 +95,11 @@ const renderErrorJson = (error: TmError): string => {
     });
   }
 
-  if (isCommandFailure(error)) {
-    return renderJson({
-      ok: false,
-      error: {
-        type: error._tag,
-        message: error.message,
-      },
-    });
-  }
-
   return renderJson({
     ok: false,
     error: {
       type: error._tag,
-      message: error.message,
+      message: errorMessage(error),
     },
   });
 };
@@ -108,7 +114,7 @@ const renderErrorHuman = (error: TmError): string => {
     return lines.join("\n");
   }
 
-  return `Error: ${error.message}`;
+  return `Error: ${errorMessage(error)}`;
 };
 
 const reportError = (json: boolean, error: TmError): Effect.Effect<void> => {
@@ -464,8 +470,122 @@ const listCommand = Command.make("list", {
   ),
 );
 
+const replaceWorkItem = (
+  items: ReadonlyArray<WorkItem>,
+  updatedItem: WorkItem,
+): ReadonlyArray<WorkItem> =>
+  items.map((item) => (item.id === updatedItem.id ? updatedItem : item));
+
+const blockCommand = Command.make("block", {
+  id: Argument.string("id"),
+  by: Flag.string("by").pipe(
+    Flag.withDescription("Work Item id or unique prefix that blocks this item"),
+  ),
+}).pipe(
+  Command.withDescription("Add a dependency to a Work Item"),
+  Command.withHandler(
+    Effect.fnUntraced(function* ({ id, by }) {
+      const root = yield* tmBase;
+      yield* executeCommand(
+        root.json,
+        Effect.gen(function* () {
+          const paths = yield* resolveStorePaths(root);
+          yield* ensureStoreExists(paths);
+          const items = yield* loadStore(paths);
+          const item = yield* resolveWorkItem(items, id);
+          const dependency = yield* resolveWorkItem(items, by);
+
+          if (item.id === dependency.id) {
+            return yield* new CommandFailure({
+              message: `Work Item ${item.id} cannot depend on itself.`,
+            });
+          }
+
+          const currentDependencies = item.blockedBy ?? [];
+          if (currentDependencies.includes(dependency.id)) {
+            return yield* new CommandFailure({
+              message: `Work Item ${item.id} already depends on ${dependency.id}.`,
+            });
+          }
+
+          const updatedItem = yield* updateWorkItemDependencies({
+            item,
+            blockedBy: [...currentDependencies, dependency.id],
+          });
+          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
+          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+
+          yield* Console.log(
+            root.json
+              ? renderJson({
+                  ok: true,
+                  item: encodeItemForOutput(persistedItem),
+                })
+              : `Blocked ${persistedItem.subject} (${persistedItem.id}) by ${dependency.subject} (${dependency.id}).`,
+          );
+        }),
+      );
+    }),
+  ),
+);
+
+const unblockCommand = Command.make("unblock", {
+  id: Argument.string("id"),
+  by: Flag.string("by").pipe(
+    Flag.withDescription("Current dependency Work Item id or unique prefix"),
+  ),
+}).pipe(
+  Command.withDescription("Remove a dependency from a Work Item"),
+  Command.withHandler(
+    Effect.fnUntraced(function* ({ id, by }) {
+      const root = yield* tmBase;
+      yield* executeCommand(
+        root.json,
+        Effect.gen(function* () {
+          const paths = yield* resolveStorePaths(root);
+          yield* ensureStoreExists(paths);
+          const items = yield* loadStore(paths);
+          const item = yield* resolveWorkItem(items, id);
+          const dependency = yield* resolveWorkItem(items, by);
+          const currentDependencies = item.blockedBy ?? [];
+
+          if (!currentDependencies.includes(dependency.id)) {
+            return yield* new CommandFailure({
+              message: `Work Item ${item.id} does not depend on ${dependency.id}.`,
+            });
+          }
+
+          const updatedItem = yield* updateWorkItemDependencies({
+            item,
+            blockedBy: currentDependencies.filter((dependencyId) => dependencyId !== dependency.id),
+          });
+          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
+          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+
+          yield* Console.log(
+            root.json
+              ? renderJson({
+                  ok: true,
+                  item: encodeItemForOutput(persistedItem),
+                })
+              : `Unblocked ${persistedItem.subject} (${persistedItem.id}) from ${dependency.subject} (${dependency.id}).`,
+          );
+        }),
+      );
+    }),
+  ),
+);
+
 const tmCommand = tmBase.pipe(
-  Command.withSubcommands([initCommand, validateCommand, createCommand, showCommand, listCommand]),
+  Command.withSubcommands([
+    initCommand,
+    validateCommand,
+    createCommand,
+    showCommand,
+    listCommand,
+    blockCommand,
+    unblockCommand,
+  ]),
 );
 
 export const runTmCli = Command.runWith(tmCommand, { version });

@@ -286,6 +286,38 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
   return workItem;
 });
 
+export const updateWorkItemDependencies = Effect.fnUntraced(function* (options: {
+  readonly item: WorkItem;
+  readonly blockedBy: ReadonlyArray<string>;
+}) {
+  const timestamp = yield* DateTime.now;
+  const sortedBlockedBy = options.blockedBy.toSorted((left, right) => left.localeCompare(right));
+
+  if (sortedBlockedBy.length > 0) {
+    return {
+      ...options.item,
+      blockedBy: sortedBlockedBy,
+      updatedAt: timestamp,
+    } satisfies WorkItem;
+  }
+
+  return {
+    schemaVersion: options.item.schemaVersion,
+    id: options.item.id,
+    level: options.item.level,
+    status: options.item.status,
+    subject: options.item.subject,
+    description: options.item.description,
+    agentContext: options.item.agentContext,
+    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
+    ...(options.item.claim === undefined ? {} : { claim: options.item.claim }),
+    ...(options.item.result === undefined ? {} : { result: options.item.result }),
+    ...(options.item.cancellation === undefined ? {} : { cancellation: options.item.cancellation }),
+    createdAt: options.item.createdAt,
+    updatedAt: timestamp,
+  } satisfies WorkItem;
+});
+
 export const ensureValidSubject = (subject: string): Effect.Effect<void, ValidationFailure> => {
   const issues = validateSubject(subject);
   if (issues.length > 0) {

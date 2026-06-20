@@ -27,12 +27,13 @@ Implemented today:
 - require Description and Agent Context by default,
 - validate Git-style Subjects,
 - enforce the three-level hierarchy (`Epic -> Task -> Subtask`),
+- add and remove dependencies with `tm block` and `tm unblock`,
 - show a Work Item by full ID or unique prefix,
 - list the open backlog tree,
 - emit JSON output with `--json`, and
 - perform atomic writes with a transient lock file.
 
-Planned but not fully implemented yet: dependencies, `tm next`, agent claims, completion Results, cancellation, update, move, delete, and external issue sync.
+Planned but not fully implemented yet: `tm next`, agent claims, completion Results, cancellation, update, move, delete, and external issue sync.
 
 ## Core concepts
 
@@ -93,11 +94,13 @@ bun packages/cli/src/bin.ts create "Implement task listing" \
   --context "Follow existing renderer output and include JSON mode."
 ```
 
-Inspect the backlog:
+Record an ordering dependency and inspect the backlog:
 
 ```sh
+bun packages/cli/src/bin.ts block wi_api... --by wi_model...
+bun packages/cli/src/bin.ts show wi_api...
+bun packages/cli/src/bin.ts unblock wi_api... --by wi_model...
 bun packages/cli/src/bin.ts list
-bun packages/cli/src/bin.ts show wi_...
 bun packages/cli/src/bin.ts validate --json
 ```
 

@@ -182,7 +182,18 @@ export const validateStore = (items: ReadonlyArray<WorkItem>): ReadonlyArray<Val
     }
 
     const dependencies = item.blockedBy ?? [];
+    const dependencyCounts = new Map<string, number>();
     for (const dependencyId of dependencies) {
+      const previousCount = dependencyCounts.get(dependencyId) ?? 0;
+      if (previousCount === 1) {
+        issues.push({
+          message: `Duplicate dependency ${dependencyId}.`,
+          path: item.id,
+          line: index + 1,
+        });
+      }
+      dependencyCounts.set(dependencyId, previousCount + 1);
+
       if (dependencyId === item.id) {
         issues.push({
           message: "A Work Item cannot depend on itself.",
