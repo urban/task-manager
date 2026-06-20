@@ -1,7 +1,13 @@
 import * as DateTime from "effect/DateTime";
 
 import { ValidationFailure, type ValidationIssue } from "../errors/TmErrors";
-import { type WorkItem, type WorkItemLevel, validateSubject } from "./WorkItem";
+import {
+  buildTree,
+  type WorkItem,
+  type WorkItemLevel,
+  type WorkItemTreeNode,
+  validateSubject,
+} from "./WorkItem";
 
 const toMillis = (value: DateTime.Utc): number => DateTime.toEpochMillis(value);
 
@@ -326,3 +332,58 @@ export const sortChildrenForSelection = (items: ReadonlyArray<WorkItem>): Readon
     }
     return left.id.localeCompare(right.id);
   });
+
+const indexItemsById = (items: ReadonlyArray<WorkItem>): ReadonlyMap<string, WorkItem> => {
+  const itemsById = new Map<string, WorkItem>();
+  for (const item of items) {
+    itemsById.set(item.id, item);
+  }
+  return itemsById;
+};
+
+const hasCompletedDependencies = (
+  item: WorkItem,
+  itemsById: ReadonlyMap<string, WorkItem>,
+): boolean =>
+  (item.blockedBy ?? []).every((dependencyId) => itemsById.get(dependencyId)?.status === "done");
+
+const isActionableTreeNode = (
+  node: WorkItemTreeNode,
+  itemsById: ReadonlyMap<string, WorkItem>,
+): boolean =>
+  node.item.status === "open" &&
+  node.children.length === 0 &&
+  hasCompletedDependencies(node.item, itemsById);
+
+const findFirstActionableNode = (
+  nodes: ReadonlyArray<WorkItemTreeNode>,
+  itemsById: ReadonlyMap<string, WorkItem>,
+): WorkItem | undefined => {
+  for (const node of nodes) {
+    if (isActionableTreeNode(node, itemsById)) {
+      return node.item;
+    }
+
+    const child = findFirstActionableNode(node.children, itemsById);
+    if (child !== undefined) {
+      return child;
+    }
+  }
+
+  return undefined;
+};
+
+export const findNextActionableWorkItem = (
+  items: ReadonlyArray<WorkItem>,
+  options?: {
+    readonly root?: WorkItem;
+  },
+): WorkItem | undefined => {
+  const itemsById = indexItemsById(items);
+  const tree = buildTree(items, {
+    ...(options?.root === undefined ? {} : { root: options.root }),
+    openOnly: true,
+  });
+
+  return findFirstActionableNode(tree, itemsById);
+};

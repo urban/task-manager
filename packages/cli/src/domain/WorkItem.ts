@@ -86,7 +86,11 @@ const toMillis = (value: DateTime.Utc): number => DateTime.toEpochMillis(value);
 const compareByCreatedAt = (left: WorkItem, right: WorkItem): number => {
   const leftMillis = toMillis(left.createdAt);
   const rightMillis = toMillis(right.createdAt);
-  return leftMillis - rightMillis;
+  const diff = leftMillis - rightMillis;
+  if (diff !== 0) {
+    return diff;
+  }
+  return left.id.localeCompare(right.id);
 };
 
 const compareRootItems = (left: WorkItem, right: WorkItem): number => {

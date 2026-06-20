@@ -22,6 +22,7 @@ import {
 } from "./domain/WorkItem";
 import {
   ensureCanCreateItem,
+  findNextActionableWorkItem,
   hasOpenChildren,
   sortChildrenForSelection,
 } from "./domain/Validation";
@@ -470,6 +471,58 @@ const listCommand = Command.make("list", {
   ),
 );
 
+const nextCommand = Command.make("next", {
+  root: Flag.string("root").pipe(
+    Flag.withDescription("Select only within a Work Item subtree"),
+    Flag.optional,
+  ),
+}).pipe(
+  Command.withDescription("Select the next actionable Work Item"),
+  Command.withHandler(
+    Effect.fnUntraced(function* ({ root: requestedRoot }) {
+      const root = yield* tmBase;
+      yield* executeCommand(
+        root.json,
+        Effect.gen(function* () {
+          const paths = yield* resolveStorePaths(root);
+          const items = yield* loadStore(paths);
+          const subtreeRoot = yield* Option.match(requestedRoot, {
+            onNone: () => Effect.void,
+            onSome: (value) => resolveWorkItem(items, value),
+          });
+
+          if (subtreeRoot !== undefined && subtreeRoot.status !== "open") {
+            return yield* new CommandFailure({
+              message: `Work Item ${subtreeRoot.id} is not open and cannot be used as the next root.`,
+            });
+          }
+
+          const nextItem = findNextActionableWorkItem(
+            items,
+            subtreeRoot === undefined ? {} : { root: subtreeRoot },
+          );
+
+          yield* Console.log(
+            nextItem === undefined
+              ? root.json
+                ? renderJson({
+                    ok: true,
+                    reason: "no-actionable-work",
+                  })
+                : "No actionable Work Items."
+              : root.json
+                ? renderJson({
+                    ok: true,
+                    item: encodeItemForOutput(nextItem),
+                  })
+                : renderWorkItemHuman(nextItem),
+          );
+        }),
+      );
+    }),
+  ),
+);
+
 const replaceWorkItem = (
   items: ReadonlyArray<WorkItem>,
   updatedItem: WorkItem,
@@ -583,6 +636,7 @@ const tmCommand = tmBase.pipe(
     createCommand,
     showCommand,
     listCommand,
+    nextCommand,
     blockCommand,
     unblockCommand,
   ]),
