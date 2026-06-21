@@ -1,0 +1,470 @@
+# Task Manager Guide
+
+This document explains Task Manager. The goal is to make development work durable enough that a person or AI agent can stop, resume, hand off, and audit work without relying on chat history.
+
+The CLI binary is `tm`. The persisted data lives in `.tasks/tasks.jsonl` by default so it can be committed with the repository.
+
+The current CLI is non-interactive: use flags and file inputs instead of editor prompts. This keeps the tool scriptable and predictable for AI agents. Agent-aware commands (`claim`, `release`, and `complete`) use `--agent <name>` or the `TM_AGENT` environment variable.
+
+Current commands are `init`, `validate`, `create`, `show`, `list`, `next`, `claim`, `release`, `complete`, `block`, and `unblock`. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
+
+## Why this exists
+
+AI coding agents often have short-lived working memory. They can track TODOs inside one session, but that state disappears when the session ends. This task manager stores the durable version of that state in the repo:
+
+- what work exists,
+- why it matters,
+- what context an agent needs,
+- what order work should happen in,
+- who is currently working on what,
+- what was actually completed, and
+- how completion was verified.
+
+Use it for work that spans sessions, needs handoff, or benefits from a permanent record. Do not use it for trivial one-off scratchpad notes.
+
+## Core concepts
+
+### Work Item
+
+A **Work Item** is any persisted unit of work. Every Work Item has one of three levels:
+
+1. **Epic** — a large top-level initiative.
+2. **Task** — a significant executable unit of work.
+3. **Subtask** — an atomic step under a Task.
+
+The word **Task** is intentionally reserved for the middle hierarchy level. When speaking generically, use **Work Item**.
+
+### Hierarchy
+
+The hierarchy is limited to three levels:
+
+```text
+Epic
+└── Task
+    └── Subtask
+```
+
+Rules:
+
+- Epics cannot have parents.
+- Tasks may be standalone or may belong to an Epic.
+- Subtasks must belong to a Task.
+- Subtasks cannot have children.
+- The CLI rejects creates with invalid level/parent combinations.
+
+Standalone Tasks are allowed so small work does not need fake Epics.
+
+### Subject, Description, and Agent Context
+
+Every normal Work Item creation requires:
+
+- **Subject** — a short, plain-text Git-style subject line.
+- **Description** — a human-facing Markdown body explaining the requested work.
+- **Agent Context** — the Markdown execution packet an AI agent needs to do the work later.
+
+Subject rules:
+
+- maximum 50 characters,
+- imperative mood,
+- first letter capitalized,
+- no trailing period,
+- no Markdown.
+
+Subject and Description can be entered like a Git commit message: the first line is the Subject, then a blank line, then the Description body.
+
+Deterministic Subject rules are hard validation errors. Imperative mood is a lint-style warning because it is useful guidance but hard to detect perfectly.
+
+Agent Context is one Markdown string in the MVP, not separate fields for files, constraints, acceptance criteria, or implementation notes. If structure is useful, put Markdown headings inside the string.
+
+In JSONL storage this field is named `agentContext` so its purpose is explicit. The CLI uses shorter flags, `--context` and `--context-file`, for ergonomics.
+
+Good Agent Context includes:
+
+- what needs to be done,
+- why it is needed,
+- relevant files or patterns,
+- constraints and decisions already made,
+- acceptance criteria, and
+- verification expectations.
+
+A Work Item with vague context is hard to resume. The CLI provides explicit escape hatches for quick capture, such as `--allow-empty-description` and `--allow-empty-context`, but empty fields should be intentional.
+
+## Lifecycle
+
+A Work Item in storage has one of three lifecycle states:
+
+- `open`
+- `done`
+- `cancelled`
+
+The current public CLI creates `open` Work Items and can move open Work Items with no open children to `done` using `tm complete`. The storage schema understands `cancelled` records for future lifecycle work, but `tm cancel`, `tm delete`, and `tm reopen` are not currently implemented.
+
+There is no `in_progress` state. Active work is represented by an **Agent Claim** instead.
+
+### Done and Result
+
+A Work Item is `done` only when it has a structured **Result**. A Result records completed work, not intentions.
+
+A good Result includes:
+
+- summary of what changed,
+- optional details about the implementation,
+- important decisions and why they were made,
+- verification evidence such as test counts, build output, or manual checks.
+
+Example:
+
+```json
+{
+  "summary": "Added JWT middleware and login endpoint.",
+  "details": "Implemented middleware, login response handling, and route protection.",
+  "decisions": ["Used short-lived access tokens plus refresh tokens."],
+  "verification": ["pnpm test: 64 passing", "pnpm build: success"],
+  "completedAt": "2026-06-15T13:00:00.000Z",
+  "completedBy": "codex-auth-session"
+}
+```
+
+`tm complete` can accept structured flags or a Git-style result message. In result message input, the first line becomes the summary, freeform body text becomes details, `Decisions:` bullets become decisions, and `Verification:` bullets become verification evidence.
+
+Weak Results such as "done" or "should work" are not acceptable because they do not help a future reader understand whether the work was actually verified.
+
+### Planned lifecycle commands
+
+`tm cancel`, `tm delete`, and `tm reopen` are planned lifecycle commands, but they are not available in the current CLI. Until they land, use `tm release` to clear an abandoned claim and leave unfinished Work Items `open` rather than manually editing `.tasks/tasks.jsonl`.
+
+## Dependencies
+
+A **Dependency** says one Work Item should be completed before another begins.
+
+Dependencies are separate from hierarchy:
+
+- hierarchy means "belongs to",
+- dependency means "should happen before".
+
+Dependencies may cross hierarchy boundaries. For example, a Subtask in one Epic may depend on a standalone Task, or a Task in one Epic may depend on a Task in another Epic.
+
+Use `tm block <id> --by <dependency-id>` to record that the selected Work Item is blocked by another Work Item. Use `tm unblock <id> --by <dependency-id>` when the ordering constraint is no longer needed. Both IDs may be full IDs or unique prefixes, and storage always keeps the resolved full dependency IDs.
+
+```sh
+tm block <api-id> --by <model-id>
+tm show <api-id>
+tm unblock <api-id> --by <model-id>
+```
+
+Dependency enforcement is soft:
+
+- `tm next` skips blocked Work Items by default,
+- `tm complete` refuses to complete a blocked Work Item unless `--force` is used,
+- self-dependencies, duplicate dependencies, and dependency cycles are invalid.
+
+This prevents accidental order violations while still allowing humans to recover when a dependency becomes obsolete.
+
+## Agent Identity and Claims
+
+An **Agent Identity** is a caller-provided string used for coordination and audit fields. There is no agent registry in MVP. An agent gives itself a name and uses it consistently through `--agent` or `TM_AGENT`.
+
+Agent Identity is required for `claim`, `release`, and `complete` so the task manager can record who coordinated or changed lifecycle state. Humans can use names like `human-urban`.
+
+Good Agent Identity examples:
+
+- `codex-auth-session`
+- `claude-refactor-2026-06-15`
+- `human-urban`
+- `cursor-ui-agent`
+
+Avoid vague names like `agent`, `me`, or `test`.
+
+An **Agent Claim** is an advisory signal that an agent is currently working on a Work Item.
+
+Example idea:
+
+```json
+{
+  "agent": "codex-session-123",
+  "claimedAt": "2026-06-15T14:00:00.000Z",
+  "expiresAt": "2026-06-15T15:00:00.000Z"
+}
+```
+
+Claims are:
+
+- **advisory** — they guide other agents but are not hard locks,
+- **lightweight** — just fields in the JSONL record,
+- **expiring** — abandoned work does not stay claimed forever.
+
+The default claim window is 1 hour. Actionable leaf Work Items should be scoped to complete within that hour. This is guidance, not MVP CLI validation, because the tool cannot objectively know how long a Work Item will take. If an agent expects the work to take longer, it should split the Work Item before starting or create Subtasks.
+
+`tm next` skips actively claimed Work Items unless `--include-claimed` is used. It is read-only and does not create claims. Agents should explicitly claim work after selecting it.
+
+## Storage
+
+Default layout:
+
+```text
+.tasks/
+  tasks.jsonl
+  lock               # transient advisory write lock, not for Git
+```
+
+By default, Task Manager stores data under the nearest Git root. If no Git root is found, it stores data under the current working directory or the directory passed with `--cwd` / `TM_CWD`. Use `--storage-path <dir>` or `TM_STORAGE_PATH` to override the `.tasks` directory.
+
+`tasks.jsonl` stores current snapshots: one line per current Work Item. It is not an append-only event log in the MVP.
+
+Why snapshots:
+
+- easier for humans and agents to inspect,
+- simpler to validate,
+- friendlier for Git diffs,
+- enough history is available through Git for the MVP.
+
+A future `events.jsonl` can be added if audit history beyond Git becomes necessary.
+
+## IDs
+
+Work Item IDs are long, stable, random strings with a `wi_` prefix. Generated IDs are currently UUID-style hexadecimal strings without dashes.
+
+Example:
+
+```text
+wi_3f7d9e2a1b4c4d8e9f00112233445566
+```
+
+CLI commands that take Work Item IDs accept full IDs or unique prefixes for convenience, but storage always uses the full ID.
+
+## Planning workflow
+
+There is no `tm plan <file>` command in the MVP. Planning stays explicit: a human or AI agent creates Work Items one at a time with CLI commands.
+
+This means an agent may read a Markdown plan or discuss a plan with you, but it records the Backlog through ordinary commands:
+
+```sh
+tm create "Authentication system" \
+  --level epic \
+  --description "Add first-party authentication." \
+  --context "Coordinate user model, login, middleware, and verification work."
+
+tm create "Create user model" \
+  --level task \
+  --parent <epic-id> \
+  --description "Create a user model that supports login." \
+  --context "Add password hash storage and helper functions. Follow existing schema patterns."
+
+tm create "Add login endpoint" \
+  --level task \
+  --parent <epic-id> \
+  --description "Add POST /auth/login." \
+  --context "Accept email/password, verify with bcrypt, return token pair, and test invalid credentials."
+
+tm block <login-endpoint-id> --by <user-model-id>
+```
+
+Why no plan import in MVP:
+
+- no second Markdown task language to design,
+- no surprising parser behavior,
+- no hidden inference from prose,
+- easier testing and documentation,
+- agents can already translate a plan into explicit CLI mutations.
+
+## Agent skill
+
+This repository includes an agent-facing skill at [`../skills/task-manager/SKILL.md`](../skills/task-manager/SKILL.md). If your coding agent supports skill directories, add or copy the whole [`../skills/task-manager/`](../skills/task-manager/) directory to its configured skills path.
+
+If your agent does not have a formal skill system, ask it to read `skills/task-manager/SKILL.md` before planning or executing task-manager work. The skill teaches conservative use of the current CLI: create Work Items, record dependencies with `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete with strong `tm complete` Results.
+
+## Common workflows
+
+### Create a standalone Task
+
+```sh
+tm create "Add JWT authentication" \
+  --level task \
+  --description "Implement JWT-based authentication for the API." \
+  --context "Add login token generation, verification middleware, refresh flow, and tests."
+```
+
+Or use Git-style message input:
+
+```sh
+tm create \
+  --level task \
+  --message $'Add JWT authentication\n\nImplement JWT-based authentication for the API.' \
+  --context "Add login token generation, verification middleware, refresh flow, and tests."
+```
+
+For longer Markdown, keep the Subject and Description together in a message file, and keep Agent Context in a separate context file:
+
+```sh
+cat > work-item-message.md <<'EOF'
+Add JWT authentication
+
+Implement JWT-based authentication for the API.
+EOF
+
+cat > agent-context.md <<'EOF'
+## Execution context
+
+Add login token generation, verification middleware, refresh flow, and tests.
+EOF
+
+tm create \
+  --level task \
+  --message-file ./work-item-message.md \
+  --context-file ./agent-context.md
+```
+
+### Create hierarchy
+
+```sh
+tm create "Authentication system" \
+  --level epic \
+  --description "Add first-party authentication." \
+  --context "Coordinate user model, login, middleware, and verification work."
+
+tm create "Implement login endpoint" \
+  --level task \
+  --parent <epic-id> \
+  --description "Add POST /auth/login." \
+  --context "Accept email/password, verify with bcrypt, return token pair."
+```
+
+### Record dependencies
+
+```sh
+tm block <api-id> --by <model-id>
+tm unblock <api-id> --by <model-id>
+```
+
+Dependencies are independent of hierarchy, so a Work Item can be blocked by any other Work Item as long as the edge does not duplicate an existing dependency, point at itself, or create a cycle.
+
+### Show Work Item details
+
+```sh
+tm show wi_3f7d...
+```
+
+`tm show` is an inspection command. In human mode it shows the selected Work Item's status, parent ID, dependencies, current claim, Description, Agent Context, and Result. In JSON mode it returns the encoded Work Item. Use `tm list --root <id>` when you need an open subtree view.
+
+### List the Backlog
+
+```sh
+tm list
+```
+
+`tm list` shows the open Backlog tree so the default view stays focused on remaining work. Completed Work Items leave the default list.
+
+Use `--root <id>` for a focused open subtree view:
+
+```sh
+tm list --root wi_3f7d...
+```
+
+The current CLI does not provide `--status` or `--all` filters. Use `tm show <id>` to inspect a completed Work Item when you know its ID.
+
+### Find work for an agent
+
+```sh
+tm next
+```
+
+By default this returns the first actionable open leaf Work Item in deterministic tree order. Parent Work Items are skipped while they still contain open children; a parent with only done or cancelled children can be returned.
+
+Human output uses the same detailed Work Item rendering as `tm show`. JSON output includes the encoded Work Item:
+
+```json
+{ "ok": true, "item": { "id": "wi_..." } }
+```
+
+When no work is available, human output is:
+
+```text
+No actionable Work Items.
+```
+
+JSON output is:
+
+```json
+{ "ok": true, "reason": "no-actionable-work" }
+```
+
+There is no priority field in MVP. `tm next` chooses deterministically by hierarchy order, with root Epics before root Tasks and siblings ordered by creation time with ID as a tie-breaker.
+
+Use `--root <id>` to choose the next actionable Work Item inside a specific open Epic, Task, or Subtask subtree:
+
+```sh
+tm next --root wi_3f7d...
+```
+
+`tm next` is read-only and does not claim the Work Item. It skips actively claimed Work Items by default; use `--include-claimed` to include them in selection. Expired claims do not block selection.
+
+### Claim work
+
+```sh
+tm claim wi_3f7d... --agent codex-auth-session
+```
+
+A claim tells other agents to choose something else unless they intentionally override. Claiming a Work Item already claimed by another active agent requires `--force`. The same agent can refresh its own active claim, and expired claims can be replaced without `--force`.
+
+Use `TM_AGENT` instead of `--agent` when it is more convenient:
+
+```sh
+TM_AGENT=codex-auth-session tm claim wi_3f7d...
+```
+
+Release a claim when abandoning or handing off work:
+
+```sh
+tm release wi_3f7d... --agent codex-auth-session
+```
+
+Releasing another agent's active claim requires `--force`; expired claims can be released by anyone. Completing a Work Item claimed by another active agent also requires `--force`; expired claims do not require `--force`.
+
+### Complete work
+
+```sh
+tm complete wi_3f7d... \
+  --agent codex-auth-session \
+  --summary "Added POST /auth/login with bcrypt credential verification." \
+  --details "Implemented handler validation, login response handling, and tests." \
+  --decision "Used generic 401 response for invalid credentials." \
+  --verification "pnpm test: 64 passing" \
+  --verification "pnpm build: success"
+```
+
+`--decision` and `--verification` may be repeated. `--agent` can be omitted when `TM_AGENT` is set.
+
+Use either structured result flags or Git-style result message input, not both:
+
+```sh
+tm complete wi_3f7d... \
+  --agent codex-auth-session \
+  --result-message $'Add login endpoint verification\n\nImplemented POST /auth/login with bcrypt checks.\n\nDecisions:\n- Return generic 401 for invalid credentials\n\nVerification:\n- pnpm test: 64 passing\n- pnpm build: success'
+```
+
+For longer messages, write the same format to a file and pass `--result-message-file <path>`.
+
+Only open Work Items can be completed. Before completing, the CLI rejects open children, incomplete dependencies, and another agent's active claim. Use `--force` only to override incomplete dependencies or another active claim. Verification evidence is required by default; use the explicit `--allow-no-verification` escape hatch when no verification can be recorded.
+
+## Current CLI scope
+
+The current implementation supports:
+
+- local JSONL storage,
+- non-interactive CLI input through flags and files,
+- Work Item creation, validation, inspection, and open backlog listing,
+- hierarchy validation for Epics, Tasks, and Subtasks,
+- dependencies through `tm block` and `tm unblock`,
+- deterministic work selection through `tm next`,
+- advisory Agent Claims through `tm claim` and `tm release`, and
+- structured completion through `tm complete`.
+
+Planned but not currently implemented:
+
+- `tm cancel` for structured Cancellation,
+- `tm delete` for accidental records,
+- `tm update` for safe Work Item edits,
+- `tm reopen`, and
+- status/all filters for `tm list`.
+
+GitHub/Shortcut/Linear sync is not in the current CLI. External sync may be added later, but the local workflow must be solid first.

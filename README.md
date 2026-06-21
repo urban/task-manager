@@ -16,27 +16,29 @@ AI coding agents are good at keeping an in-session TODO list, but that state usu
 
 Task Manager is an offline, repository-backed workflow for planning, handoff, and auditability.
 
-## Current status
+## Current implementation
 
-The public MVP product name is Task Manager, and the CLI binary is `tm`.
+The CLI binary is `tm`.
 
-Implemented today:
+Available commands:
 
-- initialize and validate local JSONL storage,
-- create Epics, Tasks, and Subtasks,
-- require Description and Agent Context by default,
-- validate Git-style Subjects,
-- enforce the three-level hierarchy (`Epic -> Task -> Subtask`),
-- add and remove dependencies with `tm block` and `tm unblock`,
-- claim and release advisory Agent Claims with `tm claim` and `tm release`,
-- complete Work Items with structured Results and verification evidence,
-- show a Work Item by full ID or unique prefix,
-- list the open backlog tree,
-- select the next actionable Work Item with `tm next`,
-- emit JSON output with `--json`, and
-- perform atomic writes with a transient lock file.
+- `tm init`: initialize `.tasks/tasks.jsonl` storage.
+- `tm validate`: validate the JSONL store on disk.
+- `tm create`: create an Epic, Task, or Subtask with Description and Agent Context.
+- `tm show`: show one Work Item by full ID or unique ID prefix.
+- `tm list`: list the open backlog tree, optionally scoped with `--root <id>`.
+- `tm next`: select the first actionable open leaf Work Item in deterministic tree order; it skips Work Items with incomplete dependencies and skips active claims unless scoped with `--root <id>` or run with `--include-claimed`.
+- `tm claim` and `tm release`: manage one-hour advisory Agent Claims using `--agent <name>` or `TM_AGENT`.
+- `tm complete`: mark an open Work Item done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
+- `tm block` and `tm unblock`: add or remove dependency relationships between Work Items.
 
-Planned but not fully implemented yet: cancellation, update, move, delete, and external issue sync.
+Shared flags:
+
+- `--json`: emit machine-readable JSON.
+- `--cwd <dir>` or `TM_CWD`: resolve storage from a specific working directory.
+- `--storage-path <dir>` or `TM_STORAGE_PATH`: use a custom `.tasks` directory.
+
+Writes are guarded by a transient lock file and persisted by writing a temporary file, then renaming it into place.
 
 ## Core concepts
 
@@ -47,9 +49,11 @@ Planned but not fully implemented yet: cancellation, update, move, delete, and e
 - **Subject**: short, scannable title using Git-style subject-line rules.
 - **Description**: human-facing Markdown explaining the requested work.
 - **Agent Context**: execution handoff context for an AI agent.
-- **Result**: completion record with summary, decisions, and verification evidence.
+- **Dependency**: an ordering relationship where one Work Item is blocked by another.
+- **Agent Claim**: advisory one-hour claim that helps agents avoid duplicate work.
+- **Result**: completion record with summary, details, decisions, verification evidence, timestamp, and Agent Identity.
 
-See [`CONTEXT.md`](./CONTEXT.md) for the project vocabulary and [`docs/README.md`](./docs/README.md) for the longer user guide.
+See [`CONTEXT.md`](./CONTEXT.md) for the project vocabulary.
 
 ## Quick start
 
@@ -61,22 +65,55 @@ cd task-manager
 bun install
 ```
 
-Run the development CLI directly:
+### Put `tm` on your PATH
+
+Register the CLI package with Bun. This creates a `tm` executable in Bun's global bin directory:
 
 ```sh
-bun packages/cli/src/bin.ts --help
+(cd packages/cli && bun link)
 ```
+
+Make sure Bun's global bin directory is on your `PATH`. For the current shell:
+
+```sh
+BUN_GLOBAL_BIN="$(bun pm bin -g)"
+export PATH="$BUN_GLOBAL_BIN:$PATH"
+```
+
+To make it persistent, add the same directory to your shell profile. For zsh:
+
+```sh
+BUN_GLOBAL_BIN="$(bun pm bin -g)"
+printf '\nexport PATH="%s:$PATH"\n' "$BUN_GLOBAL_BIN" >> ~/.zshrc
+```
+
+For bash, use `~/.bashrc` instead of `~/.zshrc`.
+
+Verify that `tm` is globally available:
+
+```sh
+command -v tm
+tm --help
+```
+
+All examples below assume `tm` is on your `PATH`.
+
+### Use with an AI coding agent
+
+This repo includes an agent skill at [`skills/task-manager/SKILL.md`](./skills/task-manager/SKILL.md). If your coding agent supports skill folders, add or copy the whole [`skills/task-manager/`](./skills/task-manager/) directory to its configured skills path.
+
+If your agent does not have a formal skill system, ask it to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Work Items from PRDs/specs, record dependencies with `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
 
 Initialize task storage in the current Git repository:
 
 ```sh
-bun packages/cli/src/bin.ts init
+tm init
 ```
 
 Create a standalone Task:
 
 ```sh
-bun packages/cli/src/bin.ts create "Add JWT authentication" \
+tm create "Add JWT authentication" \
   --level task \
   --description "Implement JWT-based authentication for the API." \
   --context "Add login token generation, verification middleware, refresh flow, and tests."
@@ -85,12 +122,12 @@ bun packages/cli/src/bin.ts create "Add JWT authentication" \
 Create an Epic and a child Task:
 
 ```sh
-bun packages/cli/src/bin.ts create "Ship MVP CLI" \
+tm create "Ship MVP CLI" \
   --level epic \
   --description "Deliver the first offline CLI." \
   --context "Coordinate storage, rendering, validation, and command behavior."
 
-bun packages/cli/src/bin.ts create "Implement task listing" \
+tm create "Implement task listing" \
   --level task \
   --parent wi_... \
   --description "Render the open backlog tree." \
@@ -100,24 +137,24 @@ bun packages/cli/src/bin.ts create "Implement task listing" \
 Record an ordering dependency and inspect the backlog:
 
 ```sh
-bun packages/cli/src/bin.ts block wi_api... --by wi_model...
-bun packages/cli/src/bin.ts show wi_api...
-bun packages/cli/src/bin.ts unblock wi_api... --by wi_model...
-bun packages/cli/src/bin.ts list
-bun packages/cli/src/bin.ts next
-bun packages/cli/src/bin.ts claim wi_api... --agent codex-session
-bun packages/cli/src/bin.ts complete wi_api... \
+tm block wi_api... --by wi_model...
+tm show wi_api...
+tm unblock wi_api... --by wi_model...
+tm list
+tm next
+tm claim wi_api... --agent codex-session
+tm complete wi_api... \
   --agent codex-session \
   --summary "Implemented API endpoint" \
   --verification "bun run check: passed"
-bun packages/cli/src/bin.ts next --include-claimed --json
-bun packages/cli/src/bin.ts release wi_api... --agent codex-session
-bun packages/cli/src/bin.ts validate --json
+tm next --include-claimed --json
+tm release wi_api... --agent codex-session
+tm validate --json
 ```
 
 ## Storage model
 
-By default, Task Manager stores data at the Git root:
+By default, Task Manager stores data under the nearest Git root. If no Git root is found, it stores data under the current working directory or the directory passed with `--cwd` / `TM_CWD`:
 
 ```text
 .tasks/
@@ -130,30 +167,8 @@ By default, Task Manager stores data at the Git root:
 You can override storage with:
 
 ```sh
-TM_STORAGE_PATH=/custom/path/.tasks bun packages/cli/src/bin.ts list
-bun packages/cli/src/bin.ts --storage-path /custom/path/.tasks list
-```
-
-## Development
-
-Common commands:
-
-```sh
-bun run check      # lint, typecheck, and test
-bun run format     # format with oxfmt
-bun run lint       # oxfmt + oxlint
-bun run typecheck  # Effect-aware TypeScript-Go project build
-bun run test       # Vitest tests
-```
-
-Project layout:
-
-```text
-packages/cli/      Effect + Bun CLI implementation
-docs/              Human guide and product decisions
-specs/             PRD and planning artifacts
-CONTEXT.md         Domain language
-TODO.md            Near-term implementation notes
+TM_STORAGE_PATH=/custom/path/.tasks tm list
+tm --storage-path /custom/path/.tasks list
 ```
 
 ## Design notes
@@ -166,4 +181,4 @@ Task Manager is intentionally:
 - **context-rich**: work creation separates human Description from Agent Context, and
 - **strictly scoped**: the hierarchy is limited to Epic, Task, and Subtask.
 
-For detailed rationale, read [`docs/decisions.md`](./docs/decisions.md).
+Run `tm --help` or `tm <command> --help` for generated command help from the current CLI.
