@@ -8,7 +8,7 @@ import {
   type ValidationIssue,
   WorkItemAmbiguous,
   WorkItemNotFound,
-} from "../errors/TmErrors";
+} from "./Errors";
 
 export const schemaVersion = 1;
 
@@ -89,6 +89,9 @@ export const claimExpiresAt = (claimedAt: DateTime.Utc): DateTime.Utc =>
 
 export const isClaimActive = (claim: WorkItemClaim | undefined, now: DateTime.Utc): boolean =>
   claim !== undefined && DateTime.isGreaterThan(claim.expiresAt, now);
+
+export const formatClaimExpiresAt = (claim: WorkItemClaim): string =>
+  DateTime.formatIso(claim.expiresAt);
 
 const toMillis = (value: DateTime.Utc): number => DateTime.toEpochMillis(value);
 

@@ -19,7 +19,7 @@ import {
   StorageNotInitialized,
   ValidationFailure,
   type ValidationIssue,
-} from "../errors/TmErrors";
+} from "../domain/Errors";
 
 export interface StorePaths {
   readonly baseDirectory: string;

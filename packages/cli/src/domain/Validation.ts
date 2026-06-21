@@ -1,6 +1,6 @@
 import * as DateTime from "effect/DateTime";
 
-import { ValidationFailure, type ValidationIssue } from "../errors/TmErrors";
+import { ValidationFailure, type ValidationIssue } from "./Errors";
 import {
   buildTree,
   isClaimActive,
@@ -325,6 +325,9 @@ export const ensureCanCreateItem = (options: {
 export const hasOpenChildren = (item: WorkItem, items: ReadonlyArray<WorkItem>): boolean =>
   items.some((candidate) => candidate.parentId === item.id && candidate.status === "open");
 
+export const isLeafWorkItem = (item: WorkItem, items: ReadonlyArray<WorkItem>): boolean =>
+  !hasOpenChildren(item, items);
+
 export const sortChildrenForSelection = (items: ReadonlyArray<WorkItem>): ReadonlyArray<WorkItem> =>
   items.toSorted((left, right) => {
     const diff = toMillis(left.createdAt) - toMillis(right.createdAt);
@@ -378,6 +381,14 @@ const findFirstActionableNode = (
 
   return undefined;
 };
+
+export const orderedOpenChildren = (
+  item: WorkItem,
+  items: ReadonlyArray<WorkItem>,
+): ReadonlyArray<WorkItem> =>
+  sortChildrenForSelection(
+    items.filter((candidate) => candidate.parentId === item.id && candidate.status === "open"),
+  );
 
 export const findNextActionableWorkItem = (
   items: ReadonlyArray<WorkItem>,
