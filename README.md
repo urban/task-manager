@@ -11,7 +11,9 @@ AI coding agents are good at keeping an in-session TODO list, but that state usu
 - what work exists,
 - why it matters,
 - what context an agent needs to execute it,
-- how Work Items relate to one another, and
+- how Work Items relate through hierarchy and dependencies,
+- who has currently claimed work,
+- which work completed or was cancelled, and
 - what evidence proved completed work was actually done.
 
 Task Manager is an offline, repository-backed workflow for planning, handoff, and auditability.
@@ -28,7 +30,7 @@ Available commands:
 - `tm update`: safely update a Work Item's Subject, Description, or Agent Context.
 - `tm show`: show one Work Item by full ID or unique ID prefix.
 - `tm list`: list the open backlog tree, optionally scoped with `--root <id>` and lifecycle filters such as `--status done`, `--status cancelled`, or `--all`.
-- `tm next`: select the first actionable open leaf Work Item in deterministic tree order; it skips Work Items with incomplete dependencies and skips active claims unless scoped with `--root <id>` or run with `--include-claimed`.
+- `tm next`: select the first actionable open leaf Work Item in deterministic tree order, optionally scoped with `--root <id>`; it skips Work Items with incomplete dependencies and active claims unless run with `--include-claimed`.
 - `tm claim` and `tm release`: manage one-hour advisory Agent Claims using `--agent <name>` or `TM_AGENT`.
 - `tm complete`: mark an open Work Item done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
 - `tm cancel`: mark open Work Items cancelled with a structured Cancellation reason; parent cancellation cascades to open descendants only with `--yes`.
@@ -42,6 +44,8 @@ Shared flags:
 - `--storage-path <dir>` or `TM_STORAGE_PATH`: use a custom `.tasks` directory.
 
 Writes are guarded by a transient lock file and persisted by writing a temporary file, then renaming it into place.
+
+The implemented P0/P1 workflow now covers durable planning, dependency ordering, deterministic work selection, advisory claims, verified completion, safe text updates, structured cancellation, lifecycle-aware listing, and destructive cleanup for accidental records.
 
 ## Core concepts
 
@@ -138,7 +142,7 @@ tm create "Implement task listing" \
   --context "Follow existing renderer output and include JSON mode."
 ```
 
-Record an ordering dependency at creation time or after both Work Items exist, then inspect the backlog:
+Record dependencies and refine text fields without editing storage by hand:
 
 ```sh
 # When the dependency is known before creation:
@@ -153,20 +157,37 @@ tm block wi_api... --by wi_model...
 tm update wi_api... --message $'Refine API work\n\nClarify the requested API behavior.'
 tm show wi_api...
 tm unblock wi_api... --by wi_model...
+```
+
+Select, claim, and complete executable work:
+
+```sh
 tm list
-tm list --status cancelled
 tm next
 tm claim wi_api... --agent codex-session
 tm complete wi_api... \
   --agent codex-session \
   --summary "Implemented API endpoint" \
   --verification "bun run check: passed"
+
+# If claimed work is abandoned before completion, release it instead:
+tm release wi_other... --agent codex-session
+```
+
+Inspect lifecycle states, cancel obsolete real work, and delete accidental records only when needed:
+
+```sh
+tm list --status done
 tm cancel wi_obsolete... \
   --agent codex-session \
   --reason "No longer needed after approach changed" \
   --yes
+tm list --status cancelled
+
+# Destructive cleanup for mistaken records, not real work:
+tm delete wi_duplicate... --yes
+
 tm next --include-claimed --json
-tm release wi_api... --agent codex-session
 tm validate --json
 ```
 

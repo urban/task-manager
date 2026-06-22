@@ -6,7 +6,7 @@ The CLI binary is `tm`. The persisted data lives in `.tasks/tasks.jsonl` by defa
 
 The current CLI is non-interactive: use flags and file inputs instead of editor prompts. This keeps the tool scriptable and predictable for AI agents. Agent-aware commands (`claim`, `release`, `complete`, and `cancel`) use `--agent <name>` or the `TM_AGENT` environment variable.
 
-Current commands are `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `release`, `complete`, `cancel`, `delete`, `block`, and `unblock`. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
+Current commands are `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `release`, `complete`, `cancel`, `delete`, `block`, and `unblock`. Together they support the implemented P0/P1 workflow: planning durable Work Items, recording dependencies, selecting and claiming executable work, completing with evidence, safely refining text fields, cancelling obsolete real work, filtering lifecycle states, and destructively deleting only accidental records. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
 
 ## Why this exists
 
@@ -17,7 +17,7 @@ AI coding agents often have short-lived working memory. They can track TODOs ins
 - what context an agent needs,
 - what order work should happen in,
 - who is currently working on what,
-- what was actually completed, and
+- what completed or was cancelled, and
 - how completion was verified.
 
 Use it for work that spans sessions, needs handoff, or benefits from a permanent record. Do not use it for trivial one-off scratchpad notes.
@@ -62,17 +62,21 @@ Every normal Work Item creation requires:
 - **Description** — a human-facing Markdown body explaining the requested work.
 - **Agent Context** — the Markdown execution packet an AI agent needs to do the work later.
 
-Subject rules:
+Validated Subject rules:
 
+- non-empty,
 - maximum 50 characters,
-- imperative mood,
+- no leading or trailing whitespace,
+- one line only,
 - first letter capitalized,
-- no trailing period,
-- no Markdown.
+- no trailing period, and
+- no Markdown formatting markers.
+
+Imperative mood is recommended for readability, but it is guidance rather than CLI validation.
 
 Subject and Description can be entered like a Git commit message: the first line is the Subject, then a blank line, then the Description body.
 
-Deterministic Subject rules are hard validation errors. Imperative mood is a lint-style warning because it is useful guidance but hard to detect perfectly.
+Deterministic Subject rules are hard validation errors.
 
 Agent Context is one Markdown string in the MVP, not separate fields for files, constraints, acceptance criteria, or implementation notes. If structure is useful, put Markdown headings inside the string.
 
@@ -149,13 +153,12 @@ Example:
 }
 ```
 
-Use `tm cancel <id> --agent <name> --reason <text>` to cancel a leaf Work Item. Use `--reason-file <path>` for longer reasons. Parent cancellation previews the open descendants that would also be cancelled and requires `--yes` before mutating storage:
+Use `tm cancel <id> --agent <name> --reason <text>` to cancel an open Work Item. Use `--reason-file <path>` for longer reasons. Parent cancellation previews the open descendants that would also be cancelled and requires `--yes` before mutating storage:
 
 ```sh
 tm cancel wi_3f7d... \
   --agent codex-auth-session \
-  --reason "No longer needed after the approach changed" \
-  --yes
+  --reason "No longer needed after the approach changed"
 ```
 
 Cascading cancellation applies only to open descendants. Done and already-cancelled descendants are left unchanged. Successful cancellation clears claims on each Work Item it cancels. Cancelling a Work Item with another agent's active claim requires `--force`; expired claims do not require force.
@@ -213,7 +216,7 @@ This prevents accidental order violations while still allowing humans to recover
 
 An **Agent Identity** is a caller-provided string used for coordination and audit fields. There is no agent registry in MVP. An agent gives itself a name and uses it consistently through `--agent` or `TM_AGENT`.
 
-Agent Identity is required for `claim`, `release`, and `complete` so the task manager can record who coordinated or changed lifecycle state. Humans can use names like `human-urban`.
+Agent Identity is required for `claim`, `release`, `complete`, and `cancel` so the task manager can record who coordinated or changed lifecycle state. Humans can use names like `human-urban`.
 
 Good Agent Identity examples:
 
