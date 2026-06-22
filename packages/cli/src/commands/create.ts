@@ -30,6 +30,10 @@ export const commandCreate = Command.make("create", {
     Flag.withDescription("Parent Work Item id or unique prefix"),
     Flag.optional,
   ),
+  blockedBy: Flag.string("blocked-by").pipe(
+    Flag.withDescription("Existing Work Item id or unique prefix that blocks the new Work Item"),
+    Flag.atMost(Number.MAX_SAFE_INTEGER),
+  ),
   description: Flag.string("description").pipe(Flag.optional),
   descriptionFile: Flag.file("description-file").pipe(Flag.optional),
   context: Flag.string("context").pipe(Flag.optional),
@@ -110,7 +114,29 @@ export const commandCreate = Command.make("create", {
             return yield* createValidation;
           }
 
+          const dependencies = yield* Effect.forEach(input.blockedBy, (value) =>
+            resolveWorkItem(items, value),
+          );
+          const duplicateDependency = dependencies.find((dependency, index) =>
+            dependencies.some(
+              (candidate, candidateIndex) =>
+                candidateIndex < index && candidate.id === dependency.id,
+            ),
+          );
+          if (duplicateDependency !== undefined) {
+            return yield* new CommandFailure({
+              message: `Duplicate dependency ${duplicateDependency.id}.`,
+            });
+          }
+          const blockedBy = dependencies.map((dependency) => dependency.id);
+
           const id = yield* makeWorkItemId();
+          if (blockedBy.includes(id)) {
+            return yield* new CommandFailure({
+              message: `Work Item ${id} cannot depend on itself.`,
+            });
+          }
+
           const workItem = yield* makeOpenWorkItem({
             id,
             level: input.level,
@@ -118,6 +144,7 @@ export const commandCreate = Command.make("create", {
             description,
             agentContext,
             ...(parent === undefined ? {} : { parentId: parent.id }),
+            blockedBy,
           });
 
           const nextItems = [...items, workItem];

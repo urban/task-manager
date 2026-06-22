@@ -94,10 +94,12 @@ const createWorkItem = (
   options?: {
     readonly level?: WorkItemLevel;
     readonly parent?: string;
+    readonly blockedBy?: ReadonlyArray<string>;
   },
 ) =>
   Effect.gen(function* () {
     const parentArgs = options?.parent === undefined ? [] : ["--parent", options.parent];
+    const blockedByArgs = (options?.blockedBy ?? []).flatMap((id) => ["--blocked-by", id]);
     const result = yield* run([
       "--cwd",
       directory,
@@ -106,6 +108,7 @@ const createWorkItem = (
       "--level",
       options?.level ?? "task",
       ...parentArgs,
+      ...blockedByArgs,
       "--description",
       `${subject} description.`,
       "--context",
@@ -2085,6 +2088,202 @@ describe("tm cli", () => {
         assert.strictEqual(expiredResult.exit._tag, "Success");
         const expiredSelection = decodeItemOutput(String(expiredResult.logs[0]));
         assert.strictEqual(expiredSelection.item.id, first.id);
+      }),
+    ),
+  );
+
+  it.effect("creates a Work Item with one dependency in JSON mode", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const dependency = yield* createWorkItem(directory, "Create data model");
+
+        const created = yield* createWorkItem(directory, "Add API endpoint", {
+          blockedBy: [dependency.id],
+        });
+
+        assert.deepStrictEqual(created.blockedBy, [dependency.id]);
+        const content = yield* readTasksFile(directory);
+        assert.isTrue(content.includes('"blockedBy"'));
+      }),
+    ),
+  );
+
+  it.effect("creates a Work Item with repeatable dependencies", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const firstDependency = yield* createWorkItem(directory, "Create data model");
+        const secondDependency = yield* createWorkItem(directory, "Prepare fixtures");
+        const orderedDependencies =
+          firstDependency.id.localeCompare(secondDependency.id) < 0
+            ? { smaller: firstDependency, larger: secondDependency }
+            : { smaller: secondDependency, larger: firstDependency };
+
+        const created = yield* createWorkItem(directory, "Add reporting endpoint", {
+          blockedBy: [orderedDependencies.larger.id, orderedDependencies.smaller.id],
+        });
+
+        assert.deepStrictEqual(created.blockedBy, [
+          orderedDependencies.smaller.id,
+          orderedDependencies.larger.id,
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("resolves dependency prefixes during creation", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const dependency = yield* createWorkItem(directory, "Prepare reports");
+
+        const created = yield* createWorkItem(directory, "Render reports", {
+          blockedBy: [dependency.id.slice(0, 12)],
+        });
+
+        assert.deepStrictEqual(created.blockedBy, [dependency.id]);
+      }),
+    ),
+  );
+
+  it.effect("creates cross-hierarchy dependencies", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const firstEpic = yield* createWorkItem(directory, "Build backend", { level: "epic" });
+        const secondEpic = yield* createWorkItem(directory, "Build frontend", { level: "epic" });
+        const backendTask = yield* createWorkItem(directory, "Design schema", {
+          parent: firstEpic.id,
+        });
+        const frontendTask = yield* createWorkItem(directory, "Create UI shell", {
+          parent: secondEpic.id,
+        });
+
+        const subtask = yield* createWorkItem(directory, "Wire UI data", {
+          level: "subtask",
+          parent: backendTask.id,
+          blockedBy: [frontendTask.id],
+        });
+
+        assert.deepStrictEqual(subtask.blockedBy, [frontendTask.id]);
+      }),
+    ),
+  );
+
+  it.effect("omits blockedBy when creation has no dependencies", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+
+        const created = yield* createWorkItem(directory, "Add standalone work");
+
+        assert.strictEqual(created.blockedBy, undefined);
+        const content = yield* readTasksFile(directory);
+        assert.isFalse(content.includes('"blockedBy"'));
+      }),
+    ),
+  );
+
+  it.effect("rejects missing creation dependencies without changing storage", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        yield* createWorkItem(directory, "Prepare existing work");
+        const before = yield* readTasksFile(directory);
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "create",
+          "Add dependent work",
+          "--level",
+          "task",
+          "--blocked-by",
+          "wi_missing_dependency",
+          "--description",
+          "Should not be created.",
+          "--context",
+          "Missing dependency should fail creation.",
+        ]);
+
+        assert.strictEqual(result.exit._tag, "Failure");
+        assert.isTrue(String(result.errors[0]).includes("was not found"));
+        const after = yield* readTasksFile(directory);
+        assert.strictEqual(after, before);
+      }),
+    ),
+  );
+
+  it.effect("rejects ambiguous creation dependencies without changing storage", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const createdAt = yield* DateTime.now;
+        const firstDependency = makeFixtureOpenWorkItem({
+          id: "wi_ambiguous_alpha",
+          subject: "Prepare alpha",
+          createdAt,
+        });
+        const secondDependency = makeFixtureOpenWorkItem({
+          id: "wi_ambiguous_beta",
+          subject: "Prepare beta",
+          createdAt: createdAt.pipe(DateTime.add({ seconds: 1 })),
+        });
+        yield* writeTasksFile(directory, [firstDependency, secondDependency]);
+        const before = yield* readTasksFile(directory);
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "create",
+          "Add ambiguous work",
+          "--level",
+          "task",
+          "--blocked-by",
+          "wi_ambiguous",
+          "--description",
+          "Should not be created.",
+          "--context",
+          "Ambiguous dependency should fail creation.",
+        ]);
+
+        assert.strictEqual(result.exit._tag, "Failure");
+        assert.isTrue(String(result.errors[0]).includes("ambiguous"));
+        const after = yield* readTasksFile(directory);
+        assert.strictEqual(after, before);
+      }),
+    ),
+  );
+
+  it.effect("rejects duplicate creation dependencies without changing storage", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const dependency = yield* createWorkItem(directory, "Prepare shared work");
+        const before = yield* readTasksFile(directory);
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "create",
+          "Add duplicate work",
+          "--level",
+          "task",
+          "--blocked-by",
+          dependency.id,
+          "--blocked-by",
+          dependency.id.slice(0, 12),
+          "--description",
+          "Should not be created.",
+          "--context",
+          "Duplicate dependency should fail creation.",
+        ]);
+
+        assert.strictEqual(result.exit._tag, "Failure");
+        assert.isTrue(String(result.errors[0]).includes("Duplicate dependency"));
+        const after = yield* readTasksFile(directory);
+        assert.strictEqual(after, before);
       }),
     ),
   );

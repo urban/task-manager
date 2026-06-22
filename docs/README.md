@@ -173,9 +173,15 @@ Dependencies are separate from hierarchy:
 
 Dependencies may cross hierarchy boundaries. For example, a Subtask in one Epic may depend on a standalone Task, or a Task in one Epic may depend on a Task in another Epic.
 
-Use `tm block <id> --by <dependency-id>` to record that the selected Work Item is blocked by another Work Item. Use `tm unblock <id> --by <dependency-id>` when the ordering constraint is no longer needed. Both IDs may be full IDs or unique prefixes, and storage always keeps the resolved full dependency IDs.
+Use repeatable `tm create --blocked-by <dependency-id>` when dependencies are known before creating the blocked Work Item. Use `tm block <id> --by <dependency-id>` to record a dependency after both Work Items already exist, and `tm unblock <id> --by <dependency-id>` when the ordering constraint is no longer needed. IDs may be full IDs or unique prefixes, and storage always keeps the resolved full dependency IDs.
 
 ```sh
+tm create "Add API endpoint" \
+  --level task \
+  --blocked-by <model-id> \
+  --blocked-by <auth-config-id> \
+  --description "Build the endpoint." \
+  --context "Use the completed model and auth config."
 tm block <api-id> --by <model-id>
 tm show <api-id>
 tm unblock <api-id> --by <model-id>
@@ -282,10 +288,9 @@ tm create "Create user model" \
 tm create "Add login endpoint" \
   --level task \
   --parent <epic-id> \
+  --blocked-by <user-model-id> \
   --description "Add POST /auth/login." \
   --context "Accept email/password, verify with bcrypt, return token pair, and test invalid credentials."
-
-tm block <login-endpoint-id> --by <user-model-id>
 ```
 
 Why no plan import in MVP:
@@ -300,7 +305,7 @@ Why no plan import in MVP:
 
 This repository includes an agent-facing skill at [`../skills/task-manager/SKILL.md`](../skills/task-manager/SKILL.md). If your coding agent supports skill directories, add or copy the whole [`../skills/task-manager/`](../skills/task-manager/) directory to its configured skills path.
 
-If your agent does not have a formal skill system, ask it to read `skills/task-manager/SKILL.md` before planning or executing task-manager work. The skill teaches conservative use of the current CLI: create Work Items, record dependencies with `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete with strong `tm complete` Results.
+If your agent does not have a formal skill system, ask it to read `skills/task-manager/SKILL.md` before planning or executing task-manager work. The skill teaches conservative use of the current CLI: create Work Items, record dependencies with `tm create --blocked-by` or `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete with strong `tm complete` Results.
 
 ## Common workflows
 
@@ -376,11 +381,16 @@ Updates do not change lifecycle status, dependencies, claims, Result, or Cancell
 ### Record dependencies
 
 ```sh
+tm create "Add API endpoint" \
+  --level task \
+  --blocked-by <model-id> \
+  --description "Build the endpoint." \
+  --context "Use the completed model."
 tm block <api-id> --by <model-id>
 tm unblock <api-id> --by <model-id>
 ```
 
-Dependencies are independent of hierarchy, so a Work Item can be blocked by any other Work Item as long as the edge does not duplicate an existing dependency, point at itself, or create a cycle.
+Use repeatable `--blocked-by <id>` during creation when dependency IDs are already known. Use `tm block` for dependencies discovered after creation. Dependencies are independent of hierarchy, so a Work Item can be blocked by any other Work Item as long as the edge does not duplicate an existing dependency, point at itself, or create a cycle.
 
 ### Show Work Item details
 
@@ -527,7 +537,7 @@ The current implementation supports:
 - non-interactive CLI input through flags and files,
 - Work Item creation, safe text updates, validation, inspection, and filtered backlog listing,
 - hierarchy validation for Epics, Tasks, and Subtasks,
-- dependencies through `tm block` and `tm unblock`,
+- dependencies through repeatable `tm create --blocked-by`, `tm block`, and `tm unblock`,
 - deterministic work selection through `tm next`,
 - advisory Agent Claims through `tm claim` and `tm release`,
 - structured completion through `tm complete`, and

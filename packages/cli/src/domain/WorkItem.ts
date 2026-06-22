@@ -357,8 +357,10 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
   readonly description: string;
   readonly agentContext: string;
   readonly parentId?: string;
+  readonly blockedBy?: ReadonlyArray<string>;
 }) {
   const timestamp = yield* DateTime.now;
+  const blockedBy = options.blockedBy?.toSorted((left, right) => left.localeCompare(right));
   const workItem = {
     schemaVersion,
     id: options.id,
@@ -367,7 +369,8 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
     subject: options.subject,
     description: options.description,
     agentContext: options.agentContext,
-    parentId: options.parentId,
+    ...(options.parentId === undefined ? {} : { parentId: options.parentId }),
+    ...(blockedBy === undefined || blockedBy.length === 0 ? {} : { blockedBy }),
     createdAt: timestamp,
     updatedAt: timestamp,
   } satisfies WorkItem;

@@ -24,7 +24,7 @@ Available commands:
 
 - `tm init`: initialize `.tasks/tasks.jsonl` storage.
 - `tm validate`: validate the JSONL store on disk.
-- `tm create`: create an Epic, Task, or Subtask with Description and Agent Context.
+- `tm create`: create an Epic, Task, or Subtask with Description, Agent Context, and optional repeatable `--blocked-by <id>` dependencies.
 - `tm update`: safely update a Work Item's Subject, Description, or Agent Context.
 - `tm show`: show one Work Item by full ID or unique ID prefix.
 - `tm list`: list the open backlog tree, optionally scoped with `--root <id>` and lifecycle filters such as `--status done`, `--status cancelled`, or `--all`.
@@ -105,7 +105,7 @@ All examples below assume `tm` is on your `PATH`.
 
 This repo includes an agent skill at [`skills/task-manager/SKILL.md`](./skills/task-manager/SKILL.md). If your coding agent supports skill folders, add or copy the whole [`skills/task-manager/`](./skills/task-manager/) directory to its configured skills path.
 
-If your agent does not have a formal skill system, ask it to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Work Items from PRDs/specs, record dependencies with `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
+If your agent does not have a formal skill system, ask it to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Work Items from PRDs/specs, record dependencies with `tm create --blocked-by` or `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
 
 Initialize task storage in the current Git repository:
 
@@ -137,9 +137,17 @@ tm create "Implement task listing" \
   --context "Follow existing renderer output and include JSON mode."
 ```
 
-Record an ordering dependency and inspect the backlog:
+Record an ordering dependency at creation time or after both Work Items exist, then inspect the backlog:
 
 ```sh
+# When the dependency is known before creation:
+tm create "Implement API endpoint" \
+  --level task \
+  --blocked-by wi_model... \
+  --description "Build the endpoint after the model work." \
+  --context "Use the completed data model and verify the endpoint."
+
+# Or when both Work Items already exist:
 tm block wi_api... --by wi_model...
 tm update wi_api... --message $'Refine API work\n\nClarify the requested API behavior.'
 tm show wi_api...

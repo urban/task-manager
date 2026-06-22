@@ -321,3 +321,11 @@ This document captures confirmed product decisions for Task Manager in human-rea
 **Why:** Users may add dependencies by full ID or unique prefix and in any order. Sorting full IDs keeps JSONL diffs deterministic and avoids hidden meaning in array insertion order.
 
 **Consequence:** Dependency order is not semantic. Execution order should be expressed by the dependency graph, hierarchy, and creation order rather than by the order of IDs inside `blockedBy`.
+
+## 41. Creation dependency flags are repeatable
+
+**Decision:** `tm create` accepts repeatable `--blocked-by <id>` flags, not comma-separated dependency lists.
+
+**Why:** Repeatable flags avoid escaping and comma parsing ambiguity, match other repeated CLI evidence flags, and keep each dependency as an explicit argument for humans and agents.
+
+**Consequence:** `tm create --blocked-by <id>` may be repeated when dependency IDs already exist. Values may be full IDs or unique prefixes, are resolved to sorted full IDs in storage, and duplicate resolved dependencies are rejected. `tm block` remains the foundational command for dependencies discovered after creation.

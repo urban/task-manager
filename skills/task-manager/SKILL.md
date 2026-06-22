@@ -25,15 +25,15 @@ command -v jq >/dev/null
 
 If either command is missing, stop and tell the user which tool is required. Do not use a fallback command.
 
-Sections that require commands such as `tm next`, `tm claim`, `tm complete`, `tm block`, or `tm unblock` assume the installed `tm` supports those commands. Do not fall back to manually reading or rewriting JSONL storage.
+Sections that require commands or flags such as `tm next`, `tm claim`, `tm complete`, `tm create --blocked-by`, `tm block`, or `tm unblock` assume the installed `tm` supports those commands. Do not fall back to manually reading or rewriting JSONL storage.
 
 ## Conservative command policy
 
 - Only use commands and flags verified in the current implementation.
 - Prefer CLI-enforced fields and commands over Markdown conventions.
-- Record hierarchy with `--parent`, dependencies with `tm block`, advisory ownership with `tm claim`, completion evidence with `tm complete` Result fields, and text corrections with `tm update`.
+- Record hierarchy with `--parent`, dependencies with repeatable `tm create --blocked-by` when dependency IDs already exist or `tm block` after creation, advisory ownership with `tm claim`, completion evidence with `tm complete` Result fields, and text corrections with `tm update`.
 - Never manually edit `.tasks/tasks.jsonl` unless the user explicitly asks for low-level recovery.
-- Do not invent plan import, sync, priority, auto-claim, or dependency-at-create workflows that the CLI does not enforce.
+- Do not invent plan import, sync, priority, auto-claim, comma-separated dependency parsing, or other workflows that the CLI does not enforce.
 
 ## Domain terms
 
@@ -121,6 +121,8 @@ Create approved Work Items in parent-before-child order.
 
 Use `tm create --json` for every creation. After each successful create, read `.item.id` from the JSON output with `jq` and record it in an in-memory ID map keyed by the approved draft label. Use the recorded parent ID for each child’s `--parent` value.
 
+Use repeatable `--blocked-by <dependency-id>` during creation only when every dependency ID is already known from earlier successful creates or pre-existing Work Items. Read dependency IDs from the in-memory ID map; do not infer IDs from subjects. If a dependency ID is not known yet, create the Work Item without that dependency and record it later with `tm block`.
+
 Use `--message` for the Subject plus Description. The first line is the Subject. A blank line separates the Subject from the Description body.
 
 Use `--context` for Agent Context.
@@ -144,6 +146,7 @@ Derived from specs/auth.md.
 
 ```bash
 tm create --level task --parent <parent-id> \
+  --blocked-by <dependency-id> \
   --message "Add login flow
 
 Implement the first end-to-end login slice." \
@@ -176,9 +179,9 @@ Clarify the requested login behavior." \
 
 Use `--subject`, `--description`, `--description-file`, `--context`, `--context-file`, `--message`, or `--message-file` for explicit text updates. Do not combine `--message`/`--message-file` with `--subject` or Description flags. Use `--allow-empty-description` or `--allow-empty-context` only when intentionally clearing the matching field.
 
-### 7. Record dependencies with CLI commands
+### 7. Record remaining dependencies with CLI commands
 
-After both Work Items in a dependency relationship exist, record the dependency with:
+For dependencies not recorded during creation, after both Work Items in a dependency relationship exist, record the dependency with:
 
 ```bash
 tm block <blocked-id> --by <dependency-id>
@@ -195,7 +198,7 @@ tm block <api-tests-id> --by <api-endpoint-id>
 
 Use `tm unblock <blocked-id> --by <dependency-id>` only when removing an incorrect or obsolete dependency is part of the approved change.
 
-Explanatory sequencing rationale may be included in Agent Context when it helps a future agent, but Markdown prose is not the source of truth for ordering. The dependency edge recorded by `tm block` is the source of truth.
+Explanatory sequencing rationale may be included in Agent Context when it helps a future agent, but Markdown prose is not the source of truth for ordering. The dependency edge recorded by `--blocked-by` or `tm block` is the source of truth.
 
 ### 8. Include traceability in every Work Item
 
@@ -223,7 +226,7 @@ tm list
 Then report back to the user with:
 
 - created Epic(s), Tasks, and Subtasks
-- dependencies recorded with `tm block`
+- dependencies recorded with `--blocked-by` or `tm block`
 - confirmation that validation passed
 - the final backlog tree from `tm list` or a concise summary of it
 
