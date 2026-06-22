@@ -11,6 +11,7 @@ import { commandRelease } from "./commands/release";
 import { commandRoot } from "./commands/root";
 import { commandShow } from "./commands/show";
 import { commandUnblock } from "./commands/unblock";
+import { commandUpdate } from "./commands/update";
 import { commandValidate } from "./commands/validate";
 
 const version = "0.1.0";
@@ -20,6 +21,7 @@ const tmCommand = commandRoot.pipe(
     commandInit,
     commandValidate,
     commandCreate,
+    commandUpdate,
     commandShow,
     commandList,
     commandNext,

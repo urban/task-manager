@@ -6,7 +6,7 @@ The CLI binary is `tm`. The persisted data lives in `.tasks/tasks.jsonl` by defa
 
 The current CLI is non-interactive: use flags and file inputs instead of editor prompts. This keeps the tool scriptable and predictable for AI agents. Agent-aware commands (`claim`, `release`, and `complete`) use `--agent <name>` or the `TM_AGENT` environment variable.
 
-Current commands are `init`, `validate`, `create`, `show`, `list`, `next`, `claim`, `release`, `complete`, `block`, and `unblock`. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
+Current commands are `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `release`, `complete`, `block`, and `unblock`. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
 
 ## Why this exists
 
@@ -329,6 +329,21 @@ tm create "Implement login endpoint" \
   --context "Accept email/password, verify with bcrypt, return token pair."
 ```
 
+### Refine planned Work Items
+
+Use `tm update <id>` to correct or clarify the text fields on an existing Work Item without manually editing `.tasks/tasks.jsonl`:
+
+```sh
+tm update wi_3f7d... --subject "Implement login flow"
+tm update wi_3f7d... --description "Clarify the human-facing request."
+tm update wi_3f7d... --context-file ./agent-context.md
+tm update wi_3f7d... --message $'Implement login flow\n\nClarify the planned login behavior.'
+```
+
+`--message` and `--message-file` follow the same Git-style format as `tm create`: the first line is the Subject, then a blank line, then the Description. Do not combine message input with `--subject` or Description flags (`--description`, `--description-file`). Description and Agent Context cannot be cleared accidentally; pass `--allow-empty-description` or `--allow-empty-context` with the matching empty update when clearing is intentional.
+
+Updates do not change lifecycle status, dependencies, claims, Result, or Cancellation data. Done and cancelled Work Items can still be updated for typo or context corrections.
+
 ### Record dependencies
 
 ```sh
@@ -452,7 +467,7 @@ The current implementation supports:
 
 - local JSONL storage,
 - non-interactive CLI input through flags and files,
-- Work Item creation, validation, inspection, and open backlog listing,
+- Work Item creation, safe text updates, validation, inspection, and open backlog listing,
 - hierarchy validation for Epics, Tasks, and Subtasks,
 - dependencies through `tm block` and `tm unblock`,
 - deterministic work selection through `tm next`,
@@ -463,7 +478,6 @@ Planned but not currently implemented:
 
 - `tm cancel` for structured Cancellation,
 - `tm delete` for accidental records,
-- `tm update` for safe Work Item edits,
 - `tm reopen`, and
 - status/all filters for `tm list`.
 

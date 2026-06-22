@@ -12,28 +12,13 @@ import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../
 import { resolveWorkItem } from "../domain/WorkItem";
 import { commandRoot } from "./root";
 import { resolveTextInput } from "./shared/input";
+import { parseMessage } from "./shared/message";
 import {
   encodeItemForOutput,
   executeCommand,
   renderJson,
   renderWorkItemHuman,
 } from "./shared/output";
-
-const parseMessage = (
-  message: string,
-): {
-  readonly subject: string;
-  readonly description: string;
-} => {
-  const normalized = message.replaceAll("\r\n", "\n");
-  const [firstLine = "", ...rest] = normalized.split("\n");
-  const description = rest.join("\n").replace(/^\n+/, "").trimEnd();
-
-  return {
-    subject: firstLine.trim(),
-    description,
-  };
-};
 
 export const commandCreate = Command.make("create", {
   subject: Argument.string("subject").pipe(Argument.optional),

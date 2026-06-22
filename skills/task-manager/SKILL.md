@@ -31,7 +31,7 @@ Sections that require commands such as `tm next`, `tm claim`, `tm complete`, `tm
 
 - Only use commands and flags verified in the current implementation.
 - Prefer CLI-enforced fields and commands over Markdown conventions.
-- Record hierarchy with `--parent`, dependencies with `tm block`, advisory ownership with `tm claim`, and completion evidence with `tm complete` Result fields.
+- Record hierarchy with `--parent`, dependencies with `tm block`, advisory ownership with `tm claim`, completion evidence with `tm complete` Result fields, and text corrections with `tm update`.
 - Never manually edit `.tasks/tasks.jsonl` unless the user explicitly asks for low-level recovery.
 - Do not invent plan import, sync, priority, auto-claim, or dependency-at-create workflows that the CLI does not enforce.
 
@@ -163,7 +163,20 @@ Derived from specs/auth.md.
 
 Use `--message-file` or `--context-file` only when the user already provided suitable files or the content is too large for inline command input.
 
-### 6. Record dependencies with CLI commands
+### 6. Correct created Work Items with CLI updates
+
+If an already-created Work Item needs a Subject, Description, or Agent Context correction, use `tm update <id>` instead of manually editing `.tasks/tasks.jsonl`:
+
+```bash
+tm update <id> --message "Improve login context
+
+Clarify the requested login behavior." \
+  --context "Updated execution notes for the agent."
+```
+
+Use `--subject`, `--description`, `--description-file`, `--context`, `--context-file`, `--message`, or `--message-file` for explicit text updates. Do not combine `--message`/`--message-file` with `--subject` or Description flags. Use `--allow-empty-description` or `--allow-empty-context` only when intentionally clearing the matching field.
+
+### 7. Record dependencies with CLI commands
 
 After both Work Items in a dependency relationship exist, record the dependency with:
 
@@ -184,7 +197,7 @@ Use `tm unblock <blocked-id> --by <dependency-id>` only when removing an incorre
 
 Explanatory sequencing rationale may be included in Agent Context when it helps a future agent, but Markdown prose is not the source of truth for ordering. The dependency edge recorded by `tm block` is the source of truth.
 
-### 7. Include traceability in every Work Item
+### 8. Include traceability in every Work Item
 
 Every Work Item must include source traceability in its Description or Agent Context. Prefer both when concise.
 
@@ -198,7 +211,7 @@ Derived from `specs/auth.md`, sections “Login”, “Session expiry”, and �
 
 If the source came from conversation rather than a file, say so explicitly.
 
-### 8. Final validation and report
+### 9. Final validation and report
 
 After all approved Work Items and dependencies are created, run:
 

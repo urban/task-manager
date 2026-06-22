@@ -266,6 +266,28 @@ export const ensureValidStore = (
   return new ValidationFailure({ summary, issues });
 };
 
+const validateDescriptionRequirement = (
+  description: string,
+  allowEmptyDescription: boolean,
+): ValidationIssue | undefined =>
+  allowEmptyDescription || description.trim() !== ""
+    ? undefined
+    : {
+        message: "Description is required unless --allow-empty-description is set.",
+        path: "description",
+      };
+
+const validateAgentContextRequirement = (
+  agentContext: string,
+  allowEmptyContext: boolean,
+): ValidationIssue | undefined =>
+  allowEmptyContext || agentContext.trim() !== ""
+    ? undefined
+    : {
+        message: "Agent Context is required unless --allow-empty-context is set.",
+        path: "agentContext",
+      };
+
 export const ensureCanCreateItem = (options: {
   readonly level: WorkItemLevel;
   readonly parent?: WorkItem;
@@ -276,19 +298,21 @@ export const ensureCanCreateItem = (options: {
   readonly allowEmptyContext: boolean;
 }): ValidationFailure | undefined => {
   const issues: Array<ValidationIssue> = [...validateSubject(options.subject)];
+  const descriptionIssue = validateDescriptionRequirement(
+    options.description,
+    options.allowEmptyDescription,
+  );
+  const contextIssue = validateAgentContextRequirement(
+    options.agentContext,
+    options.allowEmptyContext,
+  );
 
-  if (!options.allowEmptyDescription && options.description.trim() === "") {
-    issues.push({
-      message: "Description is required unless --allow-empty-description is set.",
-      path: "description",
-    });
+  if (descriptionIssue !== undefined) {
+    issues.push(descriptionIssue);
   }
 
-  if (!options.allowEmptyContext && options.agentContext.trim() === "") {
-    issues.push({
-      message: "Agent Context is required unless --allow-empty-context is set.",
-      path: "agentContext",
-    });
+  if (contextIssue !== undefined) {
+    issues.push(contextIssue);
   }
 
   if (options.level === "epic" && options.parent !== undefined) {
@@ -318,6 +342,43 @@ export const ensureCanCreateItem = (options: {
 
   return new ValidationFailure({
     summary: "Work Item validation failed.",
+    issues,
+  });
+};
+
+export const ensureCanUpdateItem = (options: {
+  readonly subject?: string;
+  readonly description?: string;
+  readonly agentContext?: string;
+  readonly allowEmptyDescription: boolean;
+  readonly allowEmptyContext: boolean;
+}): ValidationFailure | undefined => {
+  const issues: Array<ValidationIssue> = [
+    ...(options.subject === undefined ? [] : validateSubject(options.subject)),
+  ];
+  const descriptionIssue =
+    options.description === undefined
+      ? undefined
+      : validateDescriptionRequirement(options.description, options.allowEmptyDescription);
+  const contextIssue =
+    options.agentContext === undefined
+      ? undefined
+      : validateAgentContextRequirement(options.agentContext, options.allowEmptyContext);
+
+  if (descriptionIssue !== undefined) {
+    issues.push(descriptionIssue);
+  }
+
+  if (contextIssue !== undefined) {
+    issues.push(contextIssue);
+  }
+
+  if (issues.length === 0) {
+    return undefined;
+  }
+
+  return new ValidationFailure({
+    summary: "Work Item update validation failed.",
     issues,
   });
 };

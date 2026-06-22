@@ -302,6 +302,34 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
   return workItem;
 });
 
+export interface WorkItemTextUpdates {
+  readonly subject?: string;
+  readonly description?: string;
+  readonly agentContext?: string;
+}
+
+export const updateWorkItemText = (options: {
+  readonly item: WorkItem;
+  readonly updates: WorkItemTextUpdates;
+  readonly updatedAt: DateTime.Utc;
+}): WorkItem =>
+  ({
+    schemaVersion: options.item.schemaVersion,
+    id: options.item.id,
+    level: options.item.level,
+    status: options.item.status,
+    subject: options.updates.subject ?? options.item.subject,
+    description: options.updates.description ?? options.item.description,
+    agentContext: options.updates.agentContext ?? options.item.agentContext,
+    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
+    ...(options.item.blockedBy === undefined ? {} : { blockedBy: options.item.blockedBy }),
+    ...(options.item.claim === undefined ? {} : { claim: options.item.claim }),
+    ...(options.item.result === undefined ? {} : { result: options.item.result }),
+    ...(options.item.cancellation === undefined ? {} : { cancellation: options.item.cancellation }),
+    createdAt: options.item.createdAt,
+    updatedAt: options.updatedAt,
+  }) satisfies WorkItem;
+
 export const updateWorkItemClaim = (options: {
   readonly item: WorkItem;
   readonly agent: string;

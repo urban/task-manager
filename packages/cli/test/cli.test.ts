@@ -167,6 +167,22 @@ const markDone = (item: WorkItem) =>
     } satisfies WorkItem;
   });
 
+const markCancelled = (item: WorkItem) =>
+  Effect.gen(function* () {
+    const cancelledAt = yield* DateTime.now;
+
+    return {
+      ...item,
+      status: "cancelled",
+      cancellation: {
+        reason: `${item.subject} cancelled`,
+        cancelledAt,
+        cancelledBy: "test-agent",
+      },
+      updatedAt: cancelledAt,
+    } satisfies WorkItem;
+  });
+
 const makeFixtureOpenWorkItem = (options: {
   readonly id: string;
   readonly subject: string;
@@ -277,6 +293,371 @@ describe("tm cli", () => {
         const created = decodeItemOutput(String(createResult.logs[0]));
         assert.strictEqual(created.item.subject, "Plan backlog tree");
         assert.strictEqual(created.item.description, "Create the initial Epic and Tasks.");
+      }),
+    ),
+  );
+
+  it.effect("updates Work Item Subject by unique prefix in JSON mode", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Update subject work");
+        yield* TestClock.adjust("1 second");
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id.slice(0, 12),
+          "--subject",
+          "Refine update subject",
+          "--json",
+        ]);
+        assert.strictEqual(result.exit._tag, "Success");
+        const updated = decodeItemOutput(String(result.logs[0])).item;
+
+        assert.strictEqual(updated.id, item.id);
+        assert.strictEqual(updated.subject, "Refine update subject");
+        assert.strictEqual(updated.description, item.description);
+        assert.strictEqual(updated.agentContext, item.agentContext);
+        assert.strictEqual(updated.status, "open");
+        assert.isAbove(
+          DateTime.toEpochMillis(updated.updatedAt),
+          DateTime.toEpochMillis(item.updatedAt),
+        );
+      }),
+    ),
+  );
+
+  it.effect("updates Description, Agent Context, and message fields", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Update text fields");
+
+        const descriptionResult = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id,
+          "--description",
+          "Updated human-facing description.",
+          "--json",
+        ]);
+        assert.strictEqual(descriptionResult.exit._tag, "Success");
+        const descriptionUpdated = decodeItemOutput(String(descriptionResult.logs[0])).item;
+        assert.strictEqual(descriptionUpdated.description, "Updated human-facing description.");
+        assert.strictEqual(descriptionUpdated.agentContext, item.agentContext);
+
+        const contextResult = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id,
+          "--context",
+          "Updated execution context.",
+          "--json",
+        ]);
+        assert.strictEqual(contextResult.exit._tag, "Success");
+        const contextUpdated = decodeItemOutput(String(contextResult.logs[0])).item;
+        assert.strictEqual(contextUpdated.description, "Updated human-facing description.");
+        assert.strictEqual(contextUpdated.agentContext, "Updated execution context.");
+
+        const messageResult = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id,
+          "--message",
+          "Retitle update work\n\nUpdated through message input.",
+          "--json",
+        ]);
+        assert.strictEqual(messageResult.exit._tag, "Success");
+        const messageUpdated = decodeItemOutput(String(messageResult.logs[0])).item;
+        assert.strictEqual(messageUpdated.subject, "Retitle update work");
+        assert.strictEqual(messageUpdated.description, "Updated through message input.");
+        assert.strictEqual(messageUpdated.agentContext, "Updated execution context.");
+      }),
+    ),
+  );
+
+  it.effect("updates Work Item text from files", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Update from files");
+        const fs = yield* FileSystem.FileSystem;
+        const descriptionFile = `${directory}/description.md`;
+        const contextFile = `${directory}/context.md`;
+        const messageFile = `${directory}/message.md`;
+        yield* fs.writeFileString(descriptionFile, "Description loaded from a file.");
+        yield* fs.writeFileString(contextFile, "Agent Context loaded from a file.");
+        yield* fs.writeFileString(
+          messageFile,
+          "Retitle from file\n\nDescription loaded through message-file.",
+        );
+
+        const descriptionResult = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id,
+          "--description-file",
+          descriptionFile,
+          "--json",
+        ]);
+        assert.strictEqual(descriptionResult.exit._tag, "Success");
+        const descriptionUpdated = decodeItemOutput(String(descriptionResult.logs[0])).item;
+        assert.strictEqual(descriptionUpdated.description, "Description loaded from a file.");
+
+        const messageResult = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id,
+          "--message-file",
+          messageFile,
+          "--context-file",
+          contextFile,
+          "--json",
+        ]);
+        assert.strictEqual(messageResult.exit._tag, "Success");
+        const messageUpdated = decodeItemOutput(String(messageResult.logs[0])).item;
+        assert.strictEqual(messageUpdated.subject, "Retitle from file");
+        assert.strictEqual(messageUpdated.description, "Description loaded through message-file.");
+        assert.strictEqual(messageUpdated.agentContext, "Agent Context loaded from a file.");
+      }),
+    ),
+  );
+
+  it.effect("allows explicit clearing of Description and Agent Context", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Clear update fields");
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id,
+          "--description",
+          "",
+          "--context",
+          "",
+          "--allow-empty-description",
+          "--allow-empty-context",
+          "--json",
+        ]);
+        assert.strictEqual(result.exit._tag, "Success");
+        const updated = decodeItemOutput(String(result.logs[0])).item;
+        assert.strictEqual(updated.subject, item.subject);
+        assert.strictEqual(updated.description, "");
+        assert.strictEqual(updated.agentContext, "");
+      }),
+    ),
+  );
+
+  it.effect("rejects invalid update inputs without changing storage", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Reject update inputs");
+        const fs = yield* FileSystem.FileSystem;
+        const descriptionFile = `${directory}/description.md`;
+        const messageFile = `${directory}/message.md`;
+        yield* fs.writeFileString(descriptionFile, "Description from file.");
+        yield* fs.writeFileString(messageFile, "Retitle from message file\n\nDescription.");
+        const before = yield* readTasksFile(directory);
+        const failureCases: ReadonlyArray<{
+          readonly args: ReadonlyArray<string>;
+          readonly expected: string;
+        }> = [
+          {
+            args: ["update", item.id, "--subject", "bad subject."],
+            expected: "Subject",
+          },
+          {
+            args: ["update", item.id, "--description", ""],
+            expected: "Description is required",
+          },
+          {
+            args: ["update", item.id, "--context", ""],
+            expected: "Agent Context is required",
+          },
+          {
+            args: ["update", item.id],
+            expected: "At least one update field is required",
+          },
+          {
+            args: [
+              "update",
+              item.id,
+              "--description",
+              "Inline description.",
+              "--description-file",
+              descriptionFile,
+            ],
+            expected: "Use either --description or --description-file",
+          },
+          {
+            args: [
+              "update",
+              item.id,
+              "--message",
+              "Retitle update\n\nDescription.",
+              "--subject",
+              "Retitle update",
+            ],
+            expected: "Do not combine",
+          },
+          {
+            args: [
+              "update",
+              item.id,
+              "--message",
+              "Retitle update\n\nDescription.",
+              "--message-file",
+              messageFile,
+            ],
+            expected: "Use either --message or --message-file",
+          },
+        ];
+
+        for (const failureCase of failureCases) {
+          const result = yield* run(["--cwd", directory, ...failureCase.args]);
+          assert.strictEqual(result.exit._tag, "Failure");
+          assert.isTrue(String(result.errors[0]).includes(failureCase.expected));
+          assert.strictEqual(yield* readTasksFile(directory), before);
+        }
+      }),
+    ),
+  );
+
+  it.effect("preserves metadata and updates done or cancelled Work Items", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Preserve update metadata");
+        const dependency = yield* createWorkItem(directory, "Prepare metadata dependency");
+        yield* run(["--cwd", directory, "block", item.id, "--by", dependency.id]);
+        const claimed = yield* claimWorkItem(directory, item.id, "metadata-agent");
+        const originalClaim = claimed.claim;
+        if (originalClaim === undefined) {
+          assert.fail("Expected claimed fixture to include a claim.");
+        } else {
+          const updateResult = yield* run([
+            "--cwd",
+            directory,
+            "update",
+            item.id,
+            "--description",
+            "Updated while preserving metadata.",
+            "--json",
+          ]);
+          assert.strictEqual(updateResult.exit._tag, "Success");
+          const updatedOpen = decodeItemOutput(String(updateResult.logs[0])).item;
+          const updatedClaim = updatedOpen.claim;
+          if (updatedClaim === undefined) {
+            assert.fail("Expected update to preserve the existing claim.");
+          } else {
+            assert.deepStrictEqual(updatedOpen.blockedBy, [dependency.id]);
+            assert.strictEqual(updatedClaim.agent, originalClaim.agent);
+            assert.strictEqual(
+              DateTime.toEpochMillis(updatedClaim.claimedAt),
+              DateTime.toEpochMillis(originalClaim.claimedAt),
+            );
+            assert.strictEqual(
+              DateTime.toEpochMillis(updatedClaim.expiresAt),
+              DateTime.toEpochMillis(originalClaim.expiresAt),
+            );
+            assert.strictEqual(updatedOpen.status, "open");
+            assert.strictEqual(updatedOpen.result, undefined);
+            assert.strictEqual(updatedOpen.cancellation, undefined);
+
+            const doneBase = yield* createWorkItem(directory, "Update done item");
+            const cancelledBase = yield* createWorkItem(directory, "Update cancelled item");
+            const doneItem = yield* markDone(doneBase);
+            const cancelledItem = yield* markCancelled(cancelledBase);
+            yield* writeTasksFile(directory, [updatedOpen, dependency, doneItem, cancelledItem]);
+
+            const doneResult = yield* run([
+              "--cwd",
+              directory,
+              "update",
+              doneItem.id,
+              "--subject",
+              "Refine done item",
+              "--json",
+            ]);
+            assert.strictEqual(doneResult.exit._tag, "Success");
+            const updatedDone = decodeItemOutput(String(doneResult.logs[0])).item;
+            assert.strictEqual(updatedDone.status, "done");
+            assert.strictEqual(updatedDone.subject, "Refine done item");
+            const originalResult = doneItem.result;
+            const preservedResult = updatedDone.result;
+            if (originalResult === undefined || preservedResult === undefined) {
+              assert.fail("Expected done update to preserve Result metadata.");
+            } else {
+              assert.strictEqual(preservedResult.summary, originalResult.summary);
+              assert.strictEqual(preservedResult.completedBy, originalResult.completedBy);
+              assert.strictEqual(
+                DateTime.toEpochMillis(preservedResult.completedAt),
+                DateTime.toEpochMillis(originalResult.completedAt),
+              );
+            }
+
+            const cancellationResult = yield* run([
+              "--cwd",
+              directory,
+              "update",
+              cancelledItem.id,
+              "--context",
+              "Corrected cancellation context.",
+              "--json",
+            ]);
+            assert.strictEqual(cancellationResult.exit._tag, "Success");
+            const updatedCancelled = decodeItemOutput(String(cancellationResult.logs[0])).item;
+            assert.strictEqual(updatedCancelled.status, "cancelled");
+            assert.strictEqual(updatedCancelled.agentContext, "Corrected cancellation context.");
+            const originalCancellation = cancelledItem.cancellation;
+            const preservedCancellation = updatedCancelled.cancellation;
+            if (originalCancellation === undefined || preservedCancellation === undefined) {
+              assert.fail("Expected cancelled update to preserve Cancellation metadata.");
+            } else {
+              assert.strictEqual(preservedCancellation.reason, originalCancellation.reason);
+              assert.strictEqual(
+                preservedCancellation.cancelledBy,
+                originalCancellation.cancelledBy,
+              );
+              assert.strictEqual(
+                DateTime.toEpochMillis(preservedCancellation.cancelledAt),
+                DateTime.toEpochMillis(originalCancellation.cancelledAt),
+              );
+            }
+          }
+        }
+      }),
+    ),
+  );
+
+  it.effect("renders human output for updates", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Render update output");
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id,
+          "--description",
+          "Human output description.",
+        ]);
+        assert.strictEqual(result.exit._tag, "Success");
+        assert.isTrue(String(result.logs[0]).includes("Updated Render update output"));
+        assert.isTrue(String(result.logs[0]).includes(item.id));
       }),
     ),
   );

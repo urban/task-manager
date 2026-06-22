@@ -25,6 +25,7 @@ Available commands:
 - `tm init`: initialize `.tasks/tasks.jsonl` storage.
 - `tm validate`: validate the JSONL store on disk.
 - `tm create`: create an Epic, Task, or Subtask with Description and Agent Context.
+- `tm update`: safely update a Work Item's Subject, Description, or Agent Context.
 - `tm show`: show one Work Item by full ID or unique ID prefix.
 - `tm list`: list the open backlog tree, optionally scoped with `--root <id>`.
 - `tm next`: select the first actionable open leaf Work Item in deterministic tree order; it skips Work Items with incomplete dependencies and skips active claims unless scoped with `--root <id>` or run with `--include-claimed`.
@@ -138,6 +139,7 @@ Record an ordering dependency and inspect the backlog:
 
 ```sh
 tm block wi_api... --by wi_model...
+tm update wi_api... --message $'Refine API work\n\nClarify the requested API behavior.'
 tm show wi_api...
 tm unblock wi_api... --by wi_model...
 tm list
