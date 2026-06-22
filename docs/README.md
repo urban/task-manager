@@ -4,9 +4,9 @@ This document explains Task Manager. The goal is to make development work durabl
 
 The CLI binary is `tm`. The persisted data lives in `.tasks/tasks.jsonl` by default so it can be committed with the repository.
 
-The current CLI is non-interactive: use flags and file inputs instead of editor prompts. This keeps the tool scriptable and predictable for AI agents. Agent-aware commands (`claim`, `release`, and `complete`) use `--agent <name>` or the `TM_AGENT` environment variable.
+The current CLI is non-interactive: use flags and file inputs instead of editor prompts. This keeps the tool scriptable and predictable for AI agents. Agent-aware commands (`claim`, `release`, `complete`, and `cancel`) use `--agent <name>` or the `TM_AGENT` environment variable.
 
-Current commands are `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `release`, `complete`, `block`, and `unblock`. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
+Current commands are `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `release`, `complete`, `cancel`, `block`, and `unblock`. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
 
 ## Why this exists
 
@@ -97,7 +97,7 @@ A Work Item in storage has one of three lifecycle states:
 - `done`
 - `cancelled`
 
-The current public CLI creates `open` Work Items and can move open Work Items with no open children to `done` using `tm complete`. The storage schema understands `cancelled` records for future lifecycle work, but `tm cancel`, `tm delete`, and `tm reopen` are not currently implemented.
+The public CLI creates `open` Work Items, can move open Work Items with no open children to `done` using `tm complete`, and can move open Work Items to `cancelled` using `tm cancel`.
 
 There is no `in_progress` state. Active work is represented by an **Agent Claim** instead.
 
@@ -129,9 +129,38 @@ Example:
 
 Weak Results such as "done" or "should work" are not acceptable because they do not help a future reader understand whether the work was actually verified.
 
-### Planned lifecycle commands
+### Cancelled and Cancellation
 
-`tm cancel`, `tm delete`, and `tm reopen` are planned lifecycle commands, but they are not available in the current CLI. Until they land, use `tm release` to clear an abandoned claim and leave unfinished Work Items `open` rather than manually editing `.tasks/tasks.jsonl`.
+A Work Item is `cancelled` when real work intentionally stops unfinished. Cancellation is separate from completion: cancelled Work Items were not done, so they store a structured **Cancellation** record instead of a Result.
+
+A Cancellation records:
+
+- reason the work stopped,
+- cancellation timestamp, and
+- Agent Identity that cancelled it.
+
+Example:
+
+```json
+{
+  "reason": "No longer needed after the approach changed.",
+  "cancelledAt": "2026-06-15T13:00:00.000Z",
+  "cancelledBy": "codex-auth-session"
+}
+```
+
+Use `tm cancel <id> --agent <name> --reason <text>` to cancel a leaf Work Item. Use `--reason-file <path>` for longer reasons. Parent cancellation previews the open descendants that would also be cancelled and requires `--yes` before mutating storage:
+
+```sh
+tm cancel wi_3f7d... \
+  --agent codex-auth-session \
+  --reason "No longer needed after the approach changed" \
+  --yes
+```
+
+Cascading cancellation applies only to open descendants. Done and already-cancelled descendants are left unchanged. Successful cancellation clears claims on each Work Item it cancels. Cancelling a Work Item with another agent's active claim requires `--force`; expired claims do not require force.
+
+`tm delete` and `tm reopen` remain planned lifecycle commands. Prefer `tm cancel` for real work that is no longer needed, and use `tm release` only when clearing an abandoned claim while leaving unfinished Work Items open.
 
 ## Dependencies
 
@@ -359,7 +388,7 @@ Dependencies are independent of hierarchy, so a Work Item can be blocked by any 
 tm show wi_3f7d...
 ```
 
-`tm show` is an inspection command. In human mode it shows the selected Work Item's status, parent ID, dependencies, current claim, Description, Agent Context, and Result. In JSON mode it returns the encoded Work Item. Use `tm list --root <id>` when you need an open subtree view.
+`tm show` is an inspection command. In human mode it shows the selected Work Item's status, parent ID, dependencies, current claim, Description, Agent Context, Result, and Cancellation. In JSON mode it returns the encoded Work Item. Use `tm list --root <id>` when you need a subtree view.
 
 ### List the Backlog
 
@@ -367,15 +396,23 @@ tm show wi_3f7d...
 tm list
 ```
 
-`tm list` shows the open Backlog tree so the default view stays focused on remaining work. Completed Work Items leave the default list.
+`tm list` shows the open Backlog tree by default so the default view stays focused on remaining work. Completed and cancelled Work Items leave the default list, but remain inspectable through lifecycle filters:
 
-Use `--root <id>` for a focused open subtree view:
+```sh
+tm list --status done
+tm list --status cancelled
+tm list --all
+```
+
+Use `--root <id>` for a focused subtree view. Root scoping composes with lifecycle filters:
 
 ```sh
 tm list --root wi_3f7d...
+tm list --root wi_3f7d... --status cancelled
+tm list --root wi_3f7d... --all
 ```
 
-The current CLI does not provide `--status` or `--all` filters. Use `tm show <id>` to inspect a completed Work Item when you know its ID.
+`--all` includes open, done, and cancelled Work Items. `--status` accepts one lifecycle state per invocation. In JSON mode, list output keeps the same tree node shape and reflects the selected lifecycle filter.
 
 ### Find work for an agent
 
@@ -461,24 +498,44 @@ For longer messages, write the same format to a file and pass `--result-message-
 
 Only open Work Items can be completed. Before completing, the CLI rejects open children, incomplete dependencies, and another agent's active claim. Use `--force` only to override incomplete dependencies or another active claim. Verification evidence is required by default; use the explicit `--allow-no-verification` escape hatch when no verification can be recorded.
 
+### Cancel work
+
+```sh
+tm cancel wi_3f7d... \
+  --agent codex-auth-session \
+  --reason "No longer needed after approach changed"
+```
+
+Use `--reason-file <path>` for longer reasons. Do not pass both `--reason` and `--reason-file`.
+
+Cancelling a parent with open descendants previews the cascade and fails without mutation unless `--yes` is passed:
+
+```sh
+tm cancel wi_epic... \
+  --agent codex-auth-session \
+  --reason "Initiative replaced by a different approach" \
+  --yes
+```
+
+Only open Work Items are cancelled by a cascade. Done and already-cancelled descendants are preserved. Cancelling another agent's active claim requires `--force`; expired claims and same-agent claims do not. Successful cancellation clears claims on the cancelled Work Items.
+
 ## Current CLI scope
 
 The current implementation supports:
 
 - local JSONL storage,
 - non-interactive CLI input through flags and files,
-- Work Item creation, safe text updates, validation, inspection, and open backlog listing,
+- Work Item creation, safe text updates, validation, inspection, and filtered backlog listing,
 - hierarchy validation for Epics, Tasks, and Subtasks,
 - dependencies through `tm block` and `tm unblock`,
 - deterministic work selection through `tm next`,
-- advisory Agent Claims through `tm claim` and `tm release`, and
-- structured completion through `tm complete`.
+- advisory Agent Claims through `tm claim` and `tm release`,
+- structured completion through `tm complete`, and
+- structured cancellation through `tm cancel`.
 
 Planned but not currently implemented:
 
-- `tm cancel` for structured Cancellation,
-- `tm delete` for accidental records,
-- `tm reopen`, and
-- status/all filters for `tm list`.
+- `tm delete` for accidental records, and
+- `tm reopen`.
 
 GitHub/Shortcut/Linear sync is not in the current CLI. External sync may be added later, but the local workflow must be solid first.

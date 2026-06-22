@@ -1,6 +1,7 @@
 import * as Command from "effect/unstable/cli/Command";
 
 import { commandBlock } from "./commands/block";
+import { commandCancel } from "./commands/cancel";
 import { commandClaim } from "./commands/claim";
 import { commandComplete } from "./commands/complete";
 import { commandCreate } from "./commands/create";
@@ -28,6 +29,7 @@ const tmCommand = commandRoot.pipe(
     commandClaim,
     commandRelease,
     commandComplete,
+    commandCancel,
     commandBlock,
     commandUnblock,
   ]),

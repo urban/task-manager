@@ -17,6 +17,7 @@ export type WorkItemLevel = typeof WorkItemLevelSchema.Type;
 
 export const WorkItemStatusSchema = Schema.Literals(["open", "done", "cancelled"] as const);
 export type WorkItemStatus = typeof WorkItemStatusSchema.Type;
+export const allWorkItemStatuses: ReadonlyArray<WorkItemStatus> = ["open", "done", "cancelled"];
 
 export const ClaimSchema = Schema.Struct({
   agent: Schema.String,
@@ -39,6 +40,7 @@ export const CancellationSchema = Schema.Struct({
   cancelledAt: Schema.DateTimeUtcFromString,
   cancelledBy: Schema.String,
 });
+export type WorkItemCancellation = typeof CancellationSchema.Type;
 
 export const WorkItemSchema = Schema.Struct({
   schemaVersion: Schema.Literal(schemaVersion),
@@ -164,6 +166,77 @@ const buildNode = (
     .map((child) => buildNode(child, childrenByParent, openOnly));
 
   return { item, children };
+};
+
+const flattenFromRoot = (
+  root: WorkItem,
+  childrenByParent: ReadonlyMap<string, ReadonlyArray<WorkItem>>,
+): ReadonlyArray<WorkItem> => {
+  const ordered: Array<WorkItem> = [];
+
+  const visit = (item: WorkItem): void => {
+    ordered.push(item);
+    const children = childrenByParent.get(item.id) ?? [];
+    for (const child of children) {
+      visit(child);
+    }
+  };
+
+  visit(root);
+  return ordered;
+};
+
+const matchesStatusFilter = (
+  item: WorkItem,
+  statuses: ReadonlySet<WorkItemStatus> | undefined,
+): boolean => statuses === undefined || statuses.has(item.status);
+
+const hasVisibleAncestor = (
+  item: WorkItem,
+  scopedItemsById: ReadonlyMap<string, WorkItem>,
+  visibleIds: ReadonlySet<string>,
+): boolean => {
+  let currentParentId = item.parentId;
+
+  while (currentParentId !== undefined) {
+    if (visibleIds.has(currentParentId)) {
+      return true;
+    }
+
+    const parent = scopedItemsById.get(currentParentId);
+    if (parent === undefined) {
+      return false;
+    }
+    currentParentId = parent.parentId;
+  }
+
+  return false;
+};
+
+export const buildFilteredTree = (
+  items: ReadonlyArray<WorkItem>,
+  options?: {
+    readonly root?: WorkItem;
+    readonly statuses?: ReadonlySet<WorkItemStatus>;
+  },
+): ReadonlyArray<WorkItemTreeNode> => {
+  const scopedItems =
+    options?.root === undefined
+      ? sortWorkItems(items)
+      : flattenFromRoot(options.root, buildChildrenByParent(items));
+  const visibleItems = scopedItems.filter((item) => matchesStatusFilter(item, options?.statuses));
+  const visibleIds = new Set(visibleItems.map((item) => item.id));
+  const scopedItemsById = new Map(scopedItems.map((item) => [item.id, item]));
+  const childrenByParent = buildChildrenByParent(visibleItems);
+  const rootIds = new Set(
+    visibleItems
+      .filter((item) => !hasVisibleAncestor(item, scopedItemsById, visibleIds))
+      .map((item) => item.id),
+  );
+
+  return visibleItems
+    .filter((item) => rootIds.has(item.id))
+    .map((item) => buildNode(item, childrenByParent, false));
 };
 
 export const buildTree = (
@@ -394,6 +467,31 @@ export const completeWorkItem = (options: {
     },
     createdAt: options.item.createdAt,
     updatedAt: options.completedAt,
+  }) satisfies WorkItem;
+
+export const cancelWorkItem = (options: {
+  readonly item: WorkItem;
+  readonly reason: string;
+  readonly cancelledAt: DateTime.Utc;
+  readonly cancelledBy: string;
+}): WorkItem =>
+  ({
+    schemaVersion: options.item.schemaVersion,
+    id: options.item.id,
+    level: options.item.level,
+    status: "cancelled",
+    subject: options.item.subject,
+    description: options.item.description,
+    agentContext: options.item.agentContext,
+    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
+    ...(options.item.blockedBy === undefined ? {} : { blockedBy: options.item.blockedBy }),
+    cancellation: {
+      reason: options.reason,
+      cancelledAt: options.cancelledAt,
+      cancelledBy: options.cancelledBy,
+    },
+    createdAt: options.item.createdAt,
+    updatedAt: options.cancelledAt,
   }) satisfies WorkItem;
 
 export const updateWorkItemDependencies = Effect.fnUntraced(function* (options: {

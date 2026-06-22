@@ -27,10 +27,11 @@ Available commands:
 - `tm create`: create an Epic, Task, or Subtask with Description and Agent Context.
 - `tm update`: safely update a Work Item's Subject, Description, or Agent Context.
 - `tm show`: show one Work Item by full ID or unique ID prefix.
-- `tm list`: list the open backlog tree, optionally scoped with `--root <id>`.
+- `tm list`: list the open backlog tree, optionally scoped with `--root <id>` and lifecycle filters such as `--status done`, `--status cancelled`, or `--all`.
 - `tm next`: select the first actionable open leaf Work Item in deterministic tree order; it skips Work Items with incomplete dependencies and skips active claims unless scoped with `--root <id>` or run with `--include-claimed`.
 - `tm claim` and `tm release`: manage one-hour advisory Agent Claims using `--agent <name>` or `TM_AGENT`.
 - `tm complete`: mark an open Work Item done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
+- `tm cancel`: mark open Work Items cancelled with a structured Cancellation reason; parent cancellation cascades to open descendants only with `--yes`.
 - `tm block` and `tm unblock`: add or remove dependency relationships between Work Items.
 
 Shared flags:
@@ -53,6 +54,7 @@ Writes are guarded by a transient lock file and persisted by writing a temporary
 - **Dependency**: an ordering relationship where one Work Item is blocked by another.
 - **Agent Claim**: advisory one-hour claim that helps agents avoid duplicate work.
 - **Result**: completion record with summary, details, decisions, verification evidence, timestamp, and Agent Identity.
+- **Cancellation**: cancellation record with reason, timestamp, and Agent Identity for real work that intentionally stopped unfinished.
 
 See [`CONTEXT.md`](./CONTEXT.md) for the project vocabulary.
 
@@ -143,12 +145,17 @@ tm update wi_api... --message $'Refine API work\n\nClarify the requested API beh
 tm show wi_api...
 tm unblock wi_api... --by wi_model...
 tm list
+tm list --status cancelled
 tm next
 tm claim wi_api... --agent codex-session
 tm complete wi_api... \
   --agent codex-session \
   --summary "Implemented API endpoint" \
   --verification "bun run check: passed"
+tm cancel wi_obsolete... \
+  --agent codex-session \
+  --reason "No longer needed after approach changed" \
+  --yes
 tm next --include-claimed --json
 tm release wi_api... --agent codex-session
 tm validate --json

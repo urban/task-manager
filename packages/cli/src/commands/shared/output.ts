@@ -103,6 +103,14 @@ const renderResultHuman = (result: WorkItemEncoded["result"]): string =>
         `Completed: ${result.completedAt} by ${result.completedBy}`,
       ].join("\n");
 
+const renderCancellationHuman = (cancellation: WorkItemEncoded["cancellation"]): string =>
+  cancellation === undefined
+    ? "-"
+    : [
+        `Reason: ${cancellation.reason}`,
+        `Cancelled: ${cancellation.cancelledAt} by ${cancellation.cancelledBy}`,
+      ].join("\n");
+
 export const renderWorkItemHuman = (item: WorkItem): string => {
   const encoded = encodeItemForOutput(item);
   const dependencies = encoded.blockedBy?.length ?? 0;
@@ -125,6 +133,9 @@ export const renderWorkItemHuman = (item: WorkItem): string => {
     "",
     "Result:",
     renderResultHuman(encoded.result),
+    "",
+    "Cancellation:",
+    renderCancellationHuman(encoded.cancellation),
   ].join("\n");
 };
 
