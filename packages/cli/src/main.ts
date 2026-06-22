@@ -5,6 +5,7 @@ import { commandCancel } from "./commands/cancel";
 import { commandClaim } from "./commands/claim";
 import { commandComplete } from "./commands/complete";
 import { commandCreate } from "./commands/create";
+import { commandDelete } from "./commands/delete";
 import { commandInit } from "./commands/init";
 import { commandList } from "./commands/list";
 import { commandNext } from "./commands/next";
@@ -30,6 +31,7 @@ const tmCommand = commandRoot.pipe(
     commandRelease,
     commandComplete,
     commandCancel,
+    commandDelete,
     commandBlock,
     commandUnblock,
   ]),

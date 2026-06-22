@@ -32,6 +32,7 @@ Sections that require commands or flags such as `tm next`, `tm claim`, `tm compl
 - Only use commands and flags verified in the current implementation.
 - Prefer CLI-enforced fields and commands over Markdown conventions.
 - Record hierarchy with `--parent`, dependencies with repeatable `tm create --blocked-by` when dependency IDs already exist or `tm block` after creation, advisory ownership with `tm claim`, completion evidence with `tm complete` Result fields, and text corrections with `tm update`.
+- Prefer `tm cancel` for real work that should stop. Use `tm delete <id> --yes` only for mistaken, duplicate, or accidental records, and only after verifying the installed CLI supports the `delete` command.
 - Never manually edit `.tasks/tasks.jsonl` unless the user explicitly asks for low-level recovery.
 - Do not invent plan import, sync, priority, auto-claim, comma-separated dependency parsing, or other workflows that the CLI does not enforce.
 

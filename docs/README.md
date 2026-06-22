@@ -6,7 +6,7 @@ The CLI binary is `tm`. The persisted data lives in `.tasks/tasks.jsonl` by defa
 
 The current CLI is non-interactive: use flags and file inputs instead of editor prompts. This keeps the tool scriptable and predictable for AI agents. Agent-aware commands (`claim`, `release`, `complete`, and `cancel`) use `--agent <name>` or the `TM_AGENT` environment variable.
 
-Current commands are `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `release`, `complete`, `cancel`, `block`, and `unblock`. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
+Current commands are `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `release`, `complete`, `cancel`, `delete`, `block`, and `unblock`. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
 
 ## Why this exists
 
@@ -160,7 +160,21 @@ tm cancel wi_3f7d... \
 
 Cascading cancellation applies only to open descendants. Done and already-cancelled descendants are left unchanged. Successful cancellation clears claims on each Work Item it cancels. Cancelling a Work Item with another agent's active claim requires `--force`; expired claims do not require force.
 
-`tm delete` and `tm reopen` remain planned lifecycle commands. Prefer `tm cancel` for real work that is no longer needed, and use `tm release` only when clearing an abandoned claim while leaving unfinished Work Items open.
+### Delete
+
+`tm delete` is a destructive cleanup command for mistaken, duplicate, or accidental records. Prefer `tm cancel` for real work that is no longer needed, and use `tm release` only when clearing an abandoned claim while leaving unfinished Work Items open.
+
+Because the CLI is non-interactive, destructive deletion requires `--yes` before storage is mutated:
+
+```sh
+tm delete wi_3f7d... --yes
+```
+
+Running without `--yes` previews the Work Items that would be permanently deleted and exits without mutation. If the selected Work Item has descendants, the entire subtree is deleted together.
+
+Deletion refuses to leave dangling dependencies. If any remaining Work Item depends on a Work Item that would be deleted, first `tm unblock` the dependency, `tm cancel` the dependent Work Item, or include the dependent Work Item in the deleted subtree.
+
+`tm reopen` remains a planned lifecycle command.
 
 ## Dependencies
 
@@ -529,6 +543,30 @@ tm cancel wi_epic... \
 
 Only open Work Items are cancelled by a cascade. Done and already-cancelled descendants are preserved. Cancelling another agent's active claim requires `--force`; expired claims and same-agent claims do not. Successful cancellation clears claims on the cancelled Work Items.
 
+### Delete accidental records
+
+Use deletion only for mistaken, duplicate, or accidental records. Prefer `tm cancel` when a Work Item represented real work that intentionally stopped unfinished.
+
+Preview the destructive operation without mutating storage:
+
+```sh
+tm delete wi_3f7d...
+```
+
+Confirm deletion explicitly with `--yes`:
+
+```sh
+tm delete wi_3f7d... --yes
+```
+
+If the selected Work Item has descendants, the full subtree is deleted. The command refuses to delete a Work Item when any remaining Work Item would still depend on it; unblock, cancel, or delete the dependent Work Items first.
+
+In JSON mode, successful deletion returns the deleted IDs and subjects:
+
+```json
+{ "ok": true, "deleted": [{ "id": "wi_...", "subject": "Accidental Work Item" }] }
+```
+
 ## Current CLI scope
 
 The current implementation supports:
@@ -540,12 +578,12 @@ The current implementation supports:
 - dependencies through repeatable `tm create --blocked-by`, `tm block`, and `tm unblock`,
 - deterministic work selection through `tm next`,
 - advisory Agent Claims through `tm claim` and `tm release`,
-- structured completion through `tm complete`, and
-- structured cancellation through `tm cancel`.
+- structured completion through `tm complete`,
+- structured cancellation through `tm cancel`, and
+- destructive accidental-record cleanup through `tm delete`.
 
 Planned but not currently implemented:
 
-- `tm delete` for accidental records, and
 - `tm reopen`.
 
 GitHub/Shortcut/Linear sync is not in the current CLI. External sync may be added later, but the local workflow must be solid first.

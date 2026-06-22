@@ -32,6 +32,7 @@ Available commands:
 - `tm claim` and `tm release`: manage one-hour advisory Agent Claims using `--agent <name>` or `TM_AGENT`.
 - `tm complete`: mark an open Work Item done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
 - `tm cancel`: mark open Work Items cancelled with a structured Cancellation reason; parent cancellation cascades to open descendants only with `--yes`.
+- `tm delete`: destructively delete accidental Work Items and their descendants with `--yes`, refusing to leave dangling dependencies.
 - `tm block` and `tm unblock`: add or remove dependency relationships between Work Items.
 
 Shared flags:
