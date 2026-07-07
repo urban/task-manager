@@ -112,6 +112,69 @@ This repo includes an agent skill at [`skills/task-manager/SKILL.md`](./skills/t
 
 If your agent does not have a formal skill system, ask it to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Work Items from PRDs/specs, record dependencies with `tm create --blocked-by` or `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
 
+#### Prompt workflows
+
+Use these prompts as starting points when asking an AI coding agent to use `tm`.
+
+Quick creation from an explicit list:
+
+```text
+Use the task-manager skill. Create these Work Items now with tm, without drafting a separate approval plan unless something is ambiguous:
+
+1. Add login form
+2. Validate login credentials
+3. Add login integration tests
+
+Make them Tasks under an Epic called “Add authentication”. Run tm validate before and after.
+```
+
+Plan a backlog from a PRD or spec:
+
+```text
+Use the task-manager skill. Turn this spec into tm Work Items.
+
+Draft the hierarchy first and wait for my approval before creating anything. Prefer vertical slices. Include dependencies only when ordering is real.
+```
+
+Create dependent Work Items:
+
+```text
+Use the task-manager skill. Create this backlog with dependencies:
+
+Epic: Improve task selection
+- Task: Add root filtering
+- Task: Add claimed-item filtering, blocked by Add root filtering
+- Task: Add JSON tests, blocked by both previous tasks
+
+Use tm create --json, capture IDs with jq, then add dependency edges with tm block if needed.
+```
+
+Execute the next actionable Work Item:
+
+```text
+Use the task-manager skill. Pick the next actionable Work Item with tm next --json, claim it as agent “pi”, implement it, run bun run check, then complete it with a detailed Result.
+```
+
+Work under a specific root:
+
+```text
+Use the task-manager skill. Continue the next actionable Work Item under root <id>. Use tm next --root <id> --json.
+```
+
+Release, cancel, or delete Work Items:
+
+```text
+Use the task-manager skill. Release my claim on Work Item <id> as agent “pi”. Validate afterward.
+```
+
+```text
+Use the task-manager skill. Cancel Work Item <id> because it is obsolete. Use a structured reason and validate afterward.
+```
+
+```text
+Use the task-manager skill. Delete Work Item <id> because it was created accidentally. Confirm with --yes and validate afterward.
+```
+
 Initialize task storage in the current Git repository:
 
 ```sh
