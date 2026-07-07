@@ -4,6 +4,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
+import * as Scope from "effect/Scope";
 
 import { ensureValidStore } from "../domain/Validation";
 import {
@@ -233,7 +234,7 @@ export const writeStore = (
 ): Effect.Effect<
   ReadonlyArray<WorkItem>,
   StorageFailure | ValidationFailure | LockUnavailable,
-  FileSystem.FileSystem
+  FileSystem.FileSystem | Scope.Scope
 > =>
   Effect.gen(function* () {
     const validation = ensureValidStore(items, "Store validation failed before write.");
@@ -260,8 +261,9 @@ export const writeStore = (
       paths.lockFile,
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
+
         const tempFile = yield* fs
-          .makeTempFile({
+          .makeTempFileScoped({
             directory: paths.storageDirectory,
             prefix: "tasks-",
             suffix: ".jsonl",
@@ -277,9 +279,6 @@ export const writeStore = (
               fs
                 .rename(tempFile, paths.tasksFile)
                 .pipe(mapPlatformError(`Failed to rename ${tempFile} to ${paths.tasksFile}`)),
-            ),
-            Effect.ensuring(
-              fs.remove(tempFile, { force: true }).pipe(Effect.catch(() => Effect.void)),
             ),
           );
 
@@ -307,7 +306,7 @@ export const initStore = (
     readonly items: ReadonlyArray<WorkItem>;
   },
   StorageFailure | ValidationFailure | LockUnavailable,
-  FileSystem.FileSystem
+  FileSystem.FileSystem | Scope.Scope
 > =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
