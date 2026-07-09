@@ -18,6 +18,7 @@ import {
   sortWorkItems,
   WorkItemSchema,
   type WorkItem,
+  type WorkItemExecutionMode,
   type WorkItemLevel,
 } from "../src/domain/WorkItem";
 import { runTmCli } from "../src/main";
@@ -80,6 +81,7 @@ const CancelOutputSchema = Schema.Struct({
 const DeletedItemOutputSchema = Schema.Struct({
   id: Schema.String,
   subject: Schema.String,
+  executionMode: Schema.String,
 });
 
 const DeleteOutputSchema = Schema.Struct({
@@ -87,10 +89,36 @@ const DeleteOutputSchema = Schema.Struct({
   deleted: Schema.Array(DeletedItemOutputSchema),
 });
 
+const ListTreeChildNodeSchema = Schema.Struct({
+  id: Schema.String,
+  level: Schema.String,
+  status: Schema.String,
+  executionMode: Schema.String,
+  subject: Schema.String,
+  matchesFilter: Schema.Boolean,
+  children: Schema.Array(Schema.Unknown),
+});
+
+const ListTreeNodeSchema = Schema.Struct({
+  id: Schema.String,
+  level: Schema.String,
+  status: Schema.String,
+  executionMode: Schema.String,
+  subject: Schema.String,
+  matchesFilter: Schema.Boolean,
+  children: Schema.Array(ListTreeChildNodeSchema),
+});
+
+const ListOutputSchema = Schema.Struct({
+  ok: Schema.Literal(true),
+  items: Schema.Array(ListTreeNodeSchema),
+});
+
 const decodeValidateOutput = Schema.decodeSync(Schema.fromJsonString(ValidateOutputSchema));
 const decodeItemOutput = Schema.decodeSync(Schema.fromJsonString(ItemOutputSchema));
 const decodeCancelOutput = Schema.decodeSync(Schema.fromJsonString(CancelOutputSchema));
 const decodeDeleteOutput = Schema.decodeSync(Schema.fromJsonString(DeleteOutputSchema));
+const decodeListOutput = Schema.decodeSync(Schema.fromJsonString(ListOutputSchema));
 
 const withTempDirectory = <A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
@@ -106,11 +134,13 @@ const createWorkItem = (
     readonly level?: WorkItemLevel;
     readonly parent?: string;
     readonly blockedBy?: ReadonlyArray<string>;
+    readonly executionMode?: WorkItemExecutionMode;
   },
 ) =>
   Effect.gen(function* () {
     const parentArgs = options?.parent === undefined ? [] : ["--parent", options.parent];
     const blockedByArgs = (options?.blockedBy ?? []).flatMap((id) => ["--blocked-by", id]);
+    const modeArgs = options?.executionMode === undefined ? [] : ["--mode", options.executionMode];
     const result = yield* run([
       "--cwd",
       directory,
@@ -118,6 +148,7 @@ const createWorkItem = (
       subject,
       "--level",
       options?.level ?? "task",
+      ...modeArgs,
       ...parentArgs,
       ...blockedByArgs,
       "--description",
@@ -136,10 +167,12 @@ const claimWorkItem = (
   agent: string,
   options?: {
     readonly force?: boolean;
+    readonly allowHuman?: boolean;
   },
 ) =>
   Effect.gen(function* () {
     const forceArgs = options?.force === true ? ["--force"] : [];
+    const allowHumanArgs = options?.allowHuman === true ? ["--allow-human"] : [];
     const result = yield* run([
       "--cwd",
       directory,
@@ -148,6 +181,7 @@ const claimWorkItem = (
       "--agent",
       agent,
       ...forceArgs,
+      ...allowHumanArgs,
       "--json",
     ]);
     assert.strictEqual(result.exit._tag, "Success");
@@ -219,6 +253,7 @@ const makeFixtureOpenWorkItem = (options: {
     subject: options.subject,
     description: `${options.subject} description.`,
     agentContext: `${options.subject} context.`,
+    executionMode: "agent",
     ...(options.parentId === undefined ? {} : { parentId: options.parentId }),
     createdAt: options.createdAt,
     updatedAt: options.createdAt,
@@ -284,11 +319,14 @@ describe("tm cli", () => {
         assert.strictEqual(createResult.exit._tag, "Success");
 
         const created = decodeItemOutput(String(createResult.logs[0]));
+        assert.strictEqual(created.item.schemaVersion, 2);
+        assert.strictEqual(created.item.executionMode, "agent");
         const prefix = created.item.id.slice(0, 12);
 
         const showResult = yield* run(["--cwd", directory, "show", prefix]);
         assert.strictEqual(showResult.exit._tag, "Success");
         assert.isTrue(String(showResult.logs[0]).includes("Add CLI bootstrap"));
+        assert.isTrue(String(showResult.logs[0]).includes("Execution mode: agent"));
         assert.isTrue(String(showResult.logs[0]).includes("Agent Context"));
       }),
     ),
@@ -346,6 +384,31 @@ describe("tm cli", () => {
           DateTime.toEpochMillis(updated.updatedAt),
           DateTime.toEpochMillis(item.updatedAt),
         );
+      }),
+    ),
+  );
+
+  it.effect("updates execution mode", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Update mode field");
+
+        const result = yield* run([
+          "--cwd",
+          directory,
+          "update",
+          item.id,
+          "--mode",
+          "human",
+          "--json",
+        ]);
+        assert.strictEqual(result.exit._tag, "Success");
+        const updated = decodeItemOutput(String(result.logs[0])).item;
+        assert.strictEqual(updated.executionMode, "human");
+        assert.strictEqual(updated.subject, item.subject);
+        assert.strictEqual(updated.description, item.description);
+        assert.strictEqual(updated.agentContext, item.agentContext);
       }),
     ),
   );
@@ -743,12 +806,53 @@ describe("tm cli", () => {
           compareWorkItemsForSelection,
         );
         assert.deepStrictEqual(String(listResult.logs[0]).split("\n"), [
-          "└─ Ship MVP CLI (" + epic.item.id + ")",
+          "└─ Ship MVP CLI [open] [agent] (" + epic.item.id + ")",
           ...orderedTasks.map(
             (item, index) =>
-              `${index === orderedTasks.length - 1 ? "   └─" : "   ├─"} ${item.subject} (${item.id})`,
+              `${index === orderedTasks.length - 1 ? "   └─" : "   ├─"} ${item.subject} [open] [agent] (${item.id})`,
           ),
         ]);
+      }),
+    ),
+  );
+
+  it.effect("filters list by mode while preserving ancestors", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const epic = yield* createWorkItem(directory, "Coordinate import work", { level: "epic" });
+        const humanTask = yield* createWorkItem(directory, "Review import UX", {
+          parent: epic.id,
+          executionMode: "human",
+        });
+        const agentTask = yield* createWorkItem(directory, "Implement import UX", {
+          parent: epic.id,
+        });
+
+        const humanList = yield* run(["--cwd", directory, "list", "--mode", "human"]);
+        assert.strictEqual(humanList.exit._tag, "Success");
+        const humanOutput = String(humanList.logs[0]);
+        assert.isTrue(humanOutput.includes(`Coordinate import work [open] [agent] (${epic.id})`));
+        assert.isTrue(humanOutput.includes(`Review import UX [open] [human] (${humanTask.id})`));
+        assert.isFalse(humanOutput.includes(agentTask.id));
+
+        const jsonList = yield* run(["--cwd", directory, "list", "--mode", "human", "--json"]);
+        assert.strictEqual(jsonList.exit._tag, "Success");
+        const decoded = decodeListOutput(String(jsonList.logs[0]));
+        const [rootNode] = decoded.items;
+        if (rootNode === undefined) {
+          assert.fail("Expected filtered list to include the context ancestor.");
+        }
+        const [childNode] = rootNode.children;
+        if (childNode === undefined) {
+          assert.fail("Expected filtered list to include the matching child.");
+        }
+        assert.strictEqual(rootNode.id, epic.id);
+        assert.strictEqual(rootNode.executionMode, "agent");
+        assert.isFalse(rootNode.matchesFilter);
+        assert.strictEqual(childNode.id, humanTask.id);
+        assert.strictEqual(childNode.executionMode, "human");
+        assert.isTrue(childNode.matchesFilter);
       }),
     ),
   );
@@ -767,6 +871,34 @@ describe("tm cli", () => {
 
         const after = yield* readTasksFile(directory);
         assert.strictEqual(after, before);
+      }),
+    ),
+  );
+
+  it.effect("filters next selection by execution mode", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const humanItem = yield* createWorkItem(directory, "Review import plan", {
+          executionMode: "human",
+        });
+        yield* TestClock.adjust("1 second");
+        const agentItem = yield* createWorkItem(directory, "Implement import plan");
+
+        const defaultResult = yield* run(["--cwd", directory, "next", "--json"]);
+        assert.strictEqual(defaultResult.exit._tag, "Success");
+        const defaultSelection = decodeItemOutput(String(defaultResult.logs[0])).item;
+        assert.strictEqual(defaultSelection.id, agentItem.id);
+
+        const humanResult = yield* run(["--cwd", directory, "next", "--mode", "human", "--json"]);
+        assert.strictEqual(humanResult.exit._tag, "Success");
+        const humanSelection = decodeItemOutput(String(humanResult.logs[0])).item;
+        assert.strictEqual(humanSelection.id, humanItem.id);
+
+        const anyResult = yield* run(["--cwd", directory, "next", "--mode", "any", "--json"]);
+        assert.strictEqual(anyResult.exit._tag, "Success");
+        const anySelection = decodeItemOutput(String(anyResult.logs[0])).item;
+        assert.strictEqual(anySelection.id, humanItem.id);
       }),
     ),
   );
@@ -1017,6 +1149,33 @@ describe("tm cli", () => {
             DateTime.toEpochMillis(claim.claimedAt),
           );
         }
+      }),
+    ),
+  );
+
+  it.effect("requires explicit allowance to claim human-mode work", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Review claim handoff", {
+          executionMode: "human",
+        });
+
+        const rejected = yield* run([
+          "--cwd",
+          directory,
+          "claim",
+          item.id,
+          "--agent",
+          "human-urban",
+        ]);
+        assert.strictEqual(rejected.exit._tag, "Failure");
+        assert.isTrue(String(rejected.errors[0]).includes("Pass --allow-human"));
+
+        const allowed = yield* claimWorkItem(directory, item.id, "human-urban", {
+          allowHuman: true,
+        });
+        assert.strictEqual(allowed.claim?.agent, "human-urban");
       }),
     ),
   );
@@ -1325,6 +1484,51 @@ describe("tm cli", () => {
     ),
   );
 
+  it.effect("requires explicit allowance to complete human-mode work", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Approve release plan", {
+          executionMode: "human",
+        });
+
+        const rejected = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "human-urban",
+          "--summary",
+          "Approved release plan",
+          "--verification",
+          "Reviewed by human",
+        ]);
+        assert.strictEqual(rejected.exit._tag, "Failure");
+        assert.isTrue(String(rejected.errors[0]).includes("Pass --allow-human"));
+
+        const allowed = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          item.id,
+          "--agent",
+          "human-urban",
+          "--summary",
+          "Approved release plan",
+          "--verification",
+          "Reviewed by human",
+          "--allow-human",
+          "--json",
+        ]);
+        assert.strictEqual(allowed.exit._tag, "Success");
+        const completed = decodeItemOutput(String(allowed.logs[0])).item;
+        assert.strictEqual(completed.status, "done");
+        assert.strictEqual(completed.executionMode, "human");
+      }),
+    ),
+  );
+
   it.effect("parses Git-style result-message input", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
@@ -1610,6 +1814,54 @@ describe("tm cli", () => {
     ),
   );
 
+  it.effect("requires explicit allowance to force past human dependencies", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const target = yield* createWorkItem(directory, "Finish gated work");
+        const dependency = yield* createWorkItem(directory, "Approve gated work", {
+          executionMode: "human",
+        });
+        yield* run(["--cwd", directory, "block", target.id, "--by", dependency.id]);
+
+        const rejected = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          target.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Finished gated work",
+          "--verification",
+          "Human approval was bypassed intentionally",
+          "--force",
+        ]);
+        assert.strictEqual(rejected.exit._tag, "Failure");
+        assert.isTrue(String(rejected.errors[0]).includes("Pass --allow-human"));
+
+        const allowed = yield* run([
+          "--cwd",
+          directory,
+          "complete",
+          target.id,
+          "--agent",
+          "codex-session",
+          "--summary",
+          "Finished gated work",
+          "--verification",
+          "Human approval was bypassed intentionally",
+          "--force",
+          "--allow-human",
+          "--json",
+        ]);
+        assert.strictEqual(allowed.exit._tag, "Success");
+        const completed = decodeItemOutput(String(allowed.logs[0])).item;
+        assert.strictEqual(completed.status, "done");
+      }),
+    ),
+  );
+
   it.effect("requires force to complete another agent's active claim", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
@@ -1789,6 +2041,47 @@ describe("tm cli", () => {
           assert.strictEqual(decoded.cancelledItems.length, 1);
           assert.strictEqual(cancelledOutputItem.id, fileTarget.id);
         }
+      }),
+    ),
+  );
+
+  it.effect("requires explicit allowance to cancel human-mode work", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Cancel human review", {
+          executionMode: "human",
+        });
+
+        const rejected = yield* run([
+          "--cwd",
+          directory,
+          "cancel",
+          item.id,
+          "--agent",
+          "human-urban",
+          "--reason",
+          "No longer needed",
+        ]);
+        assert.strictEqual(rejected.exit._tag, "Failure");
+        assert.isTrue(String(rejected.errors[0]).includes("Pass --allow-human"));
+
+        const allowed = yield* run([
+          "--cwd",
+          directory,
+          "cancel",
+          item.id,
+          "--agent",
+          "human-urban",
+          "--reason",
+          "No longer needed",
+          "--allow-human",
+          "--json",
+        ]);
+        assert.strictEqual(allowed.exit._tag, "Success");
+        const cancelled = decodeCancelOutput(String(allowed.logs[0])).item;
+        assert.strictEqual(cancelled.status, "cancelled");
+        assert.strictEqual(cancelled.executionMode, "human");
       }),
     ),
   );
@@ -2118,6 +2411,41 @@ describe("tm cli", () => {
         assert.strictEqual(unrelatedShow.exit._tag, "Success");
         const persistedUnrelated = decodeItemOutput(String(unrelatedShow.logs[0])).item;
         assert.strictEqual(persistedUnrelated.id, unrelated.id);
+      }),
+    ),
+  );
+
+  it.effect("requires explicit allowance to delete human-mode work", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const target = yield* createWorkItem(directory, "Delete human review", {
+          executionMode: "human",
+        });
+
+        const rejected = yield* run(["--cwd", directory, "delete", target.id, "--yes"]);
+        assert.strictEqual(rejected.exit._tag, "Failure");
+        assert.isTrue(String(rejected.errors[0]).includes("Pass --allow-human"));
+
+        const allowed = yield* run([
+          "--cwd",
+          directory,
+          "delete",
+          target.id,
+          "--yes",
+          "--allow-human",
+          "--json",
+        ]);
+        assert.strictEqual(allowed.exit._tag, "Success");
+        const decoded = decodeDeleteOutput(String(allowed.logs[0]));
+        assert.deepStrictEqual(
+          decoded.deleted.map((item) => item.id),
+          [target.id],
+        );
+        assert.deepStrictEqual(
+          decoded.deleted.map((item) => item.executionMode),
+          ["human"],
+        );
       }),
     ),
   );
@@ -2590,6 +2918,44 @@ describe("tm cli", () => {
     ),
   );
 
+  it.effect("requires explicit allowance to unblock human-mode gates", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Implement gated path");
+        const dependency = yield* createWorkItem(directory, "Approve gated path", {
+          executionMode: "human",
+        });
+        yield* run(["--cwd", directory, "block", item.id, "--by", dependency.id]);
+
+        const rejected = yield* run([
+          "--cwd",
+          directory,
+          "unblock",
+          item.id,
+          "--by",
+          dependency.id,
+        ]);
+        assert.strictEqual(rejected.exit._tag, "Failure");
+        assert.isTrue(String(rejected.errors[0]).includes("Pass --allow-human"));
+
+        const allowed = yield* run([
+          "--cwd",
+          directory,
+          "unblock",
+          item.id,
+          "--by",
+          dependency.id,
+          "--allow-human",
+          "--json",
+        ]);
+        assert.strictEqual(allowed.exit._tag, "Success");
+        const unblocked = decodeItemOutput(String(allowed.logs[0])).item;
+        assert.strictEqual(unblocked.blockedBy, undefined);
+      }),
+    ),
+  );
+
   it.effect("rejects missing Work Item ids without changing storage", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
@@ -2680,6 +3046,27 @@ describe("tm cli", () => {
         assert.isTrue(String(result.errors[0]).includes("Dependency cycle detected"));
         const after = yield* readTasksFile(directory);
         assert.strictEqual(after, before);
+      }),
+    ),
+  );
+
+  it.effect("rejects v1 records without execution mode", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const fs = yield* FileSystem.FileSystem;
+        const v1Line =
+          '{"schemaVersion":1,"id":"wi_v1_record","level":"task","status":"open","subject":"Update legacy record","description":"Legacy description.","agentContext":"Legacy context.","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}';
+        yield* fs.writeFileString(`${directory}/.tasks/tasks.jsonl`, v1Line);
+
+        const validateResult = yield* run(["--cwd", directory, "validate"]);
+        assert.strictEqual(validateResult.exit._tag, "Failure");
+        assert.isTrue(String(validateResult.errors[0]).includes("Expected schemaVersion 2"));
+        assert.isTrue(String(validateResult.errors[0]).includes("required executionMode"));
+
+        const listResult = yield* run(["--cwd", directory, "list"]);
+        assert.strictEqual(listResult.exit._tag, "Failure");
+        assert.isTrue(String(listResult.errors[0]).includes("Expected schemaVersion 2"));
       }),
     ),
   );

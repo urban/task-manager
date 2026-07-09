@@ -29,7 +29,7 @@ Read this when selecting, claiming, implementing, releasing, or completing backl
    tm show "$next_id"
    ```
 
-Read the Description, Agent Context, dependencies, claim, status, and any Result/Cancellation fields before working.
+Read the Description, Agent Context, Execution Mode, dependencies, claim, status, and any Result/Cancellation fields before working.
 
 ## Selection variants
 
@@ -38,6 +38,14 @@ Limit selection to a subtree:
 ```bash
 tm next --root "$root_id" --json
 ```
+
+Default selection is `--mode agent`. Select human-only work only when the user asks for it:
+
+```bash
+tm next --mode human --json
+```
+
+Use `tm next --mode any --json` only when the user asks for the frontier across both agent and human work.
 
 Include actively claimed items only when the user asks to inspect or take over claimed work:
 
@@ -55,7 +63,7 @@ Use a stable Agent Identity. Prefer an existing `TM_AGENT`; otherwise pass `--ag
 tm claim "$next_id" --agent "$agent_name"
 ```
 
-If another active claim blocks you, stop and report the conflict. Use `--force` only when the user explicitly says to take over.
+If the selected Work Item is human-mode, stop unless the user explicitly asked you to handle HITL work; then use `tm claim --allow-human`. If another active claim blocks you, stop and report the conflict. Use `--force` only when the user explicitly says to take over.
 
 ## Implement and verify
 
@@ -97,7 +105,7 @@ Avoid vague Results:
 tm complete "$next_id" --agent "$agent_name" --summary "Done" --verification "Looks good"
 ```
 
-Use `--allow-no-verification` only after explicit user approval.
+Use `--allow-human` only after explicit user approval for human-mode Work Items or forced bypass of a human-mode dependency. Use `--allow-no-verification` only after explicit user approval.
 
 ## Release instead of completing
 

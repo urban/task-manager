@@ -9,10 +9,12 @@ import { resolveWorkItem, sortWorkItems, type WorkItem } from "../domain/WorkIte
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
 import { executeCommand, renderJson } from "./shared/output";
+import { firstHumanModeWorkItem, humanModeGuardMessage } from "./shared/work-items";
 
 interface DeletedWorkItemOutput {
   readonly id: string;
   readonly subject: string;
+  readonly executionMode: string;
 }
 
 interface DanglingDependencyRisk {
@@ -72,6 +74,7 @@ const findDanglingDependencyRisks = (
 const toDeletedWorkItemOutput = (item: WorkItem): DeletedWorkItemOutput => ({
   id: item.id,
   subject: item.subject,
+  executionMode: item.executionMode,
 });
 
 const renderWorkItemBullet = (item: WorkItem): string => `- ${item.subject} (${item.id})`;
@@ -109,10 +112,13 @@ const renderDeletedHuman = (items: ReadonlyArray<WorkItem>): string => {
 export const commandDelete = Command.make("delete", {
   id: Argument.string("id"),
   yes: Flag.boolean("yes").pipe(Flag.withDescription("Confirm destructive deletion")),
+  allowHuman: Flag.boolean("allow-human").pipe(
+    Flag.withDescription("Allow deleting human-mode Work Items"),
+  ),
 }).pipe(
   Command.withDescription("Delete accidental Work Items and descendants"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ id, yes }) {
+    Effect.fnUntraced(function* ({ id, yes, allowHuman }) {
       const root = yield* commandRoot;
       yield* executeCommand(
         root.json,
@@ -126,6 +132,13 @@ export const commandDelete = Command.make("delete", {
           if (!yes) {
             return yield* new CommandFailure({
               message: renderDeletePreview(deletedItems),
+            });
+          }
+
+          const humanDeletedItem = firstHumanModeWorkItem(deletedItems);
+          if (humanDeletedItem !== undefined && !allowHuman) {
+            return yield* new CommandFailure({
+              message: humanModeGuardMessage(humanDeletedItem, "delete it"),
             });
           }
 

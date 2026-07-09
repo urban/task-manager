@@ -118,6 +118,7 @@ export const renderWorkItemHuman = (item: WorkItem): string => {
   return [
     `${encoded.level.toUpperCase()} ${encoded.id}`,
     `Status: ${encoded.status}`,
+    `Execution mode: ${encoded.executionMode}`,
     `Subject: ${encoded.subject}`,
     `Parent: ${encoded.parentId ?? "-"}`,
     `Dependencies: ${dependencies === 0 ? "-" : (encoded.blockedBy?.join(", ") ?? "-")}`,
@@ -147,7 +148,9 @@ export const renderTreeLines = (
 
   nodes.forEach((node, index) => {
     const branch = index === nodes.length - 1 ? "└─" : "├─";
-    lines.push(`${prefix}${branch} ${node.item.subject} (${node.item.id})`);
+    lines.push(
+      `${prefix}${branch} ${node.item.subject} [${node.item.status}] [${node.item.executionMode}] (${node.item.id})`,
+    );
     const childPrefix = `${prefix}${index === nodes.length - 1 ? "   " : "│  "}`;
     lines.push(...renderTreeLines(node.children, childPrefix));
   });
@@ -159,7 +162,9 @@ export interface RenderTreeJsonNode {
   readonly id: string;
   readonly level: string;
   readonly status: string;
+  readonly executionMode: string;
   readonly subject: string;
+  readonly matchesFilter: boolean;
   readonly children: ReadonlyArray<RenderTreeJsonNode>;
 }
 
@@ -170,6 +175,8 @@ export const renderTreeJson = (
     id: node.item.id,
     level: node.item.level,
     status: node.item.status,
+    executionMode: node.item.executionMode,
     subject: node.item.subject,
+    matchesFilter: node.matchesFilter,
     children: renderTreeJson(node.children),
   }));

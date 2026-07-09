@@ -20,7 +20,11 @@ import { commandRoot } from "./root";
 import { agentFlag } from "./shared/flags";
 import { resolveAgentIdentity, resolveTextInput } from "./shared/input";
 import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
-import { activeClaimConflictMessage } from "./shared/work-items";
+import {
+  activeClaimConflictMessage,
+  firstHumanModeWorkItem,
+  humanModeGuardMessage,
+} from "./shared/work-items";
 
 interface ClaimConflict {
   readonly item: WorkItem;
@@ -146,6 +150,9 @@ export const commandCancel = Command.make("cancel", {
     Flag.withDescription("Cancel despite another agent's active claim"),
   ),
   yes: Flag.boolean("yes").pipe(Flag.withDescription("Confirm cascading cancellation")),
+  allowHuman: Flag.boolean("allow-human").pipe(
+    Flag.withDescription("Allow cancelling human-mode Work Items"),
+  ),
 }).pipe(
   Command.withDescription("Cancel open Work Items with a structured Cancellation"),
   Command.withHandler(
@@ -175,6 +182,13 @@ export const commandCancel = Command.make("cancel", {
           }
 
           const targets = [item, ...openDescendants];
+          const humanTarget = firstHumanModeWorkItem(targets);
+          if (humanTarget !== undefined && !input.allowHuman) {
+            return yield* new CommandFailure({
+              message: humanModeGuardMessage(humanTarget, "cancel it"),
+            });
+          }
+
           const now = yield* DateTime.now;
           const claimConflict = findActiveClaimConflict(targets, identity, now);
           if (claimConflict !== undefined && !input.force) {

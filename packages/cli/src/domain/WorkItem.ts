@@ -10,7 +10,7 @@ import {
   WorkItemNotFound,
 } from "./Errors";
 
-export const schemaVersion = 1;
+export const schemaVersion = 2;
 
 export const WorkItemLevelSchema = Schema.Literals(["epic", "task", "subtask"] as const);
 export type WorkItemLevel = typeof WorkItemLevelSchema.Type;
@@ -18,6 +18,11 @@ export type WorkItemLevel = typeof WorkItemLevelSchema.Type;
 export const WorkItemStatusSchema = Schema.Literals(["open", "done", "cancelled"] as const);
 export type WorkItemStatus = typeof WorkItemStatusSchema.Type;
 export const allWorkItemStatuses: ReadonlyArray<WorkItemStatus> = ["open", "done", "cancelled"];
+
+export const WorkItemExecutionModeSchema = Schema.Literals(["agent", "human"]);
+export type WorkItemExecutionMode = typeof WorkItemExecutionModeSchema.Type;
+export type WorkItemModeFilter = WorkItemExecutionMode | "any";
+export const allWorkItemExecutionModes: ReadonlyArray<WorkItemExecutionMode> = ["agent", "human"];
 
 export const ClaimSchema = Schema.Struct({
   agent: Schema.String,
@@ -47,6 +52,7 @@ export const WorkItemSchema = Schema.Struct({
   id: Schema.String,
   level: WorkItemLevelSchema,
   status: WorkItemStatusSchema,
+  executionMode: WorkItemExecutionModeSchema,
   subject: Schema.String,
   description: Schema.String,
   agentContext: Schema.String,
@@ -70,6 +76,7 @@ export const encodeWorkItem = Schema.encodeSync(WorkItemSchema);
 
 export interface WorkItemTreeNode {
   readonly item: WorkItem;
+  readonly matchesFilter: boolean;
   readonly children: ReadonlyArray<WorkItemTreeNode>;
 }
 
@@ -165,7 +172,7 @@ const buildNode = (
     .filter((child) => (openOnly ? child.status === "open" : true))
     .map((child) => buildNode(child, childrenByParent, openOnly));
 
-  return { item, children };
+  return { item, matchesFilter: true, children };
 };
 
 const flattenFromRoot = (
@@ -191,26 +198,39 @@ const matchesStatusFilter = (
   statuses: ReadonlySet<WorkItemStatus> | undefined,
 ): boolean => statuses === undefined || statuses.has(item.status);
 
-const hasVisibleAncestor = (
+export const matchesExecutionModeFilter = (item: WorkItem, mode: WorkItemModeFilter): boolean =>
+  mode === "any" || item.executionMode === mode;
+
+const buildFilteredNode = (
   item: WorkItem,
+  childrenByParent: ReadonlyMap<string, ReadonlyArray<WorkItem>>,
+  matchingIds: ReadonlySet<string>,
+): WorkItemTreeNode => ({
+  item,
+  matchesFilter: matchingIds.has(item.id),
+  children: (childrenByParent.get(item.id) ?? []).map((child) =>
+    buildFilteredNode(child, childrenByParent, matchingIds),
+  ),
+});
+
+const includedItemIdsWithAncestors = (
+  matchingItems: ReadonlyArray<WorkItem>,
   scopedItemsById: ReadonlyMap<string, WorkItem>,
-  visibleIds: ReadonlySet<string>,
-): boolean => {
-  let currentParentId = item.parentId;
+): ReadonlySet<string> => {
+  const includedIds = new Set<string>();
 
-  while (currentParentId !== undefined) {
-    if (visibleIds.has(currentParentId)) {
-      return true;
-    }
+  for (const item of matchingItems) {
+    includedIds.add(item.id);
+    let currentParentId = item.parentId;
 
-    const parent = scopedItemsById.get(currentParentId);
-    if (parent === undefined) {
-      return false;
+    while (currentParentId !== undefined) {
+      includedIds.add(currentParentId);
+      const parent = scopedItemsById.get(currentParentId);
+      currentParentId = parent?.parentId;
     }
-    currentParentId = parent.parentId;
   }
 
-  return false;
+  return includedIds;
 };
 
 export const buildFilteredTree = (
@@ -218,25 +238,32 @@ export const buildFilteredTree = (
   options?: {
     readonly root?: WorkItem;
     readonly statuses?: ReadonlySet<WorkItemStatus>;
+    readonly mode?: WorkItemModeFilter;
   },
 ): ReadonlyArray<WorkItemTreeNode> => {
   const scopedItems =
     options?.root === undefined
       ? sortWorkItems(items)
       : flattenFromRoot(options.root, buildChildrenByParent(items));
-  const visibleItems = scopedItems.filter((item) => matchesStatusFilter(item, options?.statuses));
-  const visibleIds = new Set(visibleItems.map((item) => item.id));
+  const mode = options?.mode ?? "any";
+  const matchingItems = scopedItems.filter(
+    (item) =>
+      matchesStatusFilter(item, options?.statuses) && matchesExecutionModeFilter(item, mode),
+  );
+  const matchingIds = new Set(matchingItems.map((item) => item.id));
   const scopedItemsById = new Map(scopedItems.map((item) => [item.id, item]));
-  const childrenByParent = buildChildrenByParent(visibleItems);
+  const includedIds = includedItemIdsWithAncestors(matchingItems, scopedItemsById);
+  const includedItems = scopedItems.filter((item) => includedIds.has(item.id));
+  const childrenByParent = buildChildrenByParent(includedItems);
   const rootIds = new Set(
-    visibleItems
-      .filter((item) => !hasVisibleAncestor(item, scopedItemsById, visibleIds))
+    includedItems
+      .filter((item) => item.parentId === undefined || !includedIds.has(item.parentId))
       .map((item) => item.id),
   );
 
-  return visibleItems
+  return includedItems
     .filter((item) => rootIds.has(item.id))
-    .map((item) => buildNode(item, childrenByParent, false));
+    .map((item) => buildFilteredNode(item, childrenByParent, matchingIds));
 };
 
 export const buildTree = (
@@ -356,6 +383,7 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
   readonly subject: string;
   readonly description: string;
   readonly agentContext: string;
+  readonly executionMode: WorkItemExecutionMode;
   readonly parentId?: string;
   readonly blockedBy?: ReadonlyArray<string>;
 }) {
@@ -366,6 +394,7 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
     id: options.id,
     level: options.level,
     status: "open",
+    executionMode: options.executionMode,
     subject: options.subject,
     description: options.description,
     agentContext: options.agentContext,
@@ -378,15 +407,16 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
   return workItem;
 });
 
-export interface WorkItemTextUpdates {
+export interface WorkItemUpdates {
   readonly subject?: string;
   readonly description?: string;
   readonly agentContext?: string;
+  readonly executionMode?: WorkItemExecutionMode;
 }
 
-export const updateWorkItemText = (options: {
+export const updateWorkItem = (options: {
   readonly item: WorkItem;
-  readonly updates: WorkItemTextUpdates;
+  readonly updates: WorkItemUpdates;
   readonly updatedAt: DateTime.Utc;
 }): WorkItem =>
   ({
@@ -394,6 +424,7 @@ export const updateWorkItemText = (options: {
     id: options.item.id,
     level: options.item.level,
     status: options.item.status,
+    executionMode: options.updates.executionMode ?? options.item.executionMode,
     subject: options.updates.subject ?? options.item.subject,
     description: options.updates.description ?? options.item.description,
     agentContext: options.updates.agentContext ?? options.item.agentContext,
@@ -430,6 +461,7 @@ export const clearWorkItemClaim = (options: {
     id: options.item.id,
     level: options.item.level,
     status: options.item.status,
+    executionMode: options.item.executionMode,
     subject: options.item.subject,
     description: options.item.description,
     agentContext: options.item.agentContext,
@@ -455,6 +487,7 @@ export const completeWorkItem = (options: {
     id: options.item.id,
     level: options.item.level,
     status: "done",
+    executionMode: options.item.executionMode,
     subject: options.item.subject,
     description: options.item.description,
     agentContext: options.item.agentContext,
@@ -483,6 +516,7 @@ export const cancelWorkItem = (options: {
     id: options.item.id,
     level: options.item.level,
     status: "cancelled",
+    executionMode: options.item.executionMode,
     subject: options.item.subject,
     description: options.item.description,
     agentContext: options.item.agentContext,
@@ -517,6 +551,7 @@ export const updateWorkItemDependencies = Effect.fnUntraced(function* (options: 
     id: options.item.id,
     level: options.item.level,
     status: options.item.status,
+    executionMode: options.item.executionMode,
     subject: options.item.subject,
     description: options.item.description,
     agentContext: options.item.agentContext,

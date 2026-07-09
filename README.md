@@ -16,9 +16,11 @@ AI coding agents are good at keeping an in-session TODO list, but that state usu
 - which work completed or was cancelled, and
 - what evidence proved completed work was actually done.
 
+One key differentiator is **Execution Mode**. Each Work Item records whether it is `agent` work that an LLM can execute directly or `human` work that requires human-in-the-loop (HITL) handling such as review, approval, credentials, or manual action. That keeps mixed human/agent backlogs honest: agents can filter for executable work, while work that truly needs a person stays explicit instead of being rediscovered only after an agent gets stuck.
+
 Task Manager is an offline, repository-backed workflow for planning, handoff, and auditability.
 
-## Current implementation
+## CLI
 
 The CLI binary is `tm`.
 
@@ -26,11 +28,11 @@ Available commands:
 
 - `tm init`: initialize `.tasks/tasks.jsonl` storage.
 - `tm validate`: validate the JSONL store on disk.
-- `tm create`: create an Epic, Task, or Subtask with Description, Agent Context, and optional repeatable `--blocked-by <id>` dependencies.
-- `tm update`: safely update a Work Item's Subject, Description, or Agent Context.
+- `tm create`: create an Epic, Task, or Subtask with Description, Agent Context, Execution Mode, and optional repeatable `--blocked-by <id>` dependencies.
+- `tm update`: safely update a Work Item's Subject, Description, Agent Context, or Execution Mode.
 - `tm show`: show one Work Item by full ID or unique ID prefix.
-- `tm list`: list the open backlog tree, optionally scoped with `--root <id>` and lifecycle filters such as `--status done`, `--status cancelled`, or `--all`.
-- `tm next`: select the first actionable open leaf Work Item in deterministic tree order, optionally scoped with `--root <id>`; it skips Work Items with incomplete dependencies and active claims unless run with `--include-claimed`.
+- `tm list`: list the open backlog tree, optionally scoped with `--root <id>` and filtered by lifecycle (`--status done`, `--status cancelled`, `--all`) or execution mode (`--mode agent|human|any`).
+- `tm next`: select the first actionable open agent-mode leaf Work Item in deterministic tree order, optionally scoped with `--root <id>` or filtered with `--mode human|any`; it skips Work Items with incomplete dependencies and active claims unless run with `--include-claimed`.
 - `tm claim` and `tm release`: manage one-hour advisory Agent Claims using `--agent <name>` or `TM_AGENT`.
 - `tm complete`: mark an open Work Item done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
 - `tm cancel`: mark open Work Items cancelled with a structured Cancellation reason; parent cancellation cascades to open descendants only with `--yes`.
@@ -45,8 +47,6 @@ Shared flags:
 
 Writes are guarded by a transient lock file and persisted by writing a temporary file, then renaming it into place.
 
-The implemented P0/P1 workflow now covers durable planning, dependency ordering, deterministic work selection, advisory claims, verified completion, safe text updates, structured cancellation, lifecycle-aware listing, and destructive cleanup for accidental records.
-
 ## Core concepts
 
 - **Work Item**: any persisted unit of work.
@@ -56,6 +56,7 @@ The implemented P0/P1 workflow now covers durable planning, dependency ordering,
 - **Subject**: short, scannable title using Git-style subject-line rules.
 - **Description**: human-facing Markdown explaining the requested work.
 - **Agent Context**: execution handoff context for an AI agent.
+- **Execution Mode**: `agent` for LLM-executable work or `human` for work requiring human action, review, approval, credentials, or other HITL handling.
 - **Dependency**: an ordering relationship where one Work Item is blocked by another.
 - **Agent Claim**: advisory one-hour claim that helps agents avoid duplicate work.
 - **Result**: completion record with summary, details, decisions, verification evidence, timestamp, and Agent Identity.
@@ -110,7 +111,7 @@ All examples below assume `tm` is on your `PATH`.
 
 This repo includes an agent skill at [`skills/task-manager/SKILL.md`](./skills/task-manager/SKILL.md). If your coding agent supports skill folders, add or copy the whole [`skills/task-manager/`](./skills/task-manager/) directory to its configured skills path.
 
-If your agent does not have a formal skill system, ask it to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Work Items from PRDs/specs, record dependencies with `tm create --blocked-by` or `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
+If you are not installing the whole skill folder, ask the agent to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Work Items from PRDs/specs, record dependencies with `tm create --blocked-by` or `tm block`, separate agent and human work with `--mode`, select agent work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
 
 #### Prompt workflows
 
@@ -152,7 +153,7 @@ Use tm create --json, capture IDs with jq, then add dependency edges with tm blo
 Execute the next actionable Work Item:
 
 ```text
-Use the task-manager skill. Pick the next actionable Work Item with tm next --json, claim it as agent “pi”, implement it, run bun run check, then complete it with a detailed Result.
+Use the task-manager skill. Pick the next actionable agent-mode Work Item with tm next --json, claim it as agent “pi”, implement it, run bun run check, then complete it with a detailed Result.
 ```
 
 Work under a specific root:
@@ -193,9 +194,9 @@ tm create "Add JWT authentication" \
 Create an Epic and a child Task:
 
 ```sh
-tm create "Ship MVP CLI" \
+tm create "Ship offline CLI" \
   --level epic \
-  --description "Deliver the first offline CLI." \
+  --description "Deliver the offline CLI." \
   --context "Coordinate storage, rendering, validation, and command behavior."
 
 tm create "Implement task listing" \
@@ -211,6 +212,7 @@ Record dependencies and refine text fields without editing storage by hand:
 # When the dependency is known before creation:
 tm create "Implement API endpoint" \
   --level task \
+  --mode agent \
   --blocked-by wi_model... \
   --description "Build the endpoint after the model work." \
   --context "Use the completed data model and verify the endpoint."
@@ -218,15 +220,18 @@ tm create "Implement API endpoint" \
 # Or when both Work Items already exist:
 tm block wi_api... --by wi_model...
 tm update wi_api... --message $'Refine API work\n\nClarify the requested API behavior.'
+tm update wi_api... --mode human
 tm show wi_api...
-tm unblock wi_api... --by wi_model...
+tm unblock wi_api... --by wi_model... --allow-human
 ```
 
 Select, claim, and complete executable work:
 
 ```sh
 tm list
+tm list --mode human
 tm next
+tm next --mode human
 tm claim wi_api... --agent codex-session
 tm complete wi_api... \
   --agent codex-session \
@@ -254,6 +259,8 @@ tm next --include-claimed --json
 tm validate --json
 ```
 
+Human-mode Work Items require explicit `--allow-human` on risky mutations such as `claim`, `complete`, `cancel`, `delete`, and `unblock`. `tm next` defaults to agent-mode work; use `tm next --mode human` for the human queue or `tm next --mode any` for the frontier across both modes.
+
 ## Storage model
 
 By default, Task Manager stores data under the nearest Git root. If no Git root is found, it stores data under the current working directory or the directory passed with `--cwd` / `TM_CWD`:
@@ -264,7 +271,7 @@ By default, Task Manager stores data under the nearest Git root. If no Git root 
   lock          # transient; not for Git
 ```
 
-`tasks.jsonl` stores one current snapshot per Work Item. It is intended to be readable, diffable, and safe to commit when the task state should travel with the repository.
+`tasks.jsonl` stores one snapshot per Work Item. The file is intended to be readable, diffable, and safe to commit when the task state should travel with the repository.
 
 You can override storage with:
 
@@ -283,4 +290,4 @@ Task Manager is intentionally:
 - **context-rich**: work creation separates human Description from Agent Context, and
 - **strictly scoped**: the hierarchy is limited to Epic, Task, and Subtask.
 
-Run `tm --help` or `tm <command> --help` for generated command help from the current CLI.
+Run `tm --help` or `tm <command> --help` for generated command help from the CLI.

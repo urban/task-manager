@@ -9,17 +9,24 @@ import { resolveWorkItem, updateWorkItemDependencies } from "../domain/WorkItem"
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
 import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
-import { replaceWorkItem } from "./shared/work-items";
+import {
+  firstHumanModeWorkItem,
+  humanModeGuardMessage,
+  replaceWorkItem,
+} from "./shared/work-items";
 
 export const commandUnblock = Command.make("unblock", {
   id: Argument.string("id"),
   by: Flag.string("by").pipe(
     Flag.withDescription("Current dependency Work Item id or unique prefix"),
   ),
+  allowHuman: Flag.boolean("allow-human").pipe(
+    Flag.withDescription("Allow removing human-mode dependency gates"),
+  ),
 }).pipe(
   Command.withDescription("Remove a dependency from a Work Item"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ id, by }) {
+    Effect.fnUntraced(function* ({ id, by, allowHuman }) {
       const root = yield* commandRoot;
       yield* executeCommand(
         root.json,
@@ -34,6 +41,13 @@ export const commandUnblock = Command.make("unblock", {
           if (!currentDependencies.includes(dependency.id)) {
             return yield* new CommandFailure({
               message: `Work Item ${item.id} does not depend on ${dependency.id}.`,
+            });
+          }
+
+          const humanItem = firstHumanModeWorkItem([item, dependency]);
+          if (humanItem !== undefined && !allowHuman) {
+            return yield* new CommandFailure({
+              message: humanModeGuardMessage(humanItem, "unblock it"),
             });
           }
 

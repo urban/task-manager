@@ -14,3 +14,9 @@ export const activeClaimConflictMessage = (
   `Work Item ${item.id} is actively claimed by ${claim.agent} until ${formatClaimExpiresAt(
     claim,
   )}. Use --force to ${action}.`;
+
+export const firstHumanModeWorkItem = (items: ReadonlyArray<WorkItem>): WorkItem | undefined =>
+  items.find((item) => item.executionMode === "human");
+
+export const humanModeGuardMessage = (item: WorkItem, action: string): string =>
+  `Work Item ${item.id} uses human execution mode. Pass --allow-human to ${action}.`;

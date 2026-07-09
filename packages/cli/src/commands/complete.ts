@@ -19,7 +19,12 @@ import { commandRoot } from "./root";
 import { agentFlag } from "./shared/flags";
 import { resolveAgentIdentity } from "./shared/input";
 import { encodeItemForOutput, executeCommand, renderBullets, renderJson } from "./shared/output";
-import { activeClaimConflictMessage, replaceWorkItem } from "./shared/work-items";
+import {
+  activeClaimConflictMessage,
+  firstHumanModeWorkItem,
+  humanModeGuardMessage,
+  replaceWorkItem,
+} from "./shared/work-items";
 
 const incompleteDependenciesForCompletion = (
   item: WorkItem,
@@ -71,6 +76,9 @@ export const commandComplete = Command.make("complete", {
   force: Flag.boolean("force").pipe(
     Flag.withDescription("Complete despite incomplete dependencies or another active claim"),
   ),
+  allowHuman: Flag.boolean("allow-human").pipe(
+    Flag.withDescription("Allow completing human-mode Work Items or bypassing human gates"),
+  ),
 }).pipe(
   Command.withDescription("Complete an open Work Item with a structured Result"),
   Command.withHandler(
@@ -98,12 +106,25 @@ export const commandComplete = Command.make("complete", {
             });
           }
 
+          if (item.executionMode === "human" && !input.allowHuman) {
+            return yield* new CommandFailure({
+              message: humanModeGuardMessage(item, "complete it"),
+            });
+          }
+
           const incompleteDependencies = incompleteDependenciesForCompletion(item, items);
           if (incompleteDependencies.length > 0 && !input.force) {
             return yield* new CommandFailure({
               message: `Work Item ${item.id} has incomplete dependencies: ${renderIncompleteDependencies(
                 incompleteDependencies,
               )}. Use --force to complete anyway.`,
+            });
+          }
+
+          const humanDependency = firstHumanModeWorkItem(incompleteDependencies);
+          if (humanDependency !== undefined && input.force && !input.allowHuman) {
+            return yield* new CommandFailure({
+              message: humanModeGuardMessage(humanDependency, "bypass it"),
             });
           }
 

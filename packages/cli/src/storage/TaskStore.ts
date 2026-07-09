@@ -92,6 +92,10 @@ const decodeLines = (
 
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
+      if (line === undefined) {
+        continue;
+      }
+
       if (line === "") {
         issues.push({
           message: "Blank lines are only allowed at the end of tasks.jsonl.",
@@ -102,8 +106,12 @@ const decodeLines = (
 
       const decoded = yield* Effect.result(decodeWorkItemJsonLine(line));
       if (Result.isFailure(decoded)) {
+        const schemaVersionHint =
+          line.includes('"schemaVersion":1') || !line.includes('"executionMode"')
+            ? " Expected schemaVersion 2 and required executionMode."
+            : "";
         issues.push({
-          message: decoded.failure.message,
+          message: `${decoded.failure.message}${schemaVersionHint}`,
           line: index + 1,
         });
         continue;

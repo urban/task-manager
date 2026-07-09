@@ -4,8 +4,10 @@ import { ValidationFailure, type ValidationIssue } from "./Errors";
 import {
   buildTree,
   isClaimActive,
+  matchesExecutionModeFilter,
   type WorkItem,
   type WorkItemLevel,
+  type WorkItemModeFilter,
   type WorkItemTreeNode,
   validateSubject,
 } from "./WorkItem";
@@ -417,9 +419,11 @@ const isActionableTreeNode = (
   itemsById: ReadonlyMap<string, WorkItem>,
   now: DateTime.Utc,
   includeClaimed: boolean,
+  mode: WorkItemModeFilter,
 ): boolean =>
   node.item.status === "open" &&
   node.children.length === 0 &&
+  matchesExecutionModeFilter(node.item, mode) &&
   hasCompletedDependencies(node.item, itemsById) &&
   (includeClaimed || !isClaimActive(node.item.claim, now));
 
@@ -428,13 +432,14 @@ const findFirstActionableNode = (
   itemsById: ReadonlyMap<string, WorkItem>,
   now: DateTime.Utc,
   includeClaimed: boolean,
+  mode: WorkItemModeFilter,
 ): WorkItem | undefined => {
   for (const node of nodes) {
-    if (isActionableTreeNode(node, itemsById, now, includeClaimed)) {
+    if (isActionableTreeNode(node, itemsById, now, includeClaimed, mode)) {
       return node.item;
     }
 
-    const child = findFirstActionableNode(node.children, itemsById, now, includeClaimed);
+    const child = findFirstActionableNode(node.children, itemsById, now, includeClaimed, mode);
     if (child !== undefined) {
       return child;
     }
@@ -457,6 +462,7 @@ export const findNextActionableWorkItem = (
     readonly now: DateTime.Utc;
     readonly root?: WorkItem;
     readonly includeClaimed?: boolean;
+    readonly mode?: WorkItemModeFilter;
   },
 ): WorkItem | undefined => {
   const itemsById = indexItemsById(items);
@@ -465,5 +471,11 @@ export const findNextActionableWorkItem = (
     openOnly: true,
   });
 
-  return findFirstActionableNode(tree, itemsById, options.now, options.includeClaimed ?? false);
+  return findFirstActionableNode(
+    tree,
+    itemsById,
+    options.now,
+    options.includeClaimed ?? false,
+    options.mode ?? "agent",
+  );
 };

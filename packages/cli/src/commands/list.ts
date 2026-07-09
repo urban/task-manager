@@ -9,6 +9,7 @@ import {
   allWorkItemStatuses,
   buildFilteredTree,
   resolveWorkItem,
+  type WorkItemModeFilter,
   type WorkItemStatus,
 } from "../domain/WorkItem";
 import { loadStore, resolveStorePaths } from "../storage/TaskStore";
@@ -49,10 +50,14 @@ export const commandList = Command.make("list", {
   all: Flag.boolean("all").pipe(
     Flag.withDescription("Render open, done, and cancelled Work Items"),
   ),
+  mode: Flag.choice("mode", ["agent", "human", "any"]).pipe(
+    Flag.withDescription("Render only Work Items with this execution mode"),
+    Flag.withDefault("any"),
+  ),
 }).pipe(
   Command.withDescription("List Work Items in a deterministic tree view"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ root: requestedRoot, status, all }) {
+    Effect.fnUntraced(function* ({ root: requestedRoot, status, all, mode }) {
       const root = yield* commandRoot;
       yield* executeCommand(
         root.json,
@@ -73,6 +78,7 @@ export const commandList = Command.make("list", {
           const tree = buildFilteredTree(items, {
             ...(subtreeRoot === undefined ? {} : { root: subtreeRoot }),
             statuses: statusFilter,
+            mode: mode satisfies WorkItemModeFilter,
           });
           const selectedStatus = Option.match(status, {
             onNone: () => undefined,

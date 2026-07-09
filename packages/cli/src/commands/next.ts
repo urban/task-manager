@@ -25,10 +25,14 @@ export const commandNext = Command.make("next", {
   includeClaimed: Flag.boolean("include-claimed").pipe(
     Flag.withDescription("Include actively claimed Work Items"),
   ),
+  mode: Flag.choice("mode", ["agent", "human", "any"]).pipe(
+    Flag.withDescription("Select Work Items with this execution mode"),
+    Flag.withDefault("agent"),
+  ),
 }).pipe(
   Command.withDescription("Select the next actionable Work Item"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ root: requestedRoot, includeClaimed }) {
+    Effect.fnUntraced(function* ({ root: requestedRoot, includeClaimed, mode }) {
       const root = yield* commandRoot;
       yield* executeCommand(
         root.json,
@@ -51,6 +55,7 @@ export const commandNext = Command.make("next", {
             ...(subtreeRoot === undefined ? {} : { root: subtreeRoot }),
             now,
             includeClaimed,
+            mode,
           });
 
           yield* Console.log(

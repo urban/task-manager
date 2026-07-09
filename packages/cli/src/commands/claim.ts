@@ -18,7 +18,11 @@ import { commandRoot } from "./root";
 import { agentFlag } from "./shared/flags";
 import { resolveAgentIdentity } from "./shared/input";
 import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
-import { activeClaimConflictMessage, replaceWorkItem } from "./shared/work-items";
+import {
+  activeClaimConflictMessage,
+  humanModeGuardMessage,
+  replaceWorkItem,
+} from "./shared/work-items";
 
 const renderClaimedHuman = (item: WorkItem): string => {
   const claim = item.claim;
@@ -31,10 +35,13 @@ export const commandClaim = Command.make("claim", {
   id: Argument.string("id"),
   agent: agentFlag,
   force: Flag.boolean("force").pipe(Flag.withDescription("Replace another active claim")),
+  allowHuman: Flag.boolean("allow-human").pipe(
+    Flag.withDescription("Allow claiming human-mode Work Items"),
+  ),
 }).pipe(
   Command.withDescription("Claim an open Work Item for an Agent Identity"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ id, agent, force }) {
+    Effect.fnUntraced(function* ({ id, agent, force, allowHuman }) {
       const root = yield* commandRoot;
       yield* executeCommand(
         root.json,
@@ -48,6 +55,12 @@ export const commandClaim = Command.make("claim", {
           if (item.status !== "open") {
             return yield* new CommandFailure({
               message: `Work Item ${item.id} is ${item.status} and cannot be claimed.`,
+            });
+          }
+
+          if (item.executionMode === "human" && !allowHuman) {
+            return yield* new CommandFailure({
+              message: humanModeGuardMessage(item, "claim it"),
             });
           }
 

@@ -10,9 +10,10 @@ import { CommandFailure } from "../domain/Errors";
 import { ensureCanUpdateItem } from "../domain/Validation";
 import {
   resolveWorkItem,
-  updateWorkItemText,
+  updateWorkItem,
   type WorkItem,
-  type WorkItemTextUpdates,
+  type WorkItemExecutionMode,
+  type WorkItemUpdates,
 } from "../domain/WorkItem";
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
@@ -29,6 +30,7 @@ const hasRawUpdateField = (input: {
   readonly contextFile: Option.Option<string>;
   readonly message: Option.Option<string>;
   readonly messageFile: Option.Option<string>;
+  readonly mode: Option.Option<WorkItemExecutionMode>;
 }): boolean =>
   Option.isSome(input.subject) ||
   Option.isSome(input.description) ||
@@ -36,7 +38,8 @@ const hasRawUpdateField = (input: {
   Option.isSome(input.context) ||
   Option.isSome(input.contextFile) ||
   Option.isSome(input.message) ||
-  Option.isSome(input.messageFile);
+  Option.isSome(input.messageFile) ||
+  Option.isSome(input.mode);
 
 const hasMessageSubjectDescriptionConflict = (input: {
   readonly subject: Option.Option<string>;
@@ -50,16 +53,18 @@ const hasMessageSubjectDescriptionConflict = (input: {
     Option.isSome(input.description) ||
     Option.isSome(input.descriptionFile));
 
-const buildTextUpdates = (options: {
+const buildUpdates = (options: {
   readonly subject: string | undefined;
   readonly description: string | undefined;
   readonly agentContext: string | undefined;
-}): WorkItemTextUpdates =>
+  readonly executionMode: WorkItemExecutionMode | undefined;
+}): WorkItemUpdates =>
   ({
     ...(options.subject === undefined ? {} : { subject: options.subject }),
     ...(options.description === undefined ? {} : { description: options.description }),
     ...(options.agentContext === undefined ? {} : { agentContext: options.agentContext }),
-  }) satisfies WorkItemTextUpdates;
+    ...(options.executionMode === undefined ? {} : { executionMode: options.executionMode }),
+  }) satisfies WorkItemUpdates;
 
 const renderUpdatedHuman = (item: WorkItem): string => `Updated ${item.subject} (${item.id}).`;
 
@@ -72,6 +77,10 @@ export const commandUpdate = Command.make("update", {
   contextFile: Flag.file("context-file").pipe(Flag.optional),
   message: Flag.string("message").pipe(Flag.optional),
   messageFile: Flag.file("message-file").pipe(Flag.optional),
+  mode: Flag.choice("mode", ["agent", "human"]).pipe(
+    Flag.withDescription("Update the Work Item execution mode"),
+    Flag.optional,
+  ),
   allowEmptyDescription: Flag.boolean("allow-empty-description"),
   allowEmptyContext: Flag.boolean("allow-empty-context"),
 }).pipe(
@@ -85,7 +94,7 @@ export const commandUpdate = Command.make("update", {
           if (!hasRawUpdateField(input)) {
             return yield* new CommandFailure({
               message:
-                "At least one update field is required. Pass --subject, --description, --description-file, --context, --context-file, --message, or --message-file.",
+                "At least one update field is required. Pass --subject, --description, --description-file, --context, --context-file, --message, --message-file, or --mode.",
             });
           }
 
@@ -126,7 +135,11 @@ export const commandUpdate = Command.make("update", {
             onNone: () => undefined,
             onSome: (value) => value,
           });
-          const updates = buildTextUpdates({ subject, description, agentContext });
+          const executionMode = Option.match(input.mode, {
+            onNone: () => undefined,
+            onSome: (value) => value,
+          });
+          const updates = buildUpdates({ subject, description, agentContext, executionMode });
           const validation = ensureCanUpdateItem({
             ...updates,
             allowEmptyDescription: input.allowEmptyDescription,
@@ -141,7 +154,7 @@ export const commandUpdate = Command.make("update", {
           const items = yield* loadStore(paths);
           const item = yield* resolveWorkItem(items, input.id);
           const now = yield* DateTime.now;
-          const updatedItem = updateWorkItemText({ item, updates, updatedAt: now });
+          const updatedItem = updateWorkItem({ item, updates, updatedAt: now });
           const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
           const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
 

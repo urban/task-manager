@@ -18,13 +18,15 @@ tm list --all
 tm list --status open
 tm list --status done
 tm list --status cancelled
+tm list --mode human
+tm list --mode agent
 tm list --root "$root_id"
 tm show "$id"
 ```
 
 Add `--json` when you need to parse results.
 
-## Update text fields
+## Update fields
 
 Use `tm update`, not JSONL edits:
 
@@ -40,7 +42,7 @@ tm update "$id" \
 
 Use `--message` or `--message-file` when updating Subject and Description together. Do not combine `--message` / `--message-file` with explicit `--subject` or Description flags.
 
-Use `--allow-empty-description` or `--allow-empty-context` only when intentionally clearing that field.
+Use `--allow-empty-description` or `--allow-empty-context` only when intentionally clearing that field. Use `tm update <id> --mode agent|human` to correct Execution Mode; this does not require `--allow-human`.
 
 ## Manage dependencies
 
@@ -55,6 +57,8 @@ Remove a dependency:
 ```bash
 tm unblock "$blocked_id" --by "$dependency_id"
 ```
+
+If either side is human-mode, removing the dependency requires explicit approval and `--allow-human` because it may clear a human gate.
 
 Use dependencies only for real ordering constraints. Priority, grouping, and narrative sequencing belong elsewhere.
 
@@ -72,7 +76,7 @@ Release another active claim only with explicit user approval:
 tm release "$id" --agent "$agent_name" --force
 ```
 
-Use `tm claim --force` only when the user explicitly wants to replace another active claim.
+Use `tm claim --force` only when the user explicitly wants to replace another active claim. Use `tm claim --allow-human` only when the user explicitly wants to claim human-mode work.
 
 ## Cancel vs delete
 
@@ -84,7 +88,7 @@ tm cancel "$id" \
   --reason "No longer needed because the feature was removed from scope."
 ```
 
-If cancellation cascades to descendants and the CLI asks for confirmation, use `--yes` only when the user intended that cascade.
+If cancellation cascades to descendants and the CLI asks for confirmation, use `--yes` only when the user intended that cascade. If the target or cascade includes human-mode Work Items, use `--allow-human` only after explicit approval.
 
 Use `tm delete --yes` only for mistaken, duplicate, or accidental records:
 
@@ -92,11 +96,13 @@ Use `tm delete --yes` only for mistaken, duplicate, or accidental records:
 tm delete "$id" --yes
 ```
 
+If the target subtree includes human-mode Work Items, use `--allow-human` only after explicit approval.
+
 Do not delete legitimate historical work just because it is obsolete; cancel it instead.
 
 ## Complete/cancel force flags
 
-`tm complete --force` can bypass incomplete dependencies or claim conflicts. `tm cancel --force` can bypass another agent's active claim. Use either only after explicit user approval, and record why in your final report.
+`tm complete --force` can bypass incomplete dependencies or claim conflicts. `tm cancel --force` can bypass another agent's active claim. `tm complete --force` requires `--allow-human` when bypassing an incomplete human-mode dependency. Use force or `--allow-human` only after explicit user approval, and record why in your final report.
 
 ## Failure handling
 
@@ -106,7 +112,7 @@ If a command fails:
 2. Read the exact error output.
 3. Report the command, failed Work Item ID, and any mutations already completed.
 4. Prefer a CLI correction (`tm update`, `tm unblock`, `tm release`, `tm cancel`, or `tm delete`) over storage edits.
-5. Ask before using `--force`, destructive delete, or low-level recovery.
+5. Ask before using `--force`, `--allow-human`, destructive delete, or low-level recovery.
 
 If `tm validate` fails, stop and report the validation failure. Do not repair `.tasks/tasks.jsonl` manually unless the user explicitly asks for low-level recovery.
 

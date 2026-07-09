@@ -26,6 +26,10 @@ export const commandCreate = Command.make("create", {
     Flag.withDescription("Create an Epic, Task, or Subtask"),
     Flag.withDefault("task"),
   ),
+  mode: Flag.choice("mode", ["agent", "human"]).pipe(
+    Flag.withDescription("Execution mode for the Work Item"),
+    Flag.withDefault("agent"),
+  ),
   parent: Flag.string("parent").pipe(
     Flag.withDescription("Parent Work Item id or unique prefix"),
     Flag.optional,
@@ -143,6 +147,7 @@ export const commandCreate = Command.make("create", {
             subject,
             description,
             agentContext,
+            executionMode: input.mode,
             ...(parent === undefined ? {} : { parentId: parent.id }),
             blockedBy,
           });
