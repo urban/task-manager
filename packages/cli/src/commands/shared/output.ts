@@ -8,7 +8,9 @@ import {
   buildTree,
   encodeWorkItem,
   type WorkItem,
+  type WorkItemCancellationEncoded,
   type WorkItemEncoded,
+  type WorkItemResultEncoded,
 } from "../../domain/WorkItem";
 
 const encodeJson = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
@@ -89,7 +91,7 @@ export const executeCommand = <A, R>(
 export const renderBullets = (items: ReadonlyArray<string>): ReadonlyArray<string> =>
   items.length === 0 ? ["-"] : items.map((item) => `- ${item}`);
 
-const renderResultHuman = (result: WorkItemEncoded["result"]): string =>
+const renderResultHuman = (result: WorkItemResultEncoded | undefined): string =>
   result === undefined
     ? "-"
     : [
@@ -103,7 +105,7 @@ const renderResultHuman = (result: WorkItemEncoded["result"]): string =>
         `Completed: ${result.completedAt} by ${result.completedBy}`,
       ].join("\n");
 
-const renderCancellationHuman = (cancellation: WorkItemEncoded["cancellation"]): string =>
+const renderCancellationHuman = (cancellation: WorkItemCancellationEncoded | undefined): string =>
   cancellation === undefined
     ? "-"
     : [
@@ -118,25 +120,25 @@ export const renderWorkItemHuman = (item: WorkItem): string => {
   return [
     `${encoded.level.toUpperCase()} ${encoded.id}`,
     `Status: ${encoded.status}`,
-    `Execution mode: ${encoded.executionMode}`,
+    `Executor: ${encoded.executor}`,
     `Subject: ${encoded.subject}`,
     `Parent: ${encoded.parentId ?? "-"}`,
     `Dependencies: ${dependencies === 0 ? "-" : (encoded.blockedBy?.join(", ") ?? "-")}`,
     `Claim: ${
-      encoded.claim === undefined ? "-" : `${encoded.claim.agent} until ${encoded.claim.expiresAt}`
+      encoded.claim === undefined ? "-" : `${encoded.claim.actor} until ${encoded.claim.expiresAt}`
     }`,
     "",
     "Description:",
     encoded.description === "" ? "-" : encoded.description,
     "",
-    "Agent Context:",
-    encoded.agentContext === "" ? "-" : encoded.agentContext,
+    "Context:",
+    encoded.context === "" ? "-" : encoded.context,
     "",
     "Result:",
-    renderResultHuman(encoded.result),
+    renderResultHuman(encoded.status === "done" ? encoded.result : undefined),
     "",
     "Cancellation:",
-    renderCancellationHuman(encoded.cancellation),
+    renderCancellationHuman(encoded.status === "cancelled" ? encoded.cancellation : undefined),
   ].join("\n");
 };
 
@@ -149,7 +151,7 @@ export const renderTreeLines = (
   nodes.forEach((node, index) => {
     const branch = index === nodes.length - 1 ? "└─" : "├─";
     lines.push(
-      `${prefix}${branch} ${node.item.subject} [${node.item.status}] [${node.item.executionMode}] (${node.item.id})`,
+      `${prefix}${branch} ${node.item.subject} [${node.item.status}] [${node.item.executor}] (${node.item.id})`,
     );
     const childPrefix = `${prefix}${index === nodes.length - 1 ? "   " : "│  "}`;
     lines.push(...renderTreeLines(node.children, childPrefix));
@@ -162,7 +164,7 @@ export interface RenderTreeJsonNode {
   readonly id: string;
   readonly level: string;
   readonly status: string;
-  readonly executionMode: string;
+  readonly executor: string;
   readonly subject: string;
   readonly matchesFilter: boolean;
   readonly children: ReadonlyArray<RenderTreeJsonNode>;
@@ -175,7 +177,7 @@ export const renderTreeJson = (
     id: node.item.id,
     level: node.item.level,
     status: node.item.status,
-    executionMode: node.item.executionMode,
+    executor: node.item.executor,
     subject: node.item.subject,
     matchesFilter: node.matchesFilter,
     children: renderTreeJson(node.children),

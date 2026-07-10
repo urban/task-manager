@@ -11,12 +11,12 @@ export const activeClaimConflictMessage = (
   claim: WorkItemClaim,
   action: string,
 ): string =>
-  `Work Item ${item.id} is actively claimed by ${claim.agent} until ${formatClaimExpiresAt(
+  `Work Item ${item.id} is actively claimed by ${claim.actor} until ${formatClaimExpiresAt(
     claim,
   )}. Use --force to ${action}.`;
 
-export const firstHumanModeWorkItem = (items: ReadonlyArray<WorkItem>): WorkItem | undefined =>
-  items.find((item) => item.executionMode === "human");
+export const firstHumanExecutorWorkItem = (items: ReadonlyArray<WorkItem>): WorkItem | undefined =>
+  items.find((item) => item.executor === "human");
 
-export const humanModeGuardMessage = (item: WorkItem, action: string): string =>
-  `Work Item ${item.id} uses human execution mode. Pass --allow-human to ${action}.`;
+export const humanExecutorGuardMessage = (item: WorkItem, action: string): string =>
+  `Work Item ${item.id} uses human executor. Pass --allow-human to ${action}.`;

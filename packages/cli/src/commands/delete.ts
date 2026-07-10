@@ -9,12 +9,12 @@ import { resolveWorkItem, sortWorkItems, type WorkItem } from "../domain/WorkIte
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
 import { executeCommand, renderJson } from "./shared/output";
-import { firstHumanModeWorkItem, humanModeGuardMessage } from "./shared/work-items";
+import { firstHumanExecutorWorkItem, humanExecutorGuardMessage } from "./shared/work-items";
 
 interface DeletedWorkItemOutput {
   readonly id: string;
   readonly subject: string;
-  readonly executionMode: string;
+  readonly executor: string;
 }
 
 interface DanglingDependencyRisk {
@@ -74,7 +74,7 @@ const findDanglingDependencyRisks = (
 const toDeletedWorkItemOutput = (item: WorkItem): DeletedWorkItemOutput => ({
   id: item.id,
   subject: item.subject,
-  executionMode: item.executionMode,
+  executor: item.executor,
 });
 
 const renderWorkItemBullet = (item: WorkItem): string => `- ${item.subject} (${item.id})`;
@@ -113,7 +113,7 @@ export const commandDelete = Command.make("delete", {
   id: Argument.string("id"),
   yes: Flag.boolean("yes").pipe(Flag.withDescription("Confirm destructive deletion")),
   allowHuman: Flag.boolean("allow-human").pipe(
-    Flag.withDescription("Allow deleting human-mode Work Items"),
+    Flag.withDescription("Allow deleting human-executor Work Items"),
   ),
 }).pipe(
   Command.withDescription("Delete accidental Work Items and descendants"),
@@ -135,10 +135,10 @@ export const commandDelete = Command.make("delete", {
             });
           }
 
-          const humanDeletedItem = firstHumanModeWorkItem(deletedItems);
+          const humanDeletedItem = firstHumanExecutorWorkItem(deletedItems);
           if (humanDeletedItem !== undefined && !allowHuman) {
             return yield* new CommandFailure({
-              message: humanModeGuardMessage(humanDeletedItem, "delete it"),
+              message: humanExecutorGuardMessage(humanDeletedItem, "delete it"),
             });
           }
 

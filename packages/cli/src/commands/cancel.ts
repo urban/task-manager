@@ -10,20 +10,22 @@ import { CommandFailure } from "../domain/Errors";
 import {
   cancelWorkItem,
   isClaimActive,
+  isOpenWorkItem,
   resolveWorkItem,
   sortWorkItems,
+  type OpenWorkItem,
   type WorkItem,
   type WorkItemClaim,
 } from "../domain/WorkItem";
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
-import { agentFlag } from "./shared/flags";
-import { resolveAgentIdentity, resolveTextInput } from "./shared/input";
+import { actorFlag } from "./shared/flags";
+import { resolveActorIdentity, resolveTextInput } from "./shared/input";
 import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
 import {
   activeClaimConflictMessage,
-  firstHumanModeWorkItem,
-  humanModeGuardMessage,
+  firstHumanExecutorWorkItem,
+  humanExecutorGuardMessage,
 } from "./shared/work-items";
 
 interface ClaimConflict {
@@ -75,14 +77,13 @@ const isDescendantOf = (
 const openDescendantsOf = (
   item: WorkItem,
   items: ReadonlyArray<WorkItem>,
-): ReadonlyArray<WorkItem> => {
+): ReadonlyArray<OpenWorkItem> => {
   const itemsById = new Map(items.map((candidate) => [candidate.id, candidate]));
-  return sortWorkItems(items).filter(
-    (candidate) =>
-      candidate.id !== item.id &&
-      candidate.status === "open" &&
-      isDescendantOf(candidate, item.id, itemsById),
-  );
+  return sortWorkItems(items)
+    .filter(isOpenWorkItem)
+    .filter(
+      (candidate) => candidate.id !== item.id && isDescendantOf(candidate, item.id, itemsById),
+    );
 };
 
 const claimConflictFor = (
@@ -91,7 +92,7 @@ const claimConflictFor = (
   now: DateTime.Utc,
 ): ClaimConflict | undefined => {
   const claim = item.claim;
-  return claim !== undefined && isClaimActive(claim, now) && claim.agent !== identity
+  return claim !== undefined && isClaimActive(claim, now) && claim.actor !== identity
     ? { item, claim }
     : undefined;
 };
@@ -145,13 +146,13 @@ export const commandCancel = Command.make("cancel", {
   id: Argument.string("id"),
   reason: Flag.string("reason").pipe(Flag.optional),
   reasonFile: Flag.file("reason-file").pipe(Flag.optional),
-  agent: agentFlag,
+  actor: actorFlag,
   force: Flag.boolean("force").pipe(
-    Flag.withDescription("Cancel despite another agent's active claim"),
+    Flag.withDescription("Cancel despite another actor's active claim"),
   ),
   yes: Flag.boolean("yes").pipe(Flag.withDescription("Confirm cascading cancellation")),
   allowHuman: Flag.boolean("allow-human").pipe(
-    Flag.withDescription("Allow cancelling human-mode Work Items"),
+    Flag.withDescription("Allow cancelling human-executor Work Items"),
   ),
 }).pipe(
   Command.withDescription("Cancel open Work Items with a structured Cancellation"),
@@ -161,7 +162,7 @@ export const commandCancel = Command.make("cancel", {
       yield* executeCommand(
         root.json,
         Effect.gen(function* () {
-          const identity = yield* resolveAgentIdentity(input.agent);
+          const identity = yield* resolveActorIdentity(input.actor);
           const reason = yield* resolveCancellationReason(input);
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
@@ -182,10 +183,10 @@ export const commandCancel = Command.make("cancel", {
           }
 
           const targets = [item, ...openDescendants];
-          const humanTarget = firstHumanModeWorkItem(targets);
+          const humanTarget = firstHumanExecutorWorkItem(targets);
           if (humanTarget !== undefined && !input.allowHuman) {
             return yield* new CommandFailure({
-              message: humanModeGuardMessage(humanTarget, "cancel it"),
+              message: humanExecutorGuardMessage(humanTarget, "cancel it"),
             });
           }
 

@@ -16,29 +16,29 @@ import {
 } from "../domain/WorkItem";
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
-import { agentFlag } from "./shared/flags";
-import { resolveAgentIdentity } from "./shared/input";
+import { actorFlag } from "./shared/flags";
+import { resolveActorIdentity } from "./shared/input";
 import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
 import { activeClaimConflictMessage, replaceWorkItem } from "./shared/work-items";
 
 const renderReleasedHuman = (item: WorkItem, claim: WorkItemClaim): string =>
-  `Released claim on ${item.subject} (${item.id}) held by ${claim.agent} until ${formatClaimExpiresAt(
+  `Released claim on ${item.subject} (${item.id}) held by ${claim.actor} until ${formatClaimExpiresAt(
     claim,
   )}.`;
 
 export const commandRelease = Command.make("release", {
   id: Argument.string("id"),
-  agent: agentFlag,
+  actor: actorFlag,
   force: Flag.boolean("force").pipe(Flag.withDescription("Release another active claim")),
 }).pipe(
-  Command.withDescription("Release an Agent Claim"),
+  Command.withDescription("Release a Claim"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ id, agent, force }) {
+    Effect.fnUntraced(function* ({ id, actor, force }) {
       const root = yield* commandRoot;
       yield* executeCommand(
         root.json,
         Effect.gen(function* () {
-          const identity = yield* resolveAgentIdentity(agent);
+          const identity = yield* resolveActorIdentity(actor);
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
           const items = yield* loadStore(paths);
@@ -52,7 +52,7 @@ export const commandRelease = Command.make("release", {
           }
 
           const now = yield* DateTime.now;
-          if (isClaimActive(currentClaim, now) && currentClaim.agent !== identity && !force) {
+          if (isClaimActive(currentClaim, now) && currentClaim.actor !== identity && !force) {
             return yield* new CommandFailure({
               message: activeClaimConflictMessage(item, currentClaim, "release it"),
             });

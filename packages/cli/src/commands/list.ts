@@ -6,10 +6,13 @@ import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
 import {
+  allExecutorsFilter,
   allWorkItemStatuses,
   buildFilteredTree,
   resolveWorkItem,
-  type WorkItemModeFilter,
+  specificExecutorFilter,
+  type WorkItemExecutor,
+  type WorkItemExecutorFilter,
   type WorkItemStatus,
 } from "../domain/WorkItem";
 import { loadStore, resolveStorePaths } from "../storage/TaskStore";
@@ -19,12 +22,16 @@ import { executeCommand, renderJson, renderTreeJson, renderTreeLines } from "./s
 const renderEmptyListMessage = (options: {
   readonly all: boolean;
   readonly status: WorkItemStatus | undefined;
-}): string =>
-  options.all
-    ? "No Work Items."
+  readonly executorFilter: WorkItemExecutorFilter;
+}): string => {
+  const executor =
+    options.executorFilter._tag === "SpecificExecutor" ? `${options.executorFilter.executor} ` : "";
+  return options.all
+    ? `No ${executor}Work Items.`
     : options.status === undefined || options.status === "open"
-      ? "No open Work Items."
-      : `No ${options.status} Work Items.`;
+      ? `No open ${executor}Work Items.`
+      : `No ${options.status} ${executor}Work Items.`;
+};
 
 const visibleStatuses = (options: {
   readonly all: boolean;
@@ -41,6 +48,19 @@ const visibleStatuses = (options: {
         ],
   );
 
+const resolveExecutorFilter = (
+  executor: Option.Option<WorkItemExecutor>,
+  allExecutors: boolean,
+): WorkItemExecutorFilter =>
+  allExecutors
+    ? allExecutorsFilter
+    : specificExecutorFilter(
+        Option.match(executor, {
+          onNone: () => "agent",
+          onSome: (value) => value,
+        }),
+      );
+
 export const commandList = Command.make("list", {
   root: Flag.string("root").pipe(Flag.withDescription("Render only a subtree"), Flag.optional),
   status: Flag.choice("status", ["open", "done", "cancelled"]).pipe(
@@ -50,14 +70,17 @@ export const commandList = Command.make("list", {
   all: Flag.boolean("all").pipe(
     Flag.withDescription("Render open, done, and cancelled Work Items"),
   ),
-  mode: Flag.choice("mode", ["agent", "human", "any"]).pipe(
-    Flag.withDescription("Render only Work Items with this execution mode"),
-    Flag.withDefault("any"),
+  executor: Flag.choice("executor", ["agent", "human"]).pipe(
+    Flag.withDescription("Render only Work Items with this executor"),
+    Flag.optional,
+  ),
+  allExecutors: Flag.boolean("all-executors").pipe(
+    Flag.withDescription("Render Work Items for both executors"),
   ),
 }).pipe(
   Command.withDescription("List Work Items in a deterministic tree view"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ root: requestedRoot, status, all, mode }) {
+    Effect.fnUntraced(function* ({ root: requestedRoot, status, all, executor, allExecutors }) {
       const root = yield* commandRoot;
       yield* executeCommand(
         root.json,
@@ -65,6 +88,11 @@ export const commandList = Command.make("list", {
           if (all && Option.isSome(status)) {
             return yield* new CommandFailure({
               message: "Use either --all or --status, not both.",
+            });
+          }
+          if (allExecutors && Option.isSome(executor)) {
+            return yield* new CommandFailure({
+              message: "Use either --executor or --all-executors, not both.",
             });
           }
 
@@ -75,10 +103,11 @@ export const commandList = Command.make("list", {
             onSome: (value) => resolveWorkItem(items, value),
           });
           const statusFilter = visibleStatuses({ all, status });
+          const executorFilter = resolveExecutorFilter(executor, allExecutors);
           const tree = buildFilteredTree(items, {
             ...(subtreeRoot === undefined ? {} : { root: subtreeRoot }),
             statuses: statusFilter,
-            mode: mode satisfies WorkItemModeFilter,
+            executorFilter,
           });
           const selectedStatus = Option.match(status, {
             onNone: () => undefined,
@@ -92,7 +121,7 @@ export const commandList = Command.make("list", {
                   items: renderTreeJson(tree),
                 })
               : tree.length === 0
-                ? renderEmptyListMessage({ all, status: selectedStatus })
+                ? renderEmptyListMessage({ all, status: selectedStatus, executorFilter })
                 : renderTreeLines(tree).join("\n"),
           );
         }),

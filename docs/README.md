@@ -4,9 +4,9 @@ This document explains Task Manager. The goal is to make development work durabl
 
 The CLI binary is `tm`. The persisted data lives in `.tasks/tasks.jsonl` by default so it can be committed with the repository.
 
-The CLI is non-interactive: use flags and file inputs instead of editor prompts. This keeps the tool scriptable and predictable for AI agents. Agent-aware commands (`claim`, `release`, `complete`, and `cancel`) use `--agent <name>` or the `TM_AGENT` environment variable.
+The CLI is non-interactive: use flags and file inputs instead of editor prompts. This keeps the tool scriptable and predictable for AI agents. Actor-aware commands (`claim`, `release`, `complete`, and `cancel`) use `--actor <name>` or the `TM_ACTOR` environment variable.
 
-Commands are `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `release`, `complete`, `cancel`, `delete`, `block`, and `unblock`. Together they support durable planning, recording dependencies, separating agent-executable and human-only work with Execution Mode, selecting and claiming executable work, completing with evidence, safely refining fields, cancelling obsolete real work, filtering lifecycle and execution modes, and destructively deleting only accidental records. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
+Commands are `init`, `validate`, `create`, `update`, `set-executor`, `show`, `list`, `next`, `claim`, `release`, `complete`, `cancel`, `delete`, `block`, and `unblock`. Together they support durable planning, recording dependencies, separating agent-executable and human-only work with Executor, selecting and claiming executable work, completing with evidence, safely refining fields, cancelling obsolete real work, filtering lifecycle and Executors, and destructively deleting only accidental records. Run `tm --help` or `tm <command> --help` to confirm the command set in your installed version.
 
 ## Why this exists
 
@@ -54,26 +54,26 @@ Rules:
 
 Standalone Tasks are allowed so small work does not need fake Epics.
 
-### Execution Mode
+### Executor
 
-Every Work Item has an **Execution Mode**:
+Every Work Item has an **Executor**:
 
 - `agent` — LLM-executable work. This is the default for new Work Items.
 - `human` — work that must not be executed unattended by an LLM, such as decisions, reviews, approvals, credential entry, private/manual checks, or physical-world actions.
 
-Execution Mode is not a lifecycle state, priority, assignment, or claim. It only says which kind of actor may safely execute the Work Item. Parent mode does not inherit to children and does not gate descendants; each Work Item has its own explicit mode.
+Executor is not a lifecycle state, priority, assignment, or claim. It only says which kind of actor may safely execute the Work Item. Parent Executor does not inherit to children and does not gate descendants; each Work Item has its own explicit Executor.
 
-`tm next` defaults to `agent` work only so AI agents do not accidentally receive human-only tasks. Use `tm next --mode human` for the human queue and `tm next --mode any` to inspect the true frontier regardless of executor.
+`tm next` defaults to `agent` work only so AI agents do not accidentally receive human-only tasks. Use `tm next --executor human` for the human queue and `tm next --all-executors` to inspect the true frontier regardless of executor.
 
-Commands that could accidentally mutate human-only work require `--allow-human` when the target Work Item, affected subtree, or bypassed human dependency is human-mode. This applies to `claim`, `complete`, `cancel`, `delete`, and `unblock`. The flag is accepted as a harmless no-op for agent-mode work.
+Commands that could accidentally mutate human-only work require `--allow-human` when the target Work Item, affected subtree, or bypassed human dependency is human-executor. This applies to `claim`, `complete`, `cancel`, `delete`, and `unblock`. The flag is accepted as a harmless no-op for agent-executor work.
 
-### Subject, Description, and Agent Context
+### Subject, Description, and Context
 
 Every normal Work Item creation requires:
 
 - **Subject** — a short, plain-text Git-style subject line.
 - **Description** — a human-facing Markdown body explaining the requested work.
-- **Agent Context** — the Markdown execution packet an AI agent needs to do the work later.
+- **Context** — the Markdown execution packet an AI agent needs to do the work later.
 
 Validated Subject rules:
 
@@ -91,11 +91,11 @@ Subject and Description can be entered like a Git commit message: the first line
 
 Deterministic Subject rules are hard validation errors.
 
-Agent Context is one Markdown string, not separate fields for files, constraints, acceptance criteria, or implementation notes. If structure is useful, put Markdown headings inside the string.
+Context is one Markdown string, not separate fields for files, constraints, acceptance criteria, or implementation notes. If structure is useful, put Markdown headings inside the string.
 
-In JSONL storage this field is named `agentContext` so its purpose is explicit. The CLI uses shorter flags, `--context` and `--context-file`, for ergonomics.
+In JSONL storage this field is named `context` so its purpose is explicit. The CLI uses shorter flags, `--context` and `--context-file`, for ergonomics.
 
-Good Agent Context includes:
+Good Context includes:
 
 - what needs to be done,
 - why it is needed,
@@ -116,7 +116,7 @@ A Work Item in storage has one of three lifecycle states:
 
 The public CLI creates `open` Work Items, can move open Work Items with no open children to `done` using `tm complete`, and can move open Work Items to `cancelled` using `tm cancel`.
 
-There is no `in_progress` state. Active work is represented by an **Agent Claim** instead.
+There is no `in_progress` state. Active work is represented by a **Claim** instead.
 
 ### Done and Result
 
@@ -154,7 +154,7 @@ A Cancellation records:
 
 - reason the work stopped,
 - cancellation timestamp, and
-- Agent Identity that cancelled it.
+- Actor Identity that cancelled it.
 
 Example:
 
@@ -166,15 +166,15 @@ Example:
 }
 ```
 
-Use `tm cancel <id> --agent <name> --reason <text>` to cancel an open Work Item. Use `--reason-file <path>` for longer reasons. Parent cancellation previews the open descendants that would also be cancelled and requires `--yes` before mutating storage:
+Use `tm cancel <id> --actor <name> --reason <text>` to cancel an open Work Item. Use `--reason-file <path>` for longer reasons. Parent cancellation previews the open descendants that would also be cancelled and requires `--yes` before mutating storage:
 
 ```sh
 tm cancel wi_3f7d... \
-  --agent codex-auth-session \
+  --actor codex-auth-session \
   --reason "No longer needed after the approach changed"
 ```
 
-Cascading cancellation applies only to open descendants. Done and already-cancelled descendants are left unchanged. Successful cancellation clears claims on each Work Item it cancels. Cancelling a Work Item with another agent's active claim requires `--force`; expired claims do not require force. Cancelling a human-mode Work Item or a subtree containing human-mode Work Items requires `--allow-human`.
+Cascading cancellation applies only to open descendants. Done and already-cancelled descendants are left unchanged. Successful cancellation clears claims on each Work Item it cancels. Cancelling a Work Item with another actor's active claim requires `--force`; expired claims do not require force. Cancelling a human-executor Work Item or a subtree containing human-executor Work Items requires `--allow-human`.
 
 ### Delete
 
@@ -186,7 +186,7 @@ Because the CLI is non-interactive, destructive deletion requires `--yes` before
 tm delete wi_3f7d... --yes
 ```
 
-Deleting a human-mode Work Item or subtree requires `--allow-human` in addition to `--yes`.
+Deleting a human-executor Work Item or subtree requires `--allow-human` in addition to `--yes`.
 
 Running without `--yes` previews the Work Items that would be permanently deleted and exits without mutation. If the selected Work Item has descendants, the entire subtree is deleted together.
 
@@ -205,7 +205,7 @@ Dependencies are separate from hierarchy:
 
 Dependencies may cross hierarchy boundaries. For example, a Subtask in one Epic may depend on a standalone Task, or a Task in one Epic may depend on a Task in another Epic.
 
-Use repeatable `tm create --blocked-by <dependency-id>` when dependencies are known before creating the blocked Work Item. Use `tm block <id> --by <dependency-id>` to record a dependency after both Work Items already exist, and `tm unblock <id> --by <dependency-id>` when the ordering constraint is no longer needed. IDs may be full IDs or unique prefixes, and storage always keeps the resolved full dependency IDs. Removing a dependency where either side is human-mode requires `tm unblock --allow-human` because it can clear a human gate.
+Use repeatable `tm create --blocked-by <dependency-id>` when dependencies are known before creating the blocked Work Item. Use `tm block <id> --by <dependency-id>` to record a dependency after both Work Items already exist, and `tm unblock <id> --by <dependency-id>` when the ordering constraint is no longer needed. IDs may be full IDs or unique prefixes, and storage always keeps the resolved full dependency IDs. Removing a dependency where either side is human-executor requires `tm unblock --allow-human` because it can clear a human gate.
 
 ```sh
 tm create "Add API endpoint" \
@@ -223,18 +223,18 @@ Dependency enforcement is soft:
 
 - `tm next` skips blocked Work Items by default,
 - `tm complete` refuses to complete a blocked Work Item unless `--force` is used,
-- `tm complete --force` also requires `--allow-human` when it bypasses an incomplete human-mode dependency,
+- `tm complete --force` also requires `--allow-human` when it bypasses an incomplete human-executor dependency,
 - self-dependencies, duplicate dependencies, and dependency cycles are invalid.
 
 This prevents accidental order violations while still allowing humans to recover when a dependency becomes obsolete.
 
-## Agent Identity and Claims
+## Actor Identity and Claims
 
-An **Agent Identity** is a caller-provided string used for coordination and audit fields. There is no agent registry. An agent gives itself a name and uses it consistently through `--agent` or `TM_AGENT`.
+An **Actor Identity** is a caller-provided string used for coordination and audit fields. There is no actor registry. A human or AI agent chooses a name and uses it consistently through `--actor` or `TM_ACTOR`.
 
-Agent Identity is required for `claim`, `release`, `complete`, and `cancel` so the task manager can record who coordinated or changed lifecycle state. Humans can use names like `human-urban`.
+Actor Identity is required for `claim`, `release`, `complete`, and `cancel` so the task manager can record who coordinated or changed lifecycle state. Humans can use names like `human-urban`.
 
-Good Agent Identity examples:
+Good Actor Identity examples:
 
 - `codex-auth-session`
 - `claude-refactor-2026-06-15`
@@ -243,13 +243,13 @@ Good Agent Identity examples:
 
 Avoid vague names like `agent`, `me`, or `test`.
 
-An **Agent Claim** is an advisory signal that an agent is actively working on a Work Item.
+A **Claim** is an advisory signal that an actor is actively working on a Work Item.
 
 Example idea:
 
 ```json
 {
-  "agent": "codex-session-123",
+  "actor": "codex-session-123",
   "claimedAt": "2026-06-15T14:00:00.000Z",
   "expiresAt": "2026-06-15T15:00:00.000Z"
 }
@@ -277,7 +277,7 @@ Default layout:
 
 By default, Task Manager stores data under the nearest Git root. If no Git root is found, it stores data under the working directory or the directory passed with `--cwd` / `TM_CWD`. Use `--storage-path <dir>` or `TM_STORAGE_PATH` to override the `.tasks` directory.
 
-`tasks.jsonl` stores one snapshot per Work Item. It is not an append-only event log. Records use `schemaVersion: 2` and require `executionMode`.
+`tasks.jsonl` stores one snapshot per Work Item. It is not an append-only event log. Records use `schemaVersion: 3` and require `executor` and neutral `context` fields; Claim records use `actor`. Older records must be edited manually because the CLI intentionally provides no migration command.
 
 Why snapshots:
 
@@ -312,14 +312,14 @@ tm create "Authentication system" \
 
 tm create "Create user model" \
   --level task \
-  --mode agent \
+  --executor agent \
   --parent <epic-id> \
   --description "Create a user model that supports login." \
   --context "Add password hash storage and helper functions. Follow existing schema patterns."
 
 tm create "Add login endpoint" \
   --level task \
-  --mode agent \
+  --executor agent \
   --parent <epic-id> \
   --blocked-by <user-model-id> \
   --description "Add POST /auth/login." \
@@ -360,7 +360,7 @@ tm create \
   --context "Add login token generation, verification middleware, refresh flow, and tests."
 ```
 
-For longer Markdown, keep the Subject and Description together in a message file, and keep Agent Context in a separate context file:
+For longer Markdown, keep the Subject and Description together in a message file, and keep Context in a separate context file:
 
 ```sh
 cat > work-item-message.md <<'EOF'
@@ -405,12 +405,12 @@ tm update wi_3f7d... --subject "Implement login flow"
 tm update wi_3f7d... --description "Clarify the human-facing request."
 tm update wi_3f7d... --context-file ./agent-context.md
 tm update wi_3f7d... --message $'Implement login flow\n\nClarify the requested login behavior.'
-tm update wi_3f7d... --mode human
+tm set-executor wi_3f7d... human --allow-human
 ```
 
-`--message` and `--message-file` follow the same Git-style format as `tm create`: the first line is the Subject, then a blank line, then the Description. Do not combine message input with `--subject` or Description flags (`--description`, `--description-file`). Description and Agent Context cannot be cleared accidentally; pass `--allow-empty-description` or `--allow-empty-context` with the matching empty update when clearing is intentional.
+`--message` and `--message-file` follow the same Git-style format as `tm create`: the first line is the Subject, then a blank line, then the Description. Do not combine message input with `--subject` or Description flags (`--description`, `--description-file`). Description and Context cannot be cleared accidentally; pass `--allow-empty-description` or `--allow-empty-context` with the matching empty update when clearing is intentional.
 
-Updates do not change lifecycle status, dependencies, claims, Result, or Cancellation data. Done and cancelled Work Items can still be updated for typo or context corrections. `tm update --mode agent|human` changes only Execution Mode and does not require `--allow-human`.
+Updates do not change Executor, lifecycle status, dependencies, claims, Result, or Cancellation data. Done and cancelled Work Items can still be updated for typo or context corrections. Use `tm set-executor <id> agent|human` for Executor changes. Any change to or from `human` requires `--allow-human`; setting the current Executor is a no-op and does not change `updatedAt`.
 
 ### Record dependencies
 
@@ -432,7 +432,7 @@ Use repeatable `--blocked-by <id>` during creation when dependency IDs are alrea
 tm show wi_3f7d...
 ```
 
-`tm show` is an inspection command. In human mode it shows the selected Work Item's status, Execution Mode, parent ID, dependencies, current claim, Description, Agent Context, Result, and Cancellation. In JSON mode it returns the encoded Work Item. Use `tm list --root <id>` when you need a subtree view.
+`tm show` is an inspection command. In human mode it shows the selected Work Item's status, Executor, parent ID, dependencies, current claim, Description, Context, Result, and Cancellation. In JSON mode it returns the encoded Work Item. Use `tm list --root <id>` when you need a subtree view.
 
 ### List the Backlog
 
@@ -440,7 +440,7 @@ tm show wi_3f7d...
 tm list
 ```
 
-`tm list` shows the open Backlog tree by default so the default view stays focused on remaining work. Unlike `tm next`, it includes both agent and human Work Items by default so human gates stay visible. Completed and cancelled Work Items leave the default list, but remain inspectable through lifecycle filters:
+`tm list` shows open agent-executor Work Items by default so the default view is safe for unattended agent execution. Human work appears with `--executor human`, while `--all-executors` shows both queues. Completed and cancelled Work Items leave the default list, but remain inspectable through lifecycle filters:
 
 ```sh
 tm list --status done
@@ -448,17 +448,17 @@ tm list --status cancelled
 tm list --all
 ```
 
-Use `--mode agent`, `--mode human`, or `--mode any` to filter by Execution Mode. Mode filters compose with lifecycle filters:
+Use `--executor agent`, `--executor human`, or `--all-executors` to filter by Executor. Executor filters compose with lifecycle filters. `--executor` and `--all-executors` cannot be combined:
 
 ```sh
-tm list --mode human
-tm list --status done --mode human
-tm list --all --mode human
+tm list --executor human
+tm list --status done --executor human
+tm list --all --executor human
 ```
 
-Filtered lists include matching Work Items plus any ancestors needed for hierarchy context. Human tree output includes `[status] [mode]`; JSON tree nodes include `executionMode` and `matchesFilter` so scripts can distinguish matching nodes from context-only ancestors.
+Filtered lists include matching Work Items plus any ancestors needed for hierarchy context. Human tree output includes `[status] [executor]`; JSON tree nodes include `executor` and `matchesFilter` so scripts can distinguish matching nodes from context-only ancestors.
 
-Use `--root <id>` for a focused subtree view. Root scoping composes with lifecycle and mode filters:
+Use `--root <id>` for a focused subtree view. Root scoping composes with lifecycle and Executor filters:
 
 ```sh
 tm list --root wi_3f7d...
@@ -466,7 +466,7 @@ tm list --root wi_3f7d... --status cancelled
 tm list --root wi_3f7d... --all
 ```
 
-`--all` includes open, done, and cancelled Work Items. `--status` accepts one lifecycle state per invocation. `--all` and `--status` cannot be combined, but either can compose with `--mode`. In JSON mode, list output keeps the same tree node shape and reflects the selected filters.
+`--all` includes open, done, and cancelled Work Items. `--status` accepts one lifecycle state per invocation. `--all` and `--status` cannot be combined, but either can compose with `--executor`. In JSON mode, list output keeps the same tree node shape and reflects the selected filters.
 
 ### Find work for an agent
 
@@ -474,7 +474,7 @@ tm list --root wi_3f7d... --all
 tm next
 ```
 
-By default this returns the first actionable open `agent`-mode leaf Work Item in deterministic tree order. Parent Work Items are skipped while they still contain open children; a parent with only done or cancelled children can be returned if it matches the requested mode.
+By default this returns the first actionable open agent-executor leaf Work Item in deterministic tree order. Parent Work Items are skipped while they still contain open children; a parent with only done or cancelled children can be returned if it matches the requested Executor.
 
 Human output uses the same detailed Work Item rendering as `tm show`. JSON output includes the encoded Work Item:
 
@@ -502,37 +502,37 @@ Use `--root <id>` to choose the next actionable Work Item inside a specific open
 tm next --root wi_3f7d...
 ```
 
-Use `--mode human` for the next human-only Work Item, or `--mode any` for the true deterministic frontier regardless of executor. Mode is a hard filter; `tm next --mode human` does not fall back to agent work.
+Use `--executor human` for the next human-only Work Item, or `--all-executors` for the true deterministic frontier regardless of Executor. Executor is a hard filter; `tm next --executor human` does not fall back to agent work. `--executor` and `--all-executors` cannot be combined.
 
 `tm next` is read-only and does not claim the Work Item. It skips actively claimed Work Items by default; use `--include-claimed` to include them in selection. Expired claims do not block selection.
 
 ### Claim work
 
 ```sh
-tm claim wi_3f7d... --agent codex-auth-session
+tm claim wi_3f7d... --actor codex-auth-session
 ```
 
-A claim tells other agents to choose something else unless they intentionally override. Claiming a Work Item already claimed by another active agent requires `--force`. The same agent can refresh its own active claim, and expired claims can be replaced without `--force`. Claiming a human-mode Work Item requires `--allow-human`.
+A claim tells other agents to choose something else unless they intentionally override. Claiming a Work Item already claimed by another active agent requires `--force`. The same agent can refresh its own active claim, and expired claims can be replaced without `--force`. Claiming a human-executor Work Item requires `--allow-human`.
 
-Use `TM_AGENT` instead of `--agent` when it is more convenient:
+Use `TM_ACTOR` instead of `--actor` when it is more convenient:
 
 ```sh
-TM_AGENT=codex-auth-session tm claim wi_3f7d...
+TM_ACTOR=codex-auth-session tm claim wi_3f7d...
 ```
 
 Release a claim when abandoning or handing off work:
 
 ```sh
-tm release wi_3f7d... --agent codex-auth-session
+tm release wi_3f7d... --actor codex-auth-session
 ```
 
-Releasing another agent's active claim requires `--force`; expired claims can be released by anyone. Completing a Work Item claimed by another active agent also requires `--force`; expired claims do not require `--force`.
+Releasing another actor's active claim requires `--force`; expired claims can be released by anyone. Completing a Work Item claimed by another active actor also requires `--force`; expired claims do not require `--force`.
 
 ### Complete work
 
 ```sh
 tm complete wi_3f7d... \
-  --agent codex-auth-session \
+  --actor codex-auth-session \
   --summary "Added POST /auth/login with bcrypt credential verification." \
   --details "Implemented handler validation, login response handling, and tests." \
   --decision "Used generic 401 response for invalid credentials." \
@@ -540,25 +540,25 @@ tm complete wi_3f7d... \
   --verification "pnpm build: success"
 ```
 
-`--decision` and `--verification` may be repeated. `--agent` can be omitted when `TM_AGENT` is set.
+`--decision` and `--verification` may be repeated. `--actor` can be omitted when `TM_ACTOR` is set.
 
 Use either structured result flags or Git-style result message input, not both:
 
 ```sh
 tm complete wi_3f7d... \
-  --agent codex-auth-session \
+  --actor codex-auth-session \
   --result-message $'Add login endpoint verification\n\nImplemented POST /auth/login with bcrypt checks.\n\nDecisions:\n- Return generic 401 for invalid credentials\n\nVerification:\n- pnpm test: 64 passing\n- pnpm build: success'
 ```
 
 For longer messages, write the same format to a file and pass `--result-message-file <path>`.
 
-Only open Work Items can be completed. Before completing, the CLI rejects open children, incomplete dependencies, and another agent's active claim. Use `--force` only to override incomplete dependencies or another active claim. Completing a human-mode Work Item requires `--allow-human`; forcing past an incomplete human-mode dependency also requires `--allow-human`. Verification evidence is required by default; use the explicit `--allow-no-verification` escape hatch when no verification can be recorded.
+Only open Work Items can be completed. Before completing, the CLI rejects open children, incomplete dependencies, and another actor's active claim. Use `--force` only to override incomplete dependencies or another active claim. Completing a human-executor Work Item requires `--allow-human`; forcing past an incomplete human-executor dependency also requires `--allow-human`. Verification evidence is required by default; use the explicit `--allow-no-verification` escape hatch when no verification can be recorded.
 
 ### Cancel work
 
 ```sh
 tm cancel wi_3f7d... \
-  --agent codex-auth-session \
+  --actor codex-auth-session \
   --reason "No longer needed after approach changed"
 ```
 
@@ -568,12 +568,12 @@ Cancelling a parent with open descendants previews the cascade and fails without
 
 ```sh
 tm cancel wi_epic... \
-  --agent codex-auth-session \
+  --actor codex-auth-session \
   --reason "Initiative replaced by a different approach" \
   --yes
 ```
 
-Only open Work Items are cancelled by a cascade. Done and already-cancelled descendants are preserved. Cancelling another agent's active claim requires `--force`; expired claims and same-agent claims do not. Cancelling a human-mode Work Item or a cascade containing a human-mode descendant requires `--allow-human`. Successful cancellation clears claims on the cancelled Work Items.
+Only open Work Items are cancelled by a cascade. Done and already-cancelled descendants are preserved. Cancelling another actor's active claim requires `--force`; expired claims and claims held by the same actor do not. Cancelling a human-executor Work Item or a cascade containing a human-executor descendant requires `--allow-human`. Successful cancellation clears claims on the cancelled Work Items.
 
 ### Delete accidental records
 
@@ -591,16 +591,16 @@ Confirm deletion explicitly with `--yes`:
 tm delete wi_3f7d... --yes
 ```
 
-If the deleted Work Item or subtree includes human-mode work, pass `--allow-human` as well.
+If the deleted Work Item or subtree includes human-executor work, pass `--allow-human` as well.
 
 If the selected Work Item has descendants, the full subtree is deleted. The command refuses to delete a Work Item when any remaining Work Item would still depend on it; unblock, cancel, or delete the dependent Work Items first.
 
-In JSON mode, successful deletion returns the deleted IDs, subjects, and Execution Modes:
+In JSON mode, successful deletion returns the deleted IDs, subjects, and Executors:
 
 ```json
 {
   "ok": true,
-  "deleted": [{ "id": "wi_...", "subject": "Accidental Work Item", "executionMode": "agent" }]
+  "deleted": [{ "id": "wi_...", "subject": "Accidental Work Item", "executor": "agent" }]
 }
 ```
 
@@ -610,11 +610,11 @@ The CLI supports:
 
 - local JSONL storage,
 - non-interactive CLI input through flags and files,
-- Work Item creation, Execution Mode, safe field updates, validation, inspection, and filtered backlog listing,
+- Work Item creation, Executor, safe field updates, validation, inspection, and filtered backlog listing,
 - hierarchy validation for Epics, Tasks, and Subtasks,
 - dependencies through repeatable `tm create --blocked-by`, `tm block`, and `tm unblock`,
 - deterministic work selection through `tm next`,
-- advisory Agent Claims through `tm claim` and `tm release`,
+- advisory Claims through `tm claim` and `tm release`,
 - structured completion through `tm complete`,
 - structured cancellation through `tm cancel`, and
 - destructive accidental-record cleanup through `tm delete`.

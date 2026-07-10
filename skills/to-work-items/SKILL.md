@@ -8,44 +8,44 @@ description: Convert specs, PRDs, plans, or conversation context into approved t
 - Use Task Manager Work Items as the only durable tracker: create and modify state with `tm` commands only; do not use GitHub, Linear, local Markdown backlogs, or any other tracker.
 - Call artifacts Work Items in drafts, commands, and reports; do not substitute other tracker vocabulary.
 - Do not manually edit `.tasks/tasks.jsonl`. If storage needs repair, stop and ask the user for explicit low-level recovery approval instead of bypassing `tm`.
-- Require first-class Execution Mode support before drafting or creating Work Items. Run the `--mode` preflight below and stop if any check fails; do not fall back to writing mode only in Agent Context.
-- Draft the proposed hierarchy, execution modes, and dependency edges before running `tm create`. Wait for explicit user approval unless the user supplies an already-approved concrete breakdown and explicitly says to create it now.
+- Require first-class Executor support before drafting or creating Work Items. Run the Executor preflight below and stop if any check fails; do not fall back to writing Executor only in Context.
+- Draft the proposed hierarchy, executors, and dependency edges before running `tm create`. Wait for explicit user approval unless the user supplies an already-approved concrete breakdown and explicitly says to create it now.
 - Inspect the codebase by default before drafting unless the user explicitly says not to. Keep exploration bounded to relevant files, existing architecture, project vocabulary, verification commands, and nearby patterns.
-- Default to tracer-bullet vertical slices: each agent-mode task should deliver a narrow, complete, independently verifiable path through the system and fit in one fresh LLM context.
+- Default to tracer-bullet vertical slices: each agent-executor task should deliver a narrow, complete, independently verifiable path through the system and fit in one fresh LLM context.
 - Record real ordering with `--blocked-by` or `tm block`, not only in Markdown prose.
-- Pass explicit `--mode agent` or `--mode human` to every `tm create`; child Work Items do not inherit parent mode.
-- Treat HITL decisions, reviews, approvals, credential entry, vendor/account changes, private UI checks, and manual-only work as `human` mode. Do not execute human-mode Work Items unattended.
+- Pass explicit `--executor agent` or `--executor human` to every `tm create`; child Work Items do not inherit their parent's Executor.
+- Treat HITL decisions, reviews, approvals, credential entry, vendor/account changes, private UI checks, and manual-only work as human-executor work. Do not execute human-executor Work Items unattended.
 
 ## Constraints
 
 - Work Item levels are exactly `epic`, `task`, and `subtask`.
-- Execution Modes are exactly `agent` and `human`; `any` is only a filter value for `tm list --mode` and `tm next --mode`.
+- Executors are exactly `agent` and `human`; use `--all-executors` for read views across both Executors.
 - Subjects must be 50 characters or fewer, imperative, capitalized, one line, non-empty, without leading/trailing whitespace, without trailing periods, and without Markdown markers `*`, `_`, `` ` ``, `#`, `[`, or `]`.
 - A source may produce one or more root `epic`s. Use multiple epics for separate phases or independently meaningful initiatives; never create a fake root above multiple epics.
 - Hierarchy is capped at `epic -> task -> subtask`. Tracer-bullet vertical slices are usually `task`s under an epic. Use `subtask`s only when a slice is too large for one fresh LLM context.
 - Dependencies should be recorded at the most specific level possible, usually task-to-task. Use epic-to-epic dependencies only when an entire phase genuinely cannot start.
-- Parent epics default to `agent` mode. Use `human` for an epic only when the epic itself is a human-owned phase or gate, such as approving a beta rollout.
+- Parent epics default to the `agent` Executor. Use `human` for an epic only when the epic itself is a human-owned phase or gate, such as approving a beta rollout.
 - Do not use `--allow-human`, `--force`, destructive delete, or manual storage recovery unless the user explicitly approves that risky action.
 
 ## Requirements
 
 - Accept any of these sources: a spec/PRD file path, pasted spec/PRD text, a plan in the conversation, or the current conversation when the user asks to turn it into Work Items.
 - Use the current directory as the default task store unless the user specifies another target with `--cwd` or `--storage-path`.
-- Before drafting or creating, verify the local CLI supports Execution Mode:
+- Before drafting or creating, verify the local CLI supports Executor:
 
   ```bash
   command -v tm >/dev/null
   command -v jq >/dev/null
-  tm create --help | grep -q -- '--mode'
-  tm update --help | grep -q -- '--mode'
-  tm next --help | grep -q -- '--mode'
-  tm list --help | grep -q -- '--mode'
+  tm create --help | grep -q -- '--executor'
+  tm set-executor --help | grep -q -- '<executor>'
+  tm next --help | grep -q -- '--executor'
+  tm list --help | grep -q -- '--executor'
   ```
 
-- If any preflight command fails, stop and report that this skill requires first-class `tm --mode` support. Do not create Work Items and do not encode mode only in text.
+- If any preflight command fails, stop and report that this skill requires first-class Executor support. Do not create Work Items and do not encode Executor only in text.
 - Collect enough source traceability to explain where each Work Item came from: source file path, section, user story, acceptance criterion, or conversation summary.
 - Identify true blockers separately from sequencing preferences. A dependency is valid only when the blocked Work Item cannot start or finish correctly without the blocker.
-- Map planning vocabulary to modes explicitly:
+- Map planning vocabulary to Executors explicitly:
   - AFK / LLM-executable / safe from context -> `agent`
   - HITL / user approval / manual or private action -> `human`
 - For wide mechanical refactors, use expand-migrate-contract instead of forcing vertical slices.
@@ -56,12 +56,12 @@ description: Convert specs, PRDs, plans, or conversation context into approved t
 
 - Read the full referenced file or conversation material before planning. If the source is pasted text, treat it as the authoritative source.
 - Summarize the goal, source sections, user stories, acceptance criteria, non-goals, known risks, and explicit phases.
-- Ask focused clarification questions only when missing information would change hierarchy, dependencies, execution mode, or acceptance criteria.
+- Ask focused clarification questions only when missing information would change hierarchy, dependencies, executor, or acceptance criteria.
 
 ### 2. Inspect the codebase by default
 
 - Unless the user says not to inspect, do a bounded pass through relevant files, existing documentation, verification scripts, domain names, and similar implementation patterns.
-- Use inspection to name Work Items in project vocabulary and to size agent-mode slices realistically.
+- Use inspection to name Work Items in project vocabulary and to size agent-executor slices realistically.
 - Do not let exploration become implementation. Stop once you can draft useful Work Items and verification expectations.
 
 ### 3. Decompose into tracer-bullet Work Items
@@ -70,7 +70,7 @@ description: Convert specs, PRDs, plans, or conversation context into approved t
 - Create task-level vertical slices that each deliver end-to-end behavior, such as schema/API/UI/tests together when that is what makes the behavior verifiable.
 - Avoid horizontal tasks like “Add schemas”, “Build API”, or “Create UI components” unless the source truly requires a non-vertical step.
 - Split a large vertical slice into subtasks only when each subtask is still independently useful and the parent task would exceed one fresh LLM context.
-- Assign `agent` or `human` to every proposed Work Item. Human mode is for actual human-required gates, not for work that an LLM could safely do but a person might prefer.
+- Assign the `agent` or `human` Executor to every proposed Work Item. The human Executor is for actual human-required gates, not for work that an LLM could safely do but a person might prefer.
 
 ### 4. Handle wide refactors with expand-migrate-contract
 
@@ -88,7 +88,7 @@ Present a numbered draft before any `tm create`. For each proposed Work Item inc
 
 - Subject
 - Level: Epic / Task / Subtask
-- Execution Mode: agent / human
+- Executor: agent / human
 - Parent, if any
 - Blocked by: titles of true blockers, or none
 - What it delivers: end-to-end behavior, not layer implementation
@@ -111,10 +111,10 @@ After approval, run the state-changing preflight:
 ```bash
 command -v tm >/dev/null
 command -v jq >/dev/null
-tm create --help | grep -q -- '--mode'
-tm update --help | grep -q -- '--mode'
-tm next --help | grep -q -- '--mode'
-tm list --help | grep -q -- '--mode'
+tm create --help | grep -q -- '--executor'
+tm set-executor --help | grep -q -- '<executor>'
+tm next --help | grep -q -- '--executor'
+tm list --help | grep -q -- '--executor'
 tm init
 tm validate
 ```
@@ -123,7 +123,7 @@ Then create Work Items in dependency-safe order:
 
 1. Create epics before tasks and tasks before subtasks.
 2. Use `tm create --json` for every Work Item and capture IDs with `jq -r '.item.id'`.
-3. Pass explicit `--mode agent` or `--mode human` on every `tm create`.
+3. Pass explicit `--executor agent` or `--executor human` on every `tm create`.
 4. Pass `--parent <captured-id>` for children.
 5. Use `--blocked-by <captured-id>` when blockers already exist; otherwise create both Work Items and then run `tm block <blocked-id> --by <dependency-id>`.
 6. Prefer `--message-file`, `--description-file`, and `--context-file` for large Markdown to avoid shell quoting failures.
@@ -146,7 +146,7 @@ A concise end-to-end description of the behavior this Work Item delivers.
 Derived from ...
 ```
 
-Use this Agent Context shape for each created Work Item:
+Use this Context shape for each created Work Item:
 
 ```markdown
 ## Execution context
@@ -166,7 +166,7 @@ What a future agent or human needs to know to start.
 - Run bun run check, unless the project or source says otherwise.
 ```
 
-For human-mode Work Items, make the human requirement explicit in Agent Context: the decision, review, approval, credential entry, manual check, or external action needed, and which downstream Work Items it unblocks.
+For human-executor Work Items, make the human requirement explicit in Context: the decision, review, approval, credential entry, manual check, or external action needed, and which downstream Work Items it unblocks.
 
 ### 7. Validate and report
 
@@ -174,41 +174,41 @@ After all creates and dependency edges are recorded, run:
 
 ```bash
 tm validate
-tm list --mode any
+tm list --all-executors
 ```
 
-Report the created Work Item IDs, subjects, hierarchy, modes, dependency edges, and validation result. Include suggested next commands:
+Report the created Work Item IDs, subjects, hierarchy, Executors, dependency edges, and validation result. Include suggested next commands:
 
 ```bash
 tm next
-tm next --mode human
-tm list --mode any
-tm list --mode human
+tm next --executor human
+tm list --all-executors
+tm list --executor human
 ```
 
 ## Gotchas
 
 - Agents often create Work Items too early because the source looks clear. That locks in wrong hierarchy and dependencies; always draft and wait for approval unless the user explicitly gives an approved breakdown to create now.
-- Missing `--mode` silently defaults work toward agent execution and can erase HITL gates; putting “human” only in Agent Context is unenforced. Pass explicit mode on every create and stop if the CLI lacks first-class mode support.
+- Missing `--executor` silently defaults work toward agent execution and can erase HITL gates; putting “human” only in Context is unenforced. Pass an explicit Executor on every create and stop if the CLI lacks first-class Executor support.
 - A fake root epic above multiple real epics hides parallelism and violates Task Manager hierarchy. Use multiple root epics when phases or initiatives are independent.
 - Horizontal layer Work Items feel tidy but strand future agents with non-demoable work. Reframe as thin end-to-end behavior unless the source truly requires a mechanical layer step.
 - Dependency prose is easy to write and easy for `tm next` to ignore. Record every true blocker with `--blocked-by` or `tm block` using captured IDs.
-- Human approvals marked as `agent` let agents proceed without the user's decision. If work requires a person, credential, private UI, or review, create a human-mode gate and block downstream work on it.
+- Human approvals marked as `agent` let agents proceed without the user's decision. If work requires a person, credential, private UI, or review, create a human-executor gate and block downstream work on it.
 - Giant “implement the feature” tasks exceed one fresh LLM context and fail midstream. Split into vertical slices or subtasks with their own acceptance criteria and verification.
 - Wide refactors forced into vertical slices often leave every slice red. Use expand-migrate-contract, with batch Work Items sized by blast radius and a contract Work Item blocked by all migrations.
 - Editing `.tasks/tasks.jsonl` directly bypasses validation and corrupts durable state. Use `tm` commands for creation, updates, dependencies, and validation.
 
 ## Deliverables
 
-Before approval, provide a numbered draft with each proposed Work Item's Subject, Level, Execution Mode, Parent, Blocked by, What it delivers, and Source traceability, followed by the approval questions.
+Before approval, provide a numbered draft with each proposed Work Item's Subject, Level, Executor, Parent, Blocked by, What it delivers, and Source traceability, followed by the approval questions.
 
 After approval and creation, provide:
 
 - Created Work Item IDs and subjects.
 - Hierarchy showing epics, tasks, and subtasks without fake roots.
-- Execution Mode for every Work Item.
+- Executor for every Work Item.
 - Recorded dependency edges using created IDs.
-- `tm validate` result and whether `tm list --mode any` completed.
-- Suggested next commands for agent work and HITL work: `tm next`, `tm next --mode human`, `tm list --mode any`, and `tm list --mode human`.
+- `tm validate` result and whether `tm list --all-executors` completed.
+- Suggested next commands for agent work and HITL work: `tm next`, `tm next --executor human`, `tm list --all-executors`, and `tm list --executor human`.
 
 If creation stops due to preflight or command failure, report the failed check or command, any IDs already created, and the safest next action. Do not continue by switching trackers, writing local files, or editing storage by hand.

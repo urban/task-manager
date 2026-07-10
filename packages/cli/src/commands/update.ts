@@ -12,7 +12,6 @@ import {
   resolveWorkItem,
   updateWorkItem,
   type WorkItem,
-  type WorkItemExecutionMode,
   type WorkItemUpdates,
 } from "../domain/WorkItem";
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
@@ -30,7 +29,6 @@ const hasRawUpdateField = (input: {
   readonly contextFile: Option.Option<string>;
   readonly message: Option.Option<string>;
   readonly messageFile: Option.Option<string>;
-  readonly mode: Option.Option<WorkItemExecutionMode>;
 }): boolean =>
   Option.isSome(input.subject) ||
   Option.isSome(input.description) ||
@@ -38,8 +36,7 @@ const hasRawUpdateField = (input: {
   Option.isSome(input.context) ||
   Option.isSome(input.contextFile) ||
   Option.isSome(input.message) ||
-  Option.isSome(input.messageFile) ||
-  Option.isSome(input.mode);
+  Option.isSome(input.messageFile);
 
 const hasMessageSubjectDescriptionConflict = (input: {
   readonly subject: Option.Option<string>;
@@ -56,14 +53,12 @@ const hasMessageSubjectDescriptionConflict = (input: {
 const buildUpdates = (options: {
   readonly subject: string | undefined;
   readonly description: string | undefined;
-  readonly agentContext: string | undefined;
-  readonly executionMode: WorkItemExecutionMode | undefined;
+  readonly context: string | undefined;
 }): WorkItemUpdates =>
   ({
     ...(options.subject === undefined ? {} : { subject: options.subject }),
     ...(options.description === undefined ? {} : { description: options.description }),
-    ...(options.agentContext === undefined ? {} : { agentContext: options.agentContext }),
-    ...(options.executionMode === undefined ? {} : { executionMode: options.executionMode }),
+    ...(options.context === undefined ? {} : { context: options.context }),
   }) satisfies WorkItemUpdates;
 
 const renderUpdatedHuman = (item: WorkItem): string => `Updated ${item.subject} (${item.id}).`;
@@ -77,14 +72,10 @@ export const commandUpdate = Command.make("update", {
   contextFile: Flag.file("context-file").pipe(Flag.optional),
   message: Flag.string("message").pipe(Flag.optional),
   messageFile: Flag.file("message-file").pipe(Flag.optional),
-  mode: Flag.choice("mode", ["agent", "human"]).pipe(
-    Flag.withDescription("Update the Work Item execution mode"),
-    Flag.optional,
-  ),
   allowEmptyDescription: Flag.boolean("allow-empty-description"),
   allowEmptyContext: Flag.boolean("allow-empty-context"),
 }).pipe(
-  Command.withDescription("Update Work Item Subject, Description, or Agent Context"),
+  Command.withDescription("Update Work Item Subject, Description, or Context"),
   Command.withHandler(
     Effect.fnUntraced(function* (input) {
       const root = yield* commandRoot;
@@ -94,7 +85,7 @@ export const commandUpdate = Command.make("update", {
           if (!hasRawUpdateField(input)) {
             return yield* new CommandFailure({
               message:
-                "At least one update field is required. Pass --subject, --description, --description-file, --context, --context-file, --message, --message-file, or --mode.",
+                "At least one update field is required. Pass --subject, --description, --description-file, --context, --context-file, --message, or --message-file.",
             });
           }
 
@@ -131,15 +122,11 @@ export const commandUpdate = Command.make("update", {
             onNone: () => messageParts?.description,
             onSome: (value) => value,
           });
-          const agentContext = Option.match(contextInput, {
+          const context = Option.match(contextInput, {
             onNone: () => undefined,
             onSome: (value) => value,
           });
-          const executionMode = Option.match(input.mode, {
-            onNone: () => undefined,
-            onSome: (value) => value,
-          });
-          const updates = buildUpdates({ subject, description, agentContext, executionMode });
+          const updates = buildUpdates({ subject, description, context });
           const validation = ensureCanUpdateItem({
             ...updates,
             allowEmptyDescription: input.allowEmptyDescription,

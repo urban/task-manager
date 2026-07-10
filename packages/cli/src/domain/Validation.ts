@@ -4,10 +4,11 @@ import { ValidationFailure, type ValidationIssue } from "./Errors";
 import {
   buildTree,
   isClaimActive,
-  matchesExecutionModeFilter,
+  matchesExecutorFilter,
+  specificExecutorFilter,
   type WorkItem,
+  type WorkItemExecutorFilter,
   type WorkItemLevel,
-  type WorkItemModeFilter,
   type WorkItemTreeNode,
   validateSubject,
 } from "./WorkItem";
@@ -139,57 +140,6 @@ export const validateStore = (items: ReadonlyArray<WorkItem>): ReadonlyArray<Val
       });
     }
 
-    if (item.status === "open") {
-      if (item.result !== undefined) {
-        issues.push({
-          message: "Open Work Items cannot include a result.",
-          path: item.id,
-          line: index + 1,
-        });
-      }
-      if (item.cancellation !== undefined) {
-        issues.push({
-          message: "Open Work Items cannot include a cancellation.",
-          path: item.id,
-          line: index + 1,
-        });
-      }
-    }
-
-    if (item.status === "done") {
-      if (item.result === undefined) {
-        issues.push({
-          message: "Done Work Items must include a result.",
-          path: item.id,
-          line: index + 1,
-        });
-      }
-      if (item.cancellation !== undefined) {
-        issues.push({
-          message: "Done Work Items cannot include a cancellation.",
-          path: item.id,
-          line: index + 1,
-        });
-      }
-    }
-
-    if (item.status === "cancelled") {
-      if (item.cancellation === undefined) {
-        issues.push({
-          message: "Cancelled Work Items must include a cancellation.",
-          path: item.id,
-          line: index + 1,
-        });
-      }
-      if (item.result !== undefined) {
-        issues.push({
-          message: "Cancelled Work Items cannot include a result.",
-          path: item.id,
-          line: index + 1,
-        });
-      }
-    }
-
     const dependencies = item.blockedBy ?? [];
     const dependencyCounts = new Map<string, number>();
     for (const dependencyId of dependencies) {
@@ -279,15 +229,15 @@ const validateDescriptionRequirement = (
         path: "description",
       };
 
-const validateAgentContextRequirement = (
-  agentContext: string,
+const validateContextRequirement = (
+  context: string,
   allowEmptyContext: boolean,
 ): ValidationIssue | undefined =>
-  allowEmptyContext || agentContext.trim() !== ""
+  allowEmptyContext || context.trim() !== ""
     ? undefined
     : {
-        message: "Agent Context is required unless --allow-empty-context is set.",
-        path: "agentContext",
+        message: "Context is required unless --allow-empty-context is set.",
+        path: "context",
       };
 
 export const ensureCanCreateItem = (options: {
@@ -295,7 +245,7 @@ export const ensureCanCreateItem = (options: {
   readonly parent?: WorkItem;
   readonly subject: string;
   readonly description: string;
-  readonly agentContext: string;
+  readonly context: string;
   readonly allowEmptyDescription: boolean;
   readonly allowEmptyContext: boolean;
 }): ValidationFailure | undefined => {
@@ -304,10 +254,7 @@ export const ensureCanCreateItem = (options: {
     options.description,
     options.allowEmptyDescription,
   );
-  const contextIssue = validateAgentContextRequirement(
-    options.agentContext,
-    options.allowEmptyContext,
-  );
+  const contextIssue = validateContextRequirement(options.context, options.allowEmptyContext);
 
   if (descriptionIssue !== undefined) {
     issues.push(descriptionIssue);
@@ -351,7 +298,7 @@ export const ensureCanCreateItem = (options: {
 export const ensureCanUpdateItem = (options: {
   readonly subject?: string;
   readonly description?: string;
-  readonly agentContext?: string;
+  readonly context?: string;
   readonly allowEmptyDescription: boolean;
   readonly allowEmptyContext: boolean;
 }): ValidationFailure | undefined => {
@@ -363,9 +310,9 @@ export const ensureCanUpdateItem = (options: {
       ? undefined
       : validateDescriptionRequirement(options.description, options.allowEmptyDescription);
   const contextIssue =
-    options.agentContext === undefined
+    options.context === undefined
       ? undefined
-      : validateAgentContextRequirement(options.agentContext, options.allowEmptyContext);
+      : validateContextRequirement(options.context, options.allowEmptyContext);
 
   if (descriptionIssue !== undefined) {
     issues.push(descriptionIssue);
@@ -419,11 +366,11 @@ const isActionableTreeNode = (
   itemsById: ReadonlyMap<string, WorkItem>,
   now: DateTime.Utc,
   includeClaimed: boolean,
-  mode: WorkItemModeFilter,
+  executorFilter: WorkItemExecutorFilter,
 ): boolean =>
   node.item.status === "open" &&
   node.children.length === 0 &&
-  matchesExecutionModeFilter(node.item, mode) &&
+  matchesExecutorFilter(node.item, executorFilter) &&
   hasCompletedDependencies(node.item, itemsById) &&
   (includeClaimed || !isClaimActive(node.item.claim, now));
 
@@ -432,14 +379,20 @@ const findFirstActionableNode = (
   itemsById: ReadonlyMap<string, WorkItem>,
   now: DateTime.Utc,
   includeClaimed: boolean,
-  mode: WorkItemModeFilter,
+  executorFilter: WorkItemExecutorFilter,
 ): WorkItem | undefined => {
   for (const node of nodes) {
-    if (isActionableTreeNode(node, itemsById, now, includeClaimed, mode)) {
+    if (isActionableTreeNode(node, itemsById, now, includeClaimed, executorFilter)) {
       return node.item;
     }
 
-    const child = findFirstActionableNode(node.children, itemsById, now, includeClaimed, mode);
+    const child = findFirstActionableNode(
+      node.children,
+      itemsById,
+      now,
+      includeClaimed,
+      executorFilter,
+    );
     if (child !== undefined) {
       return child;
     }
@@ -462,7 +415,7 @@ export const findNextActionableWorkItem = (
     readonly now: DateTime.Utc;
     readonly root?: WorkItem;
     readonly includeClaimed?: boolean;
-    readonly mode?: WorkItemModeFilter;
+    readonly executorFilter?: WorkItemExecutorFilter;
   },
 ): WorkItem | undefined => {
   const itemsById = indexItemsById(items);
@@ -476,6 +429,6 @@ export const findNextActionableWorkItem = (
     itemsById,
     options.now,
     options.includeClaimed ?? false,
-    options.mode ?? "agent",
+    options.executorFilter ?? specificExecutorFilter("agent"),
   );
 };

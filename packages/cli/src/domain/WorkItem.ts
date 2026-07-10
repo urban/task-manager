@@ -10,7 +10,7 @@ import {
   WorkItemNotFound,
 } from "./Errors";
 
-export const schemaVersion = 2;
+export const schemaVersion = 3;
 
 export const WorkItemLevelSchema = Schema.Literals(["epic", "task", "subtask"] as const);
 export type WorkItemLevel = typeof WorkItemLevelSchema.Type;
@@ -19,13 +19,22 @@ export const WorkItemStatusSchema = Schema.Literals(["open", "done", "cancelled"
 export type WorkItemStatus = typeof WorkItemStatusSchema.Type;
 export const allWorkItemStatuses: ReadonlyArray<WorkItemStatus> = ["open", "done", "cancelled"];
 
-export const WorkItemExecutionModeSchema = Schema.Literals(["agent", "human"]);
-export type WorkItemExecutionMode = typeof WorkItemExecutionModeSchema.Type;
-export type WorkItemModeFilter = WorkItemExecutionMode | "any";
-export const allWorkItemExecutionModes: ReadonlyArray<WorkItemExecutionMode> = ["agent", "human"];
+export const WorkItemExecutorSchema = Schema.Literals(["agent", "human"] as const);
+export type WorkItemExecutor = typeof WorkItemExecutorSchema.Type;
+
+export type WorkItemExecutorFilter =
+  | { readonly _tag: "SpecificExecutor"; readonly executor: WorkItemExecutor }
+  | { readonly _tag: "AllExecutors" };
+
+export const specificExecutorFilter = (executor: WorkItemExecutor): WorkItemExecutorFilter => ({
+  _tag: "SpecificExecutor",
+  executor,
+});
+
+export const allExecutorsFilter: WorkItemExecutorFilter = { _tag: "AllExecutors" };
 
 export const ClaimSchema = Schema.Struct({
-  agent: Schema.String,
+  actor: Schema.String,
   claimedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
 });
@@ -39,6 +48,8 @@ export const ResultSchema = Schema.Struct({
   completedAt: Schema.DateTimeUtcFromString,
   completedBy: Schema.String,
 });
+export type WorkItemResult = typeof ResultSchema.Type;
+export type WorkItemResultEncoded = Schema.Codec.Encoded<typeof ResultSchema>;
 
 export const CancellationSchema = Schema.Struct({
   reason: Schema.String,
@@ -46,31 +57,57 @@ export const CancellationSchema = Schema.Struct({
   cancelledBy: Schema.String,
 });
 export type WorkItemCancellation = typeof CancellationSchema.Type;
+export type WorkItemCancellationEncoded = Schema.Codec.Encoded<typeof CancellationSchema>;
 
-export const WorkItemSchema = Schema.Struct({
+const WorkItemBaseFields = {
   schemaVersion: Schema.Literal(schemaVersion),
   id: Schema.String,
   level: WorkItemLevelSchema,
-  status: WorkItemStatusSchema,
-  executionMode: WorkItemExecutionModeSchema,
+  executor: WorkItemExecutorSchema,
   subject: Schema.String,
   description: Schema.String,
-  agentContext: Schema.String,
+  context: Schema.String,
   parentId: Schema.String.pipe(Schema.optional),
   blockedBy: Schema.Array(Schema.String).pipe(Schema.optional),
   claim: ClaimSchema.pipe(Schema.optional),
-  result: ResultSchema.pipe(Schema.optional),
-  cancellation: CancellationSchema.pipe(Schema.optional),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
+};
+
+export const OpenWorkItemSchema = Schema.Struct({
+  ...WorkItemBaseFields,
+  status: Schema.Literal("open"),
 });
+export type OpenWorkItem = typeof OpenWorkItemSchema.Type;
+
+export const DoneWorkItemSchema = Schema.Struct({
+  ...WorkItemBaseFields,
+  status: Schema.Literal("done"),
+  result: ResultSchema,
+});
+export type DoneWorkItem = typeof DoneWorkItemSchema.Type;
+
+export const CancelledWorkItemSchema = Schema.Struct({
+  ...WorkItemBaseFields,
+  status: Schema.Literal("cancelled"),
+  cancellation: CancellationSchema,
+});
+export type CancelledWorkItem = typeof CancelledWorkItemSchema.Type;
+
+export const WorkItemSchema = Schema.Union([
+  OpenWorkItemSchema,
+  DoneWorkItemSchema,
+  CancelledWorkItemSchema,
+]);
 
 export type WorkItem = typeof WorkItemSchema.Type;
 export type WorkItemEncoded = Schema.Codec.Encoded<typeof WorkItemSchema>;
 
 export const WorkItemJsonLineSchema = Schema.fromJsonString(WorkItemSchema);
 
-export const decodeWorkItemJsonLine = Schema.decodeUnknownEffect(WorkItemJsonLineSchema);
+const decodeJsonLine = Schema.decodeUnknownEffect(WorkItemJsonLineSchema);
+export const decodeWorkItemJsonLine = (line: unknown) =>
+  decodeJsonLine(line, { onExcessProperty: "error" });
 export const encodeWorkItemJsonLine = Schema.encodeEffect(WorkItemJsonLineSchema);
 export const encodeWorkItem = Schema.encodeSync(WorkItemSchema);
 
@@ -79,6 +116,8 @@ export interface WorkItemTreeNode {
   readonly matchesFilter: boolean;
   readonly children: ReadonlyArray<WorkItemTreeNode>;
 }
+
+export const isOpenWorkItem = (item: WorkItem): item is OpenWorkItem => item.status === "open";
 
 const rootLevelOrder = (level: WorkItemLevel): number => {
   switch (level) {
@@ -108,18 +147,12 @@ const compareByCreatedAt = (left: WorkItem, right: WorkItem): number => {
   const leftMillis = toMillis(left.createdAt);
   const rightMillis = toMillis(right.createdAt);
   const diff = leftMillis - rightMillis;
-  if (diff !== 0) {
-    return diff;
-  }
-  return left.id.localeCompare(right.id);
+  return diff !== 0 ? diff : left.id.localeCompare(right.id);
 };
 
 const compareRootItems = (left: WorkItem, right: WorkItem): number => {
   const levelDiff = rootLevelOrder(left.level) - rootLevelOrder(right.level);
-  if (levelDiff !== 0) {
-    return levelDiff;
-  }
-  return compareByCreatedAt(left, right);
+  return levelDiff !== 0 ? levelDiff : compareByCreatedAt(left, right);
 };
 
 const buildChildrenByParent = (
@@ -149,8 +182,7 @@ export const sortWorkItems = (items: ReadonlyArray<WorkItem>): ReadonlyArray<Wor
 
   const visit = (item: WorkItem): void => {
     ordered.push(item);
-    const children = childrenByParent.get(item.id) ?? [];
-    for (const child of children) {
+    for (const child of childrenByParent.get(item.id) ?? []) {
       visit(child);
     }
   };
@@ -166,14 +198,13 @@ const buildNode = (
   item: WorkItem,
   childrenByParent: ReadonlyMap<string, ReadonlyArray<WorkItem>>,
   openOnly: boolean,
-): WorkItemTreeNode => {
-  const allChildren = childrenByParent.get(item.id) ?? [];
-  const children = allChildren
-    .filter((child) => (openOnly ? child.status === "open" : true))
-    .map((child) => buildNode(child, childrenByParent, openOnly));
-
-  return { item, matchesFilter: true, children };
-};
+): WorkItemTreeNode => ({
+  item,
+  matchesFilter: true,
+  children: (childrenByParent.get(item.id) ?? [])
+    .filter((child) => !openOnly || child.status === "open")
+    .map((child) => buildNode(child, childrenByParent, openOnly)),
+});
 
 const flattenFromRoot = (
   root: WorkItem,
@@ -183,8 +214,7 @@ const flattenFromRoot = (
 
   const visit = (item: WorkItem): void => {
     ordered.push(item);
-    const children = childrenByParent.get(item.id) ?? [];
-    for (const child of children) {
+    for (const child of childrenByParent.get(item.id) ?? []) {
       visit(child);
     }
   };
@@ -198,8 +228,8 @@ const matchesStatusFilter = (
   statuses: ReadonlySet<WorkItemStatus> | undefined,
 ): boolean => statuses === undefined || statuses.has(item.status);
 
-export const matchesExecutionModeFilter = (item: WorkItem, mode: WorkItemModeFilter): boolean =>
-  mode === "any" || item.executionMode === mode;
+export const matchesExecutorFilter = (item: WorkItem, filter: WorkItemExecutorFilter): boolean =>
+  filter._tag === "AllExecutors" || item.executor === filter.executor;
 
 const buildFilteredNode = (
   item: WorkItem,
@@ -225,8 +255,7 @@ const includedItemIdsWithAncestors = (
 
     while (currentParentId !== undefined) {
       includedIds.add(currentParentId);
-      const parent = scopedItemsById.get(currentParentId);
-      currentParentId = parent?.parentId;
+      currentParentId = scopedItemsById.get(currentParentId)?.parentId;
     }
   }
 
@@ -238,17 +267,17 @@ export const buildFilteredTree = (
   options?: {
     readonly root?: WorkItem;
     readonly statuses?: ReadonlySet<WorkItemStatus>;
-    readonly mode?: WorkItemModeFilter;
+    readonly executorFilter?: WorkItemExecutorFilter;
   },
 ): ReadonlyArray<WorkItemTreeNode> => {
   const scopedItems =
     options?.root === undefined
       ? sortWorkItems(items)
       : flattenFromRoot(options.root, buildChildrenByParent(items));
-  const mode = options?.mode ?? "any";
+  const executorFilter = options?.executorFilter ?? allExecutorsFilter;
   const matchingItems = scopedItems.filter(
     (item) =>
-      matchesStatusFilter(item, options?.statuses) && matchesExecutionModeFilter(item, mode),
+      matchesStatusFilter(item, options?.statuses) && matchesExecutorFilter(item, executorFilter),
   );
   const matchingIds = new Set(matchingItems.map((item) => item.id));
   const scopedItemsById = new Map(scopedItems.map((item) => [item.id, item]));
@@ -278,16 +307,15 @@ export const buildTree = (
   const childrenByParent = buildChildrenByParent(visibleItems);
 
   if (options?.root !== undefined) {
-    if (openOnly && options.root.status !== "open") {
-      return [];
-    }
-    return [buildNode(options.root, childrenByParent, openOnly)];
+    return openOnly && options.root.status !== "open"
+      ? []
+      : [buildNode(options.root, childrenByParent, openOnly)];
   }
 
-  const roots = visibleItems
+  return visibleItems
     .filter((item) => item.parentId === undefined)
-    .toSorted(compareRootItems);
-  return roots.map((item) => buildNode(item, childrenByParent, openOnly));
+    .toSorted(compareRootItems)
+    .map((item) => buildNode(item, childrenByParent, openOnly));
 };
 
 export const resolveWorkItem = (
@@ -382,36 +410,33 @@ export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {
   readonly level: WorkItemLevel;
   readonly subject: string;
   readonly description: string;
-  readonly agentContext: string;
-  readonly executionMode: WorkItemExecutionMode;
+  readonly context: string;
+  readonly executor: WorkItemExecutor;
   readonly parentId?: string;
   readonly blockedBy?: ReadonlyArray<string>;
 }) {
   const timestamp = yield* DateTime.now;
   const blockedBy = options.blockedBy?.toSorted((left, right) => left.localeCompare(right));
-  const workItem = {
+  return {
     schemaVersion,
     id: options.id,
     level: options.level,
     status: "open",
-    executionMode: options.executionMode,
+    executor: options.executor,
     subject: options.subject,
     description: options.description,
-    agentContext: options.agentContext,
+    context: options.context,
     ...(options.parentId === undefined ? {} : { parentId: options.parentId }),
     ...(blockedBy === undefined || blockedBy.length === 0 ? {} : { blockedBy }),
     createdAt: timestamp,
     updatedAt: timestamp,
-  } satisfies WorkItem;
-
-  return workItem;
+  } satisfies OpenWorkItem;
 });
 
 export interface WorkItemUpdates {
   readonly subject?: string;
   readonly description?: string;
-  readonly agentContext?: string;
-  readonly executionMode?: WorkItemExecutionMode;
+  readonly context?: string;
 }
 
 export const updateWorkItem = (options: {
@@ -420,79 +445,61 @@ export const updateWorkItem = (options: {
   readonly updatedAt: DateTime.Utc;
 }): WorkItem =>
   ({
-    schemaVersion: options.item.schemaVersion,
-    id: options.item.id,
-    level: options.item.level,
-    status: options.item.status,
-    executionMode: options.updates.executionMode ?? options.item.executionMode,
-    subject: options.updates.subject ?? options.item.subject,
-    description: options.updates.description ?? options.item.description,
-    agentContext: options.updates.agentContext ?? options.item.agentContext,
-    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
-    ...(options.item.blockedBy === undefined ? {} : { blockedBy: options.item.blockedBy }),
-    ...(options.item.claim === undefined ? {} : { claim: options.item.claim }),
-    ...(options.item.result === undefined ? {} : { result: options.item.result }),
-    ...(options.item.cancellation === undefined ? {} : { cancellation: options.item.cancellation }),
-    createdAt: options.item.createdAt,
+    ...options.item,
+    ...options.updates,
+    updatedAt: options.updatedAt,
+  }) satisfies WorkItem;
+
+export const setWorkItemExecutor = (options: {
+  readonly item: WorkItem;
+  readonly executor: WorkItemExecutor;
+  readonly updatedAt: DateTime.Utc;
+}): WorkItem =>
+  ({
+    ...options.item,
+    executor: options.executor,
     updatedAt: options.updatedAt,
   }) satisfies WorkItem;
 
 export const updateWorkItemClaim = (options: {
-  readonly item: WorkItem;
-  readonly agent: string;
+  readonly item: OpenWorkItem;
+  readonly actor: string;
   readonly claimedAt: DateTime.Utc;
-}): WorkItem =>
+}): OpenWorkItem =>
   ({
     ...options.item,
     claim: {
-      agent: options.agent,
+      actor: options.actor,
       claimedAt: options.claimedAt,
       expiresAt: claimExpiresAt(options.claimedAt),
     },
     updatedAt: options.claimedAt,
-  }) satisfies WorkItem;
+  }) satisfies OpenWorkItem;
 
 export const clearWorkItemClaim = (options: {
   readonly item: WorkItem;
   readonly updatedAt: DateTime.Utc;
-}): WorkItem =>
-  ({
-    schemaVersion: options.item.schemaVersion,
-    id: options.item.id,
-    level: options.item.level,
-    status: options.item.status,
-    executionMode: options.item.executionMode,
-    subject: options.item.subject,
-    description: options.item.description,
-    agentContext: options.item.agentContext,
-    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
-    ...(options.item.blockedBy === undefined ? {} : { blockedBy: options.item.blockedBy }),
-    ...(options.item.result === undefined ? {} : { result: options.item.result }),
-    ...(options.item.cancellation === undefined ? {} : { cancellation: options.item.cancellation }),
-    createdAt: options.item.createdAt,
+}): WorkItem => {
+  const { claim: _claim, ...itemWithoutClaim } = options.item;
+  return {
+    ...itemWithoutClaim,
     updatedAt: options.updatedAt,
-  }) satisfies WorkItem;
+  } satisfies WorkItem;
+};
 
 export const completeWorkItem = (options: {
-  readonly item: WorkItem;
+  readonly item: OpenWorkItem;
   readonly summary: string;
   readonly details: string;
   readonly decisions: ReadonlyArray<string>;
   readonly verification: ReadonlyArray<string>;
   readonly completedAt: DateTime.Utc;
   readonly completedBy: string;
-}): WorkItem =>
-  ({
-    schemaVersion: options.item.schemaVersion,
-    id: options.item.id,
-    level: options.item.level,
+}): DoneWorkItem => {
+  const { status: _status, claim: _claim, ...base } = options.item;
+  return {
+    ...base,
     status: "done",
-    executionMode: options.item.executionMode,
-    subject: options.item.subject,
-    description: options.item.description,
-    agentContext: options.item.agentContext,
-    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
-    ...(options.item.blockedBy === undefined ? {} : { blockedBy: options.item.blockedBy }),
     result: {
       summary: options.summary,
       details: options.details,
@@ -501,35 +508,28 @@ export const completeWorkItem = (options: {
       completedAt: options.completedAt,
       completedBy: options.completedBy,
     },
-    createdAt: options.item.createdAt,
     updatedAt: options.completedAt,
-  }) satisfies WorkItem;
+  } satisfies DoneWorkItem;
+};
 
 export const cancelWorkItem = (options: {
-  readonly item: WorkItem;
+  readonly item: OpenWorkItem;
   readonly reason: string;
   readonly cancelledAt: DateTime.Utc;
   readonly cancelledBy: string;
-}): WorkItem =>
-  ({
-    schemaVersion: options.item.schemaVersion,
-    id: options.item.id,
-    level: options.item.level,
+}): CancelledWorkItem => {
+  const { status: _status, claim: _claim, ...base } = options.item;
+  return {
+    ...base,
     status: "cancelled",
-    executionMode: options.item.executionMode,
-    subject: options.item.subject,
-    description: options.item.description,
-    agentContext: options.item.agentContext,
-    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
-    ...(options.item.blockedBy === undefined ? {} : { blockedBy: options.item.blockedBy }),
     cancellation: {
       reason: options.reason,
       cancelledAt: options.cancelledAt,
       cancelledBy: options.cancelledBy,
     },
-    createdAt: options.item.createdAt,
     updatedAt: options.cancelledAt,
-  }) satisfies WorkItem;
+  } satisfies CancelledWorkItem;
+};
 
 export const updateWorkItemDependencies = Effect.fnUntraced(function* (options: {
   readonly item: WorkItem;
@@ -546,31 +546,19 @@ export const updateWorkItemDependencies = Effect.fnUntraced(function* (options: 
     } satisfies WorkItem;
   }
 
+  const { blockedBy: _blockedBy, ...itemWithoutDependencies } = options.item;
   return {
-    schemaVersion: options.item.schemaVersion,
-    id: options.item.id,
-    level: options.item.level,
-    status: options.item.status,
-    executionMode: options.item.executionMode,
-    subject: options.item.subject,
-    description: options.item.description,
-    agentContext: options.item.agentContext,
-    ...(options.item.parentId === undefined ? {} : { parentId: options.item.parentId }),
-    ...(options.item.claim === undefined ? {} : { claim: options.item.claim }),
-    ...(options.item.result === undefined ? {} : { result: options.item.result }),
-    ...(options.item.cancellation === undefined ? {} : { cancellation: options.item.cancellation }),
-    createdAt: options.item.createdAt,
+    ...itemWithoutDependencies,
     updatedAt: timestamp,
   } satisfies WorkItem;
 });
 
 export const ensureValidSubject = (subject: string): Effect.Effect<void, ValidationFailure> => {
   const issues = validateSubject(subject);
-  if (issues.length > 0) {
-    return new ValidationFailure({
-      summary: "Subject validation failed.",
-      issues,
-    });
-  }
-  return Effect.void;
+  return issues.length === 0
+    ? Effect.void
+    : new ValidationFailure({
+        summary: "Subject validation failed.",
+        issues,
+      });
 };

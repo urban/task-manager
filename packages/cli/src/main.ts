@@ -11,6 +11,7 @@ import { commandList } from "./commands/list";
 import { commandNext } from "./commands/next";
 import { commandRelease } from "./commands/release";
 import { commandRoot } from "./commands/root";
+import { commandSetExecutor } from "./commands/set-executor";
 import { commandShow } from "./commands/show";
 import { commandUnblock } from "./commands/unblock";
 import { commandUpdate } from "./commands/update";
@@ -24,6 +25,7 @@ const tmCommand = commandRoot.pipe(
     commandValidate,
     commandCreate,
     commandUpdate,
+    commandSetExecutor,
     commandShow,
     commandList,
     commandNext,

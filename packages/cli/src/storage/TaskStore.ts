@@ -107,8 +107,10 @@ const decodeLines = (
       const decoded = yield* Effect.result(decodeWorkItemJsonLine(line));
       if (Result.isFailure(decoded)) {
         const schemaVersionHint =
-          line.includes('"schemaVersion":1') || !line.includes('"executionMode"')
-            ? " Expected schemaVersion 2 and required executionMode."
+          !line.includes('"schemaVersion":3') ||
+          !line.includes('"executor"') ||
+          !line.includes('"context"')
+            ? " Expected schemaVersion 3 with required executor and context fields. Older records must be edited manually; no migration command is provided."
             : "";
         issues.push({
           message: `${decoded.failure.message}${schemaVersionHint}`,

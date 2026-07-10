@@ -15,12 +15,12 @@ import {
 } from "../domain/WorkItem";
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
-import { agentFlag } from "./shared/flags";
-import { resolveAgentIdentity } from "./shared/input";
+import { actorFlag } from "./shared/flags";
+import { resolveActorIdentity } from "./shared/input";
 import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
 import {
   activeClaimConflictMessage,
-  humanModeGuardMessage,
+  humanExecutorGuardMessage,
   replaceWorkItem,
 } from "./shared/work-items";
 
@@ -28,25 +28,25 @@ const renderClaimedHuman = (item: WorkItem): string => {
   const claim = item.claim;
   return claim === undefined
     ? `Claimed ${item.subject} (${item.id}).`
-    : `Claimed ${item.subject} (${item.id}) for ${claim.agent} until ${formatClaimExpiresAt(claim)}.`;
+    : `Claimed ${item.subject} (${item.id}) for ${claim.actor} until ${formatClaimExpiresAt(claim)}.`;
 };
 
 export const commandClaim = Command.make("claim", {
   id: Argument.string("id"),
-  agent: agentFlag,
+  actor: actorFlag,
   force: Flag.boolean("force").pipe(Flag.withDescription("Replace another active claim")),
   allowHuman: Flag.boolean("allow-human").pipe(
-    Flag.withDescription("Allow claiming human-mode Work Items"),
+    Flag.withDescription("Allow claiming human-executor Work Items"),
   ),
 }).pipe(
-  Command.withDescription("Claim an open Work Item for an Agent Identity"),
+  Command.withDescription("Claim an open Work Item for an Actor Identity"),
   Command.withHandler(
-    Effect.fnUntraced(function* ({ id, agent, force, allowHuman }) {
+    Effect.fnUntraced(function* ({ id, actor, force, allowHuman }) {
       const root = yield* commandRoot;
       yield* executeCommand(
         root.json,
         Effect.gen(function* () {
-          const identity = yield* resolveAgentIdentity(agent);
+          const identity = yield* resolveActorIdentity(actor);
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
           const items = yield* loadStore(paths);
@@ -58,9 +58,9 @@ export const commandClaim = Command.make("claim", {
             });
           }
 
-          if (item.executionMode === "human" && !allowHuman) {
+          if (item.executor === "human" && !allowHuman) {
             return yield* new CommandFailure({
-              message: humanModeGuardMessage(item, "claim it"),
+              message: humanExecutorGuardMessage(item, "claim it"),
             });
           }
 
@@ -69,7 +69,7 @@ export const commandClaim = Command.make("claim", {
           if (
             currentClaim !== undefined &&
             isClaimActive(currentClaim, now) &&
-            currentClaim.agent !== identity &&
+            currentClaim.actor !== identity &&
             !force
           ) {
             return yield* new CommandFailure({
@@ -79,7 +79,7 @@ export const commandClaim = Command.make("claim", {
 
           const updatedItem = updateWorkItemClaim({
             item,
-            agent: identity,
+            actor: identity,
             claimedAt: now,
           });
           const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));

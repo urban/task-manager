@@ -15,7 +15,7 @@ Read this when decomposing a PRD, specification, plan, or conversation into an a
 - One PRD/spec/plan usually becomes one root Epic.
 - Major vertical slices become Task children.
 - Subtasks are optional; use them only when a Task is too large for one focused session.
-- Default Execution Mode is `agent`; use `human` for decisions, reviews, approvals, credential entry, private/manual checks, or other HITL work.
+- Default Executor is `agent`; use `human` for decisions, reviews, approvals, credential entry, private/manual checks, or other HITL work.
 
 Exceptions:
 
@@ -44,10 +44,10 @@ For each proposed Work Item, show:
 
 - Subject
 - Level: Epic, Task, or Subtask
-- Execution Mode: agent or human
+- Executor: agent or human
 - Parent, if any
 - Description summary
-- Agent Context summary
+- Context summary
 - Dependencies or ordering notes
 - Source traceability
 
@@ -56,17 +56,17 @@ Example:
 ```markdown
 1. Add authentication
    - Level: Epic
-   - Execution Mode: agent
+   - Executor: agent
    - Description: Coordinate login and session work.
-   - Agent Context: Source spec, verification command, project constraints.
+   - Context: Source spec, verification command, project constraints.
    - Source: specs/auth.md, sections Login and Session expiry.
 
 2. Add login form submission
    - Level: Task
-   - Execution Mode: agent
+   - Executor: agent
    - Parent: Add authentication
    - Description: Implement the first end-to-end login slice.
-   - Agent Context: Relevant files, expected tests, verification.
+   - Context: Relevant files, expected tests, verification.
    - Dependencies: none
    - Source: specs/auth.md, Login acceptance criteria.
 ```
@@ -78,14 +78,14 @@ Do not run `tm create` until the user approves the hierarchy and dependency plan
 After approval:
 
 1. Run `tm init` and `tm validate`.
-2. Create parent-before-child with `tm create --json --mode agent|human`.
+2. Create parent-before-child with `tm create --json --executor agent|human`.
 3. Capture IDs from `.item.id`.
 4. Record dependencies with `--blocked-by` or `tm block`.
 5. Run `tm validate` and `tm list`.
 
 ## Traceability
 
-Every created Work Item should include source traceability in Description, Agent Context, or both:
+Every created Work Item should include source traceability in Description, Context, or both:
 
 ```markdown
 ## Source

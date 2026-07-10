@@ -26,8 +26,8 @@ export const commandCreate = Command.make("create", {
     Flag.withDescription("Create an Epic, Task, or Subtask"),
     Flag.withDefault("task"),
   ),
-  mode: Flag.choice("mode", ["agent", "human"]).pipe(
-    Flag.withDescription("Execution mode for the Work Item"),
+  executor: Flag.choice("executor", ["agent", "human"]).pipe(
+    Flag.withDescription("Executor for the Work Item"),
     Flag.withDefault("agent"),
   ),
   parent: Flag.string("parent").pipe(
@@ -90,7 +90,7 @@ export const commandCreate = Command.make("create", {
             onNone: () => messageParts?.description ?? "",
             onSome: (value) => value,
           });
-          const agentContext = Option.match(contextInput, {
+          const context = Option.match(contextInput, {
             onNone: () => "",
             onSome: (value) => value,
           });
@@ -110,7 +110,7 @@ export const commandCreate = Command.make("create", {
             ...(parent === undefined ? {} : { parent }),
             subject,
             description,
-            agentContext,
+            context,
             allowEmptyDescription: input.allowEmptyDescription,
             allowEmptyContext: input.allowEmptyContext,
           });
@@ -146,8 +146,8 @@ export const commandCreate = Command.make("create", {
             level: input.level,
             subject,
             description,
-            agentContext,
-            executionMode: input.mode,
+            context,
+            executor: input.executor,
             ...(parent === undefined ? {} : { parentId: parent.id }),
             blockedBy,
           });

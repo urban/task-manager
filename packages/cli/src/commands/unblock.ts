@@ -10,8 +10,8 @@ import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../
 import { commandRoot } from "./root";
 import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
 import {
-  firstHumanModeWorkItem,
-  humanModeGuardMessage,
+  firstHumanExecutorWorkItem,
+  humanExecutorGuardMessage,
   replaceWorkItem,
 } from "./shared/work-items";
 
@@ -21,7 +21,7 @@ export const commandUnblock = Command.make("unblock", {
     Flag.withDescription("Current dependency Work Item id or unique prefix"),
   ),
   allowHuman: Flag.boolean("allow-human").pipe(
-    Flag.withDescription("Allow removing human-mode dependency gates"),
+    Flag.withDescription("Allow removing human-executor dependency gates"),
   ),
 }).pipe(
   Command.withDescription("Remove a dependency from a Work Item"),
@@ -44,10 +44,10 @@ export const commandUnblock = Command.make("unblock", {
             });
           }
 
-          const humanItem = firstHumanModeWorkItem([item, dependency]);
+          const humanItem = firstHumanExecutorWorkItem([item, dependency]);
           if (humanItem !== undefined && !allowHuman) {
             return yield* new CommandFailure({
-              message: humanModeGuardMessage(humanItem, "unblock it"),
+              message: humanExecutorGuardMessage(humanItem, "unblock it"),
             });
           }
 

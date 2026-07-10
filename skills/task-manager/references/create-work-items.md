@@ -10,7 +10,7 @@ Create immediately when the user gives concrete Work Items and asks to create/ad
 - hierarchy or parent
 - true dependency ordering
 - required level (`epic`, `task`, `subtask`)
-- execution mode (`agent` for LLM-executable work, `human` for HITL/manual work)
+- executor (`agent` for LLM-executable work, `human` for HITL/manual work)
 - source/acceptance criteria needed for useful handoff
 
 If the user gives a PRD/spec/plan and asks you to break it down, switch to [`plan-from-spec.md`](./plan-from-spec.md).
@@ -32,7 +32,7 @@ If the user gives a PRD/spec/plan and asks you to break it down, switch to [`pla
    ```
 
 3. Create parent items before children.
-4. Pass `--mode agent` or `--mode human` explicitly when planning from source; default create behavior is `agent`.
+4. Pass `--executor agent` or `--executor human` explicitly when planning from source; default create behavior is `agent`.
 5. Capture every created ID from `tm create --json`.
 6. Use captured IDs for `--parent`, `--blocked-by`, and `tm block`.
 7. Run `tm validate` and `tm list` after creation.
@@ -58,7 +58,7 @@ Use explicit fields for short content:
 ```bash
 created_json="$(tm create "Add login flow" \
   --level task \
-  --mode agent \
+  --executor agent \
   --description "Implement the first end-to-end login slice." \
   --context $'## Source\n\nDerived from the user request.\n\n## Verification expectations\n\n- Run bun run check.' \
   --json)"
@@ -69,7 +69,7 @@ Use `--message` when Subject and Description are naturally drafted together:
 
 ```bash
 created_json="$(tm create --level epic \
-  --mode agent \
+  --executor agent \
   --message "Add authentication
 
 Coordinate authentication implementation work." \
@@ -88,7 +88,7 @@ Use file flags for large Markdown or tricky shell quoting:
 
 ```bash
 tm create --level task \
-  --mode agent \
+  --executor agent \
   --message-file /tmp/work-item-message.md \
   --context-file /tmp/work-item-context.md \
   --json
@@ -101,7 +101,7 @@ Create child under a captured parent:
 ```bash
 task_json="$(tm create "Add login form" \
   --level task \
-  --mode agent \
+  --executor agent \
   --parent "$epic_id" \
   --description "Build the login form UI and submit path." \
   --context $'## Verification expectations\n\n- Run bun run check.' \
@@ -114,7 +114,7 @@ Record dependencies during creation only when IDs are already known:
 ```bash
 tm create "Add login tests" \
   --level task \
-  --mode agent \
+  --executor agent \
   --parent "$epic_id" \
   --blocked-by "$api_id" \
   --blocked-by "$ui_id" \
@@ -150,7 +150,7 @@ Describe the end-to-end behavior this Work Item should deliver.
 Derived from ...
 ```
 
-Agent Context should help a future agent start without chat history:
+Context should help a future agent start without chat history:
 
 ```markdown
 ## Execution context
@@ -161,7 +161,7 @@ Explain what a future agent needs to know.
 
 - Important files, constraints, or domain terms.
 
-## Execution mode
+## Executor
 
 - `agent` for LLM-executable work, or `human` for HITL/manual work.
 
@@ -174,7 +174,7 @@ Explain what a future agent needs to know.
 - Run ...
 ```
 
-Keep implementation constraints, assumptions, sequencing rationale, and verification expectations in Agent Context. Use CLI dependencies, not Markdown, for machine-enforced ordering.
+Keep implementation constraints, assumptions, sequencing rationale, and verification expectations in Context. Use CLI dependencies, not Markdown, for machine-enforced ordering.
 
 ## Corrections after creation
 
@@ -186,7 +186,7 @@ tm update "$id" \
   --description "Clarify requested login behavior." \
   --context "Updated execution notes for the agent."
 
-tm update "$id" --mode human
+tm set-executor "$id" human --allow-human
 ```
 
 Use `--allow-empty-description` or `--allow-empty-context` only when intentionally clearing that field.

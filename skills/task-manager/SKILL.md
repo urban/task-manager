@@ -1,6 +1,6 @@
 ---
 name: task-manager
-description: "Use when managing tm CLI Work Items: create, update, list, show, select, claim, release, complete, cancel, delete, block, and unblock local Work Items from specs, plans, or direct requests."
+description: "Use when managing tm CLI Work Items: create, update, set Executor, list, show, select, claim, release, complete, cancel, delete, block, and unblock local Work Items from specs, plans, or direct requests."
 ---
 
 # Task Manager
@@ -13,19 +13,19 @@ Task Manager is the product name; `tm` is the CLI. Use it as the source of truth
 - Run `command -v tm >/dev/null` before `tm` work. Run `command -v jq >/dev/null` before parsing `--json` output.
 - Prefer `--json` whenever you need an ID or machine-readable state; capture IDs from `.item.id` with `jq`.
 - Create hierarchy parent-before-child with `--parent`; record ordering with `--blocked-by` or `tm block`, not Markdown prose.
-- Set Execution Mode explicitly when planning: `--mode agent` for LLM-executable work, `--mode human` for HITL decisions/reviews/manual work. `tm next` defaults to agent work.
-- Use `tm update` for text or mode corrections, `tm release` when abandoning claimed work, `tm cancel` for real work that should stop, and `tm delete --yes` only for accidental records.
+- Set Executor explicitly when planning: `--executor agent` for LLM-executable work, `--executor human` for HITL decisions/reviews/manual work. `tm next` defaults to agent work.
+- Use `tm update` for text corrections, `tm set-executor` for Executor changes, `tm release` when abandoning claimed work, `tm cancel` for real work that should stop, and `tm delete --yes` only for accidental records.
 - Use `--force`, `--allow-human`, `--allow-no-verification`, destructive delete, or manual storage recovery only after explicit user approval.
 - If command behavior is uncertain, verify with `tm <command> --help`; do not invent flags or fallback storage edits.
 
 ## Constraints
 
 - Work Item levels are exactly `epic`, `task`, and `subtask`.
-- Execution Modes are exactly `agent` and `human`; `tm list --mode` and `tm next --mode` also accept `any` as a filter.
+- Executors are exactly `agent` and `human`; use `--all-executors` for read views across both Executors.
 - Subjects must be non-empty, 50 characters or fewer, one line, start with a capital letter, have no surrounding whitespace, have no trailing period, and avoid Markdown markers `*`, `_`, `` ` ``, `#`, `[`, `]`.
-- Description is human-facing Markdown. Agent Context is execution-focused Markdown for future agents. Result is structured completion evidence recorded by `tm complete`.
+- Description is human-facing Markdown. Context is execution-focused Markdown for future agents. Result is structured completion evidence recorded by `tm complete`.
 - Dependencies require existing Work Item IDs or unique prefixes. Prefer full IDs captured from JSON output when creating or modifying dependencies.
-- Agent identity comes from `--agent <name>` or `TM_AGENT`; reuse the same identity for claim, release, complete, or cancel.
+- Actor Identity comes from `--actor <name>` or `TM_ACTOR`; reuse the same identity for claim, release, complete, or cancel.
 
 ## Requirements
 
@@ -60,22 +60,23 @@ For read-only work, run `tm validate` before selecting or inspecting existing Wo
 
 ### 2. Command inventory
 
-| Need                        | Command                                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------- | ---------- |
-| Initialize storage          | `tm init`                                                                          |
-| Validate storage            | `tm validate`                                                                      |
-| Create Work Item            | `tm create [<subject>] --level <level> --mode agent                                | human ...` |
-| Update fields               | `tm update <id> ... [--mode agent                                                  | human]`    |
-| Show one item               | `tm show <id>`                                                                     |
-| List tree                   | `tm list [--root <id>] [--status <status>] [--all] [--mode ...]`                   |
-| Select next actionable item | `tm next [--root <id>] [--include-claimed] [--mode ...]`                           |
-| Claim work                  | `tm claim <id> --agent <name> [--allow-human]`                                     |
-| Release claim               | `tm release <id> --agent <name>`                                                   |
-| Complete work               | `tm complete <id> --agent <name> --summary ... --verification ... [--allow-human]` |
-| Cancel real work            | `tm cancel <id> --agent <name> --reason ... [--yes] [--allow-human]`               |
-| Delete accidental work      | `tm delete <id> --yes [--allow-human]`                                             |
-| Add dependency              | `tm block <blocked-id> --by <dependency-id>`                                       |
-| Remove dependency           | `tm unblock <blocked-id> --by <dependency-id> [--allow-human]`                     |
+| Need                        | Command                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| Initialize storage          | `tm init`                                                                             |
+| Validate storage            | `tm validate`                                                                         |
+| Create Work Item            | `tm create [<subject>] --level <level> --executor agent\|human ...`                   |
+| Update text fields          | `tm update <id> ...`                                                                  |
+| Change Executor             | `tm set-executor <id> agent\|human [--allow-human]`                                   |
+| Show one item               | `tm show <id>`                                                                        |
+| List tree                   | `tm list [--root <id>] [--status <status>] [--all] [--executor ...\|--all-executors]` |
+| Select next actionable item | `tm next [--root <id>] [--include-claimed] [--executor ...\|--all-executors]`         |
+| Claim work                  | `tm claim <id> --actor <name> [--allow-human]`                                        |
+| Release claim               | `tm release <id> --actor <name>`                                                      |
+| Complete work               | `tm complete <id> --actor <name> --summary ... --verification ... [--allow-human]`    |
+| Cancel real work            | `tm cancel <id> --actor <name> --reason ... [--yes] [--allow-human]`                  |
+| Delete accidental work      | `tm delete <id> --yes [--allow-human]`                                                |
+| Add dependency              | `tm block <blocked-id> --by <dependency-id>`                                          |
+| Remove dependency           | `tm unblock <blocked-id> --by <dependency-id> [--allow-human]`                        |
 
 Read [`references/cli-reference.md`](./references/cli-reference.md) when you need exact flags, JSON options, list/next filters, or destructive command details.
 
@@ -88,7 +89,7 @@ Create parent items first, capture IDs, then create children and dependencies:
 ```bash
 created_json="$(tm create "Add login flow" \
   --level task \
-  --mode agent \
+  --executor agent \
   --description "Implement the first end-to-end login slice." \
   --context $'## Source\n\nDerived from the user request.\n\n## Verification expectations\n\n- Run bun run check.' \
   --json)"
@@ -102,7 +103,7 @@ tm validate
 tm list
 ```
 
-Read [`references/create-work-items.md`](./references/create-work-items.md) when creating multiple items, using message files, building parent/child ID maps, or writing Description and Agent Context.
+Read [`references/create-work-items.md`](./references/create-work-items.md) when creating multiple items, using message files, building parent/child ID maps, or writing Description and Context.
 
 ### 4. Plan from source path
 
@@ -117,24 +118,24 @@ next_json="$(tm next --json)"
 next_id="$(printf '%s\n' "$next_json" | jq -r '.item.id // empty')"
 ```
 
-Default `tm next` selects only agent-mode work. Use `tm next --mode human` only when the user asks for HITL work, and `tm next --mode any` only when the user asks for the frontier across both modes.
+Default `tm list` and `tm next` select only agent-executor work. Use `--executor human` only when the user asks for HITL work, and `--all-executors` only when the user asks for a view across both Executors.
 
 If `next_id` is empty, report `.reason // "no-actionable-work"` and stop. Otherwise:
 
-1. `tm show <id>` and read Description, Agent Context, Execution Mode, dependencies, claim, and status.
-2. `tm claim <id> --agent <agent-name>`.
+1. `tm show <id>` and read Description, Context, Executor, dependencies, claim, and status.
+2. `tm claim <id> --actor <agent-name>`.
 3. Implement the Work Item.
 4. Run the requested verification command. In this repository, normally run `bun run check` unless the Work Item says otherwise.
 5. Complete with concrete evidence:
 
 ```bash
 tm complete <id> \
-  --agent <agent-name> \
+  --actor <agent-name> \
   --summary "Describe the concrete change" \
   --verification "bun run check: passed"
 ```
 
-If you stop before completion, release the claim with `tm release <id> --agent <agent-name>`.
+If you stop before completion, release the claim with `tm release <id> --actor <agent-name>`.
 
 Read [`references/execute-backlog.md`](./references/execute-backlog.md) when selecting under a root, handling claimed work, completing with decisions/details, or reporting execution evidence.
 
@@ -142,8 +143,8 @@ Read [`references/execute-backlog.md`](./references/execute-backlog.md) when sel
 
 Use the narrow command that matches the request:
 
-- inspect with `tm list`, `tm list --all`, `tm list --status <status>`, `tm list --mode human|agent|any`, or `tm show <id>`
-- revise text or mode with `tm update <id>`
+- inspect with `tm list`, `tm list --all`, `tm list --status <status>`, `tm list --executor human`, `tm list --all-executors`, or `tm show <id>`
+- revise text with `tm update <id>` and change Executor with `tm set-executor <id> agent|human [--allow-human]`
 - add/remove dependencies with `tm block` / `tm unblock`
 - release stale claims with `tm release`
 - cancel obsolete real work with `tm cancel`
@@ -154,21 +155,21 @@ Read [`references/recovery-and-maintenance.md`](./references/recovery-and-mainte
 ## Gotchas
 
 - Agents often over-plan explicit create requests. If the user already gave concrete Work Items and asked to create them, run the direct create path and ask only about ambiguous hierarchy or dependencies.
-- Dependency prose in Description or Agent Context is not enforced. Always record real ordering with `--blocked-by` or `tm block`.
+- Dependency prose in Description or Context is not enforced. Always record real ordering with `--blocked-by` or `tm block`.
 - Inferring IDs from subjects creates wrong edges when subjects change or collide. Capture `.item.id` from `tm create --json` and use that ID map.
 - Starting work without `tm claim` hides concurrency conflicts; abandoning claimed work without `tm release` blocks other agents until expiry.
 - `tm complete` with vague verification damages handoff. Record the exact command and outcome, or ask before using `--allow-no-verification`.
-- Human-mode Work Items are intentional gates. Do not claim, complete, cancel, delete, unblock, or force past them unless the user explicitly approves `--allow-human`.
+- Human-executor Work Items are intentional gates. Do not change their Executor, claim, complete, cancel, delete, unblock, or force past them unless the user explicitly approves `--allow-human`.
 - `tm cancel` and `tm delete` solve different problems. Cancel obsolete real work; delete only mistaken records.
 - Large inline Markdown can break shell quoting. Use `--message-file`, `--description-file`, or `--context-file` for large content.
 - Manual JSONL edits bypass validation and can corrupt the task store. Use CLI recovery first; edit storage only when the user explicitly requests low-level repair.
 
 ## Deliverables
 
-- For creation/planning: report created IDs, subjects, hierarchy, Execution Modes, recorded dependencies, and `tm validate` result.
+- For creation/planning: report created IDs, subjects, hierarchy, Executors, recorded dependencies, and `tm validate` result.
 - For execution: report completed Work Item ID and Subject, Result summary, verification evidence, and final `tm validate` result.
 - For management: report the command outcome, affected Work Item IDs, and validation status after state changes.
-- Every created Work Item should include useful Description, Agent Context, and source traceability when the source is a spec, plan, file, or conversation.
+- Every created Work Item should include useful Description, Context, and source traceability when the source is a spec, plan, file, or conversation.
 
 ## References
 

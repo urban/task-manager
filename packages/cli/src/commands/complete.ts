@@ -16,13 +16,13 @@ import {
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { resolveCompletionResultInput } from "./complete-input";
 import { commandRoot } from "./root";
-import { agentFlag } from "./shared/flags";
-import { resolveAgentIdentity } from "./shared/input";
+import { actorFlag } from "./shared/flags";
+import { resolveActorIdentity } from "./shared/input";
 import { encodeItemForOutput, executeCommand, renderBullets, renderJson } from "./shared/output";
 import {
   activeClaimConflictMessage,
-  firstHumanModeWorkItem,
-  humanModeGuardMessage,
+  firstHumanExecutorWorkItem,
+  humanExecutorGuardMessage,
   replaceWorkItem,
 } from "./shared/work-items";
 
@@ -42,10 +42,10 @@ const renderIncompleteDependencies = (dependencies: ReadonlyArray<WorkItem>): st
 
 const renderCompletedHuman = (item: WorkItem): string => {
   const encoded = encodeItemForOutput(item);
-  const result = encoded.result;
-  if (result === undefined) {
+  if (encoded.status !== "done") {
     return `Completed ${encoded.subject} (${encoded.id}).`;
   }
+  const result = encoded.result;
 
   return [
     `Completed ${encoded.subject} (${encoded.id}).`,
@@ -57,7 +57,7 @@ const renderCompletedHuman = (item: WorkItem): string => {
 
 export const commandComplete = Command.make("complete", {
   id: Argument.string("id"),
-  agent: agentFlag,
+  actor: actorFlag,
   summary: Flag.string("summary").pipe(Flag.optional),
   details: Flag.string("details").pipe(Flag.optional),
   decision: Flag.string("decision").pipe(
@@ -77,7 +77,7 @@ export const commandComplete = Command.make("complete", {
     Flag.withDescription("Complete despite incomplete dependencies or another active claim"),
   ),
   allowHuman: Flag.boolean("allow-human").pipe(
-    Flag.withDescription("Allow completing human-mode Work Items or bypassing human gates"),
+    Flag.withDescription("Allow completing human-executor Work Items or bypassing human gates"),
   ),
 }).pipe(
   Command.withDescription("Complete an open Work Item with a structured Result"),
@@ -87,7 +87,7 @@ export const commandComplete = Command.make("complete", {
       yield* executeCommand(
         root.json,
         Effect.gen(function* () {
-          const identity = yield* resolveAgentIdentity(input.agent);
+          const identity = yield* resolveActorIdentity(input.actor);
           const resultInput = yield* resolveCompletionResultInput(input);
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
@@ -106,9 +106,9 @@ export const commandComplete = Command.make("complete", {
             });
           }
 
-          if (item.executionMode === "human" && !input.allowHuman) {
+          if (item.executor === "human" && !input.allowHuman) {
             return yield* new CommandFailure({
-              message: humanModeGuardMessage(item, "complete it"),
+              message: humanExecutorGuardMessage(item, "complete it"),
             });
           }
 
@@ -121,10 +121,10 @@ export const commandComplete = Command.make("complete", {
             });
           }
 
-          const humanDependency = firstHumanModeWorkItem(incompleteDependencies);
+          const humanDependency = firstHumanExecutorWorkItem(incompleteDependencies);
           if (humanDependency !== undefined && input.force && !input.allowHuman) {
             return yield* new CommandFailure({
-              message: humanModeGuardMessage(humanDependency, "bypass it"),
+              message: humanExecutorGuardMessage(humanDependency, "bypass it"),
             });
           }
 
@@ -133,7 +133,7 @@ export const commandComplete = Command.make("complete", {
           if (
             currentClaim !== undefined &&
             isClaimActive(currentClaim, now) &&
-            currentClaim.agent !== identity &&
+            currentClaim.actor !== identity &&
             !input.force
           ) {
             return yield* new CommandFailure({

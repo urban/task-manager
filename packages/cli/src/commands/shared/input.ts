@@ -5,14 +5,14 @@ import * as Option from "effect/Option";
 import { CommandFailure, type TmError } from "../../domain/Errors";
 import { readTextFile } from "../../storage/TaskStore";
 
-export const resolveAgentIdentity = (
-  agent: Option.Option<string>,
+export const resolveActorIdentity = (
+  actor: Option.Option<string>,
 ): Effect.Effect<string, CommandFailure> =>
-  Option.match(agent, {
+  Option.match(actor, {
     onNone: () =>
       Effect.fail(
         new CommandFailure({
-          message: "Agent Identity is required. Pass --agent <name> or set TM_AGENT.",
+          message: "Actor Identity is required. Pass --actor <name> or set TM_ACTOR.",
         }),
       ),
     onSome: (value) => {
@@ -20,7 +20,7 @@ export const resolveAgentIdentity = (
       return identity.length === 0
         ? Effect.fail(
             new CommandFailure({
-              message: "Agent Identity must not be empty. Pass --agent <name> or set TM_AGENT.",
+              message: "Actor Identity must not be empty. Pass --actor <name> or set TM_ACTOR.",
             }),
           )
         : Effect.succeed(identity);

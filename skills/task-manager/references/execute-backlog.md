@@ -29,7 +29,7 @@ Read this when selecting, claiming, implementing, releasing, or completing backl
    tm show "$next_id"
    ```
 
-Read the Description, Agent Context, Execution Mode, dependencies, claim, status, and any Result/Cancellation fields before working.
+Read the Description, Context, Executor, dependencies, claim, status, and any Result/Cancellation fields before working.
 
 ## Selection variants
 
@@ -39,13 +39,13 @@ Limit selection to a subtree:
 tm next --root "$root_id" --json
 ```
 
-Default selection is `--mode agent`. Select human-only work only when the user asks for it:
+Default selection is `--executor agent`. Select human-only work only when the user asks for it:
 
 ```bash
-tm next --mode human --json
+tm next --executor human --json
 ```
 
-Use `tm next --mode any --json` only when the user asks for the frontier across both agent and human work.
+Use `tm next --all-executors --json` only when the user asks for the frontier across both Executors.
 
 Include actively claimed items only when the user asks to inspect or take over claimed work:
 
@@ -57,17 +57,17 @@ Do not manually sort or filter `.tasks/tasks.jsonl` to choose work.
 
 ## Claim
 
-Use a stable Agent Identity. Prefer an existing `TM_AGENT`; otherwise pass `--agent` explicitly and reuse that value.
+Use a stable Actor Identity. Prefer an existing `TM_ACTOR`; otherwise pass `--actor` explicitly and reuse that value.
 
 ```bash
-tm claim "$next_id" --agent "$agent_name"
+tm claim "$next_id" --actor "$agent_name"
 ```
 
-If the selected Work Item is human-mode, stop unless the user explicitly asked you to handle HITL work; then use `tm claim --allow-human`. If another active claim blocks you, stop and report the conflict. Use `--force` only when the user explicitly says to take over.
+If the selected Work Item is human-executor, stop unless the user explicitly asked you to handle HITL work; then use `tm claim --allow-human`. If another active claim blocks you, stop and report the conflict. Use `--force` only when the user explicitly says to take over.
 
 ## Implement and verify
 
-Implement the selected Work Item, then run the verification requested by Agent Context or project instructions. For this repository, normally run:
+Implement the selected Work Item, then run the verification requested by Context or project instructions. For this repository, normally run:
 
 ```bash
 bun run check
@@ -81,7 +81,7 @@ Complete only after implementation and verification. Include concrete evidence:
 
 ```bash
 tm complete "$next_id" \
-  --agent "$agent_name" \
+  --actor "$agent_name" \
   --summary "Describe the concrete change" \
   --verification "bun run check: passed"
 ```
@@ -90,7 +90,7 @@ Add details, decisions, and repeated verification when useful:
 
 ```bash
 tm complete "$next_id" \
-  --agent "$agent_name" \
+  --actor "$agent_name" \
   --summary "Added root filtering to next-item selection" \
   --details "Implemented CLI flag parsing and repository filtering." \
   --decision "Kept filtering in selection service to avoid duplicating tree traversal." \
@@ -102,20 +102,20 @@ Avoid vague Results:
 
 ```bash
 # Bad
-tm complete "$next_id" --agent "$agent_name" --summary "Done" --verification "Looks good"
+tm complete "$next_id" --actor "$agent_name" --summary "Done" --verification "Looks good"
 ```
 
-Use `--allow-human` only after explicit user approval for human-mode Work Items or forced bypass of a human-mode dependency. Use `--allow-no-verification` only after explicit user approval.
+Use `--allow-human` only after explicit user approval for human-executor Work Items or forced bypass of a human-executor dependency. Use `--allow-no-verification` only after explicit user approval.
 
 ## Release instead of completing
 
 If you need to stop before completing, release the claim:
 
 ```bash
-tm release "$next_id" --agent "$agent_name"
+tm release "$next_id" --actor "$agent_name"
 ```
 
-Use `tm release --force` only when the user explicitly approves releasing another agent's claim.
+Use `tm release --force` only when the user explicitly approves releasing another actor's claim.
 
 ## Final report
 
