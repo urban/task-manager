@@ -3,22 +3,22 @@ import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import { ValidationFailure, type TmError } from "../../domain/Errors";
-import {
-  buildTree,
-  encodeWorkItem,
-  type WorkItem,
-  type WorkItemCancellationEncoded,
-  type WorkItemEncoded,
-  type WorkItemResultEncoded,
-} from "../../domain/WorkItem";
+import { ValidationFailure } from "../../domain/Errors";
+import { encodeTicket } from "../../domain/Ticket";
+
+type TmError = import("../../domain/Errors").TmError;
+type Ticket = import("../../domain/Ticket").Ticket;
+type TicketCancellationEncoded = import("../../domain/Ticket").TicketCancellationEncoded;
+type TicketEncoded = import("../../domain/Ticket").TicketEncoded;
+type TicketResultEncoded = import("../../domain/Ticket").TicketResultEncoded;
+type TicketTreeNode = import("../../domain/Ticket").TicketTreeNode;
 
 const encodeJson = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
 const isValidationFailure = Schema.is(ValidationFailure);
 
 export const renderJson = (value: unknown): string => encodeJson(value);
 
-export const encodeItemForOutput = (item: WorkItem): WorkItemEncoded => encodeWorkItem(item);
+export const encodeTicketForOutput = (ticket: Ticket): TicketEncoded => encodeTicket(ticket);
 
 const errorMessage = (error: Exclude<TmError, ValidationFailure>): string => {
   switch (error._tag) {
@@ -27,10 +27,10 @@ const errorMessage = (error: Exclude<TmError, ValidationFailure>): string => {
       return error.message;
     case "StorageNotInitialized":
       return `Task store is not initialized at ${error.tasksFile}. Run tm init first.`;
-    case "WorkItemNotFound":
-      return `Work Item ${error.query} was not found.`;
-    case "WorkItemAmbiguous":
-      return `Work Item prefix ${error.query} is ambiguous. Matches: ${error.matches.join(", ")}.`;
+    case "TicketNotFound":
+      return `Ticket ${error.query} was not found.`;
+    case "TicketAmbiguous":
+      return `Ticket prefix ${error.query} is ambiguous. Matches: ${error.matches.join(", ")}.`;
     case "LockUnavailable":
       return `Task store is locked at ${error.lockFile}. Try again after the current write finishes.`;
   }
@@ -88,10 +88,10 @@ export const executeCommand = <A, R>(
     return result.success;
   });
 
-export const renderBullets = (items: ReadonlyArray<string>): ReadonlyArray<string> =>
-  items.length === 0 ? ["-"] : items.map((item) => `- ${item}`);
+export const renderBullets = (tickets: ReadonlyArray<string>): ReadonlyArray<string> =>
+  tickets.length === 0 ? ["-"] : tickets.map((ticket) => `- ${ticket}`);
 
-const renderResultHuman = (result: WorkItemResultEncoded | undefined): string =>
+const renderResultHuman = (result: TicketResultEncoded | undefined): string =>
   result === undefined
     ? "-"
     : [
@@ -105,7 +105,7 @@ const renderResultHuman = (result: WorkItemResultEncoded | undefined): string =>
         `Completed: ${result.completedAt} by ${result.completedBy}`,
       ].join("\n");
 
-const renderCancellationHuman = (cancellation: WorkItemCancellationEncoded | undefined): string =>
+const renderCancellationHuman = (cancellation: TicketCancellationEncoded | undefined): string =>
   cancellation === undefined
     ? "-"
     : [
@@ -113,8 +113,8 @@ const renderCancellationHuman = (cancellation: WorkItemCancellationEncoded | und
         `Cancelled: ${cancellation.cancelledAt} by ${cancellation.cancelledBy}`,
       ].join("\n");
 
-export const renderWorkItemHuman = (item: WorkItem): string => {
-  const encoded = encodeItemForOutput(item);
+export const renderTicketHuman = (ticket: Ticket): string => {
+  const encoded = encodeTicketForOutput(ticket);
   const dependencies = encoded.blockedBy?.length ?? 0;
 
   return [
@@ -142,23 +142,35 @@ export const renderWorkItemHuman = (item: WorkItem): string => {
   ].join("\n");
 };
 
-export const renderTreeLines = (
-  nodes: ReadonlyArray<ReturnType<typeof buildTree>[number]>,
-  prefix = "",
-): ReadonlyArray<string> => {
-  const lines: Array<string> = [];
+const containsCompletedWork = (node: TicketTreeNode): boolean =>
+  node.ticket.status === "done" || node.children.some(containsCompletedWork);
 
-  nodes.forEach((node, index) => {
-    const branch = index === nodes.length - 1 ? "└─" : "├─";
-    lines.push(
-      `${prefix}${branch} ${node.item.subject} [${node.item.status}] [${node.item.executor}] (${node.item.id})`,
-    );
-    const childPrefix = `${prefix}${index === nodes.length - 1 ? "   " : "│  "}`;
-    lines.push(...renderTreeLines(node.children, childPrefix));
+const renderTreeMarker = (node: TicketTreeNode): string => {
+  switch (node.ticket.status) {
+    case "done":
+      return "[x]";
+    case "cancelled":
+      return "[-]";
+    case "open":
+      return node.children.some(containsCompletedWork) ? "[/]" : "[ ]";
+  }
+};
+
+const renderTreeNodeLines = (
+  nodes: ReadonlyArray<TicketTreeNode>,
+  prefix: string,
+  roots: boolean,
+): ReadonlyArray<string> =>
+  nodes.flatMap((node, index) => {
+    const isLast = index === nodes.length - 1;
+    const connector = roots ? "" : isLast ? "└── " : "├── ";
+    const line = `${prefix}${connector}${renderTreeMarker(node)} ${node.ticket.id}: ${node.ticket.subject}`;
+    const childPrefix = roots ? "    " : `${prefix}${isLast ? "    " : "│   "}`;
+    return [line, ...renderTreeNodeLines(node.children, childPrefix, false)];
   });
 
-  return lines;
-};
+export const renderTreeLines = (nodes: ReadonlyArray<TicketTreeNode>): ReadonlyArray<string> =>
+  renderTreeNodeLines(nodes, "", true);
 
 export interface RenderTreeJsonNode {
   readonly id: string;
@@ -171,14 +183,14 @@ export interface RenderTreeJsonNode {
 }
 
 export const renderTreeJson = (
-  nodes: ReadonlyArray<ReturnType<typeof buildTree>[number]>,
+  nodes: ReadonlyArray<TicketTreeNode>,
 ): ReadonlyArray<RenderTreeJsonNode> =>
   nodes.map((node) => ({
-    id: node.item.id,
-    level: node.item.level,
-    status: node.item.status,
-    executor: node.item.executor,
-    subject: node.item.subject,
+    id: node.ticket.id,
+    level: node.ticket.level,
+    status: node.ticket.status,
+    executor: node.ticket.executor,
+    subject: node.ticket.subject,
     matchesFilter: node.matchesFilter,
     children: renderTreeJson(node.children),
   }));

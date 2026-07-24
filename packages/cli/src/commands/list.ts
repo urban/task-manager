@@ -7,78 +7,65 @@ import * as Flag from "effect/unstable/cli/Flag";
 import { CommandFailure } from "../domain/Errors";
 import {
   allExecutorsFilter,
-  allWorkItemStatuses,
+  allTicketStatuses,
   buildFilteredTree,
-  resolveWorkItem,
+  resolveTicket,
   specificExecutorFilter,
-  type WorkItemExecutor,
-  type WorkItemExecutorFilter,
-  type WorkItemStatus,
-} from "../domain/WorkItem";
+} from "../domain/Ticket";
+
+type TicketExecutor = import("../domain/Ticket").TicketExecutor;
+type TicketExecutorFilter = import("../domain/Ticket").TicketExecutorFilter;
+type TicketStatus = import("../domain/Ticket").TicketStatus;
 import { loadStore, resolveStorePaths } from "../storage/TaskStore";
 import { commandRoot } from "./root";
 import { executeCommand, renderJson, renderTreeJson, renderTreeLines } from "./shared/output";
 
 const renderEmptyListMessage = (options: {
-  readonly all: boolean;
-  readonly status: WorkItemStatus | undefined;
-  readonly executorFilter: WorkItemExecutorFilter;
+  readonly status: TicketStatus | undefined;
+  readonly executorFilter: TicketExecutorFilter;
 }): string => {
   const executor =
     options.executorFilter._tag === "SpecificExecutor" ? `${options.executorFilter.executor} ` : "";
-  return options.all
-    ? `No ${executor}Work Items.`
-    : options.status === undefined || options.status === "open"
-      ? `No open ${executor}Work Items.`
-      : `No ${options.status} ${executor}Work Items.`;
+  return options.status === undefined
+    ? `No ${executor}Tickets.`
+    : `No ${options.status} ${executor}Tickets.`;
 };
 
-const visibleStatuses = (options: {
-  readonly all: boolean;
-  readonly status: Option.Option<WorkItemStatus>;
-}): ReadonlySet<WorkItemStatus> =>
+const visibleStatuses = (status: Option.Option<TicketStatus>): ReadonlySet<TicketStatus> =>
   new Set(
-    options.all
-      ? allWorkItemStatuses
-      : [
-          Option.match(options.status, {
-            onNone: () => "open",
-            onSome: (status) => status,
-          }),
-        ],
+    Option.match(status, {
+      onNone: () => allTicketStatuses,
+      onSome: (value) => [value],
+    }),
   );
 
 const resolveExecutorFilter = (
-  executor: Option.Option<WorkItemExecutor>,
+  executor: Option.Option<TicketExecutor>,
   allExecutors: boolean,
-): WorkItemExecutorFilter =>
+): TicketExecutorFilter =>
   allExecutors
     ? allExecutorsFilter
-    : specificExecutorFilter(
-        Option.match(executor, {
-          onNone: () => "agent",
-          onSome: (value) => value,
-        }),
-      );
+    : Option.match(executor, {
+        onNone: () => allExecutorsFilter,
+        onSome: specificExecutorFilter,
+      });
 
 export const commandList = Command.make("list", {
   root: Flag.string("root").pipe(Flag.withDescription("Render only a subtree"), Flag.optional),
   status: Flag.choice("status", ["open", "done", "cancelled"]).pipe(
-    Flag.withDescription("Render only Work Items with this lifecycle status"),
+    Flag.withDescription("Render only Tickets with this lifecycle status"),
     Flag.optional,
   ),
-  all: Flag.boolean("all").pipe(
-    Flag.withDescription("Render open, done, and cancelled Work Items"),
-  ),
+  all: Flag.boolean("all").pipe(Flag.withDescription("Render open, done, and cancelled Tickets")),
   executor: Flag.choice("executor", ["agent", "human"]).pipe(
-    Flag.withDescription("Render only Work Items with this executor"),
+    Flag.withDescription("Render only Tickets with this executor"),
     Flag.optional,
   ),
   allExecutors: Flag.boolean("all-executors").pipe(
-    Flag.withDescription("Render Work Items for both executors"),
+    Flag.withDescription("Render Tickets for both executors"),
   ),
 }).pipe(
-  Command.withDescription("List Work Items in a deterministic tree view"),
+  Command.withDescription("List Tickets in a deterministic tree view"),
   Command.withHandler(
     Effect.fnUntraced(function* ({ root: requestedRoot, status, all, executor, allExecutors }) {
       const root = yield* commandRoot;
@@ -97,14 +84,14 @@ export const commandList = Command.make("list", {
           }
 
           const paths = yield* resolveStorePaths(root);
-          const items = yield* loadStore(paths);
+          const tickets = yield* loadStore(paths);
           const subtreeRoot = yield* Option.match(requestedRoot, {
             onNone: () => Effect.void,
-            onSome: (value) => resolveWorkItem(items, value),
+            onSome: (value) => resolveTicket(tickets, value),
           });
-          const statusFilter = visibleStatuses({ all, status });
+          const statusFilter = visibleStatuses(status);
           const executorFilter = resolveExecutorFilter(executor, allExecutors);
-          const tree = buildFilteredTree(items, {
+          const tree = buildFilteredTree(tickets, {
             ...(subtreeRoot === undefined ? {} : { root: subtreeRoot }),
             statuses: statusFilter,
             executorFilter,
@@ -118,10 +105,10 @@ export const commandList = Command.make("list", {
             root.json
               ? renderJson({
                   ok: true,
-                  items: renderTreeJson(tree),
+                  tickets: renderTreeJson(tree),
                 })
               : tree.length === 0
-                ? renderEmptyListMessage({ all, status: selectedStatus, executorFilter })
+                ? renderEmptyListMessage({ status: selectedStatus, executorFilter })
                 : renderTreeLines(tree).join("\n"),
           );
         }),

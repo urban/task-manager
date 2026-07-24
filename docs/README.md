@@ -24,15 +24,15 @@ Use it for work that spans sessions, needs handoff, or benefits from a permanent
 
 ## Core concepts
 
-### Work Item
+### Ticket
 
-A **Work Item** is any persisted unit of work. Every Work Item has one of three levels:
+A **Ticket** is any persisted unit of work. Every Ticket has one of three levels:
 
 1. **Epic** — a large top-level initiative.
 2. **Task** — a significant executable unit of work.
 3. **Subtask** — an atomic step under a Task.
 
-The word **Task** is intentionally reserved for the middle hierarchy level. When speaking generically, use **Work Item**.
+The word **Task** is intentionally reserved for the middle hierarchy level. When speaking generically, use **Ticket**.
 
 ### Hierarchy
 
@@ -56,20 +56,20 @@ Standalone Tasks are allowed so small work does not need fake Epics.
 
 ### Executor
 
-Every Work Item has an **Executor**:
+Every Ticket has an **Executor**:
 
-- `agent` — LLM-executable work. This is the default for new Work Items.
+- `agent` — LLM-executable work. This is the default for new Tickets.
 - `human` — work that must not be executed unattended by an LLM, such as decisions, reviews, approvals, credential entry, private/manual checks, or physical-world actions.
 
-Executor is not a lifecycle state, priority, assignment, or claim. It only says which kind of actor may safely execute the Work Item. Parent Executor does not inherit to children and does not gate descendants; each Work Item has its own explicit Executor.
+Executor is not a lifecycle state, priority, assignment, or claim. It only says which kind of actor may safely execute the Ticket. Parent Executor does not inherit to children and does not gate descendants; each Ticket has its own explicit Executor.
 
 `tm next` defaults to `agent` work only so AI agents do not accidentally receive human-only tasks. Use `tm next --executor human` for the human queue and `tm next --all-executors` to inspect the true frontier regardless of executor.
 
-Commands that could accidentally mutate human-only work require `--allow-human` when the target Work Item, affected subtree, or bypassed human dependency is human-executor. This applies to `claim`, `complete`, `cancel`, `delete`, and `unblock`. The flag is accepted as a harmless no-op for agent-executor work.
+Commands that could accidentally mutate human-only work require `--allow-human` when the target Ticket, affected subtree, or bypassed human dependency is human-executor. This applies to `claim`, `complete`, `cancel`, `delete`, and `unblock`. The flag is accepted as a harmless no-op for agent-executor work.
 
 ### Subject, Description, and Context
 
-Every normal Work Item creation requires:
+Every normal Ticket creation requires:
 
 - **Subject** — a short, plain-text Git-style subject line.
 - **Description** — a human-facing Markdown body explaining the requested work.
@@ -104,23 +104,23 @@ Good Context includes:
 - acceptance criteria, and
 - verification expectations.
 
-A Work Item with vague context is hard to resume. The CLI provides explicit escape hatches for quick capture, such as `--allow-empty-description` and `--allow-empty-context`, but empty fields should be intentional.
+A Ticket with vague context is hard to resume. The CLI provides explicit escape hatches for quick capture, such as `--allow-empty-description` and `--allow-empty-context`, but empty fields should be intentional.
 
 ## Lifecycle
 
-A Work Item in storage has one of three lifecycle states:
+A Ticket in storage has one of three lifecycle states:
 
 - `open`
 - `done`
 - `cancelled`
 
-The public CLI creates `open` Work Items, can move open Work Items with no open children to `done` using `tm complete`, and can move open Work Items to `cancelled` using `tm cancel`.
+The public CLI creates `open` Tickets, can move open Tickets with no open children to `done` using `tm complete`, and can move open Tickets to `cancelled` using `tm cancel`.
 
 There is no `in_progress` state. Active work is represented by a **Claim** instead.
 
 ### Done and Result
 
-A Work Item is `done` only when it has a structured **Result**. A Result records completed work, not intentions.
+A Ticket is `done` only when it has a structured **Result**. A Result records completed work, not intentions.
 
 A good Result includes:
 
@@ -148,7 +148,7 @@ Weak Results such as "done" or "should work" are not acceptable because they do 
 
 ### Cancelled and Cancellation
 
-A Work Item is `cancelled` when real work intentionally stops unfinished. Cancellation is separate from completion: cancelled Work Items were not done, so they store a structured **Cancellation** record instead of a Result.
+A Ticket is `cancelled` when real work intentionally stops unfinished. Cancellation is separate from completion: cancelled Tickets were not done, so they store a structured **Cancellation** record instead of a Result.
 
 A Cancellation records:
 
@@ -166,7 +166,7 @@ Example:
 }
 ```
 
-Use `tm cancel <id> --actor <name> --reason <text>` to cancel an open Work Item. Use `--reason-file <path>` for longer reasons. Parent cancellation previews the open descendants that would also be cancelled and requires `--yes` before mutating storage:
+Use `tm cancel <id> --actor <name> --reason <text>` to cancel an open Ticket. Use `--reason-file <path>` for longer reasons. Parent cancellation previews the open descendants that would also be cancelled and requires `--yes` before mutating storage:
 
 ```sh
 tm cancel abc123 \
@@ -174,11 +174,11 @@ tm cancel abc123 \
   --reason "No longer needed after the approach changed"
 ```
 
-Cascading cancellation applies only to open descendants. Done and already-cancelled descendants are left unchanged. Successful cancellation clears claims on each Work Item it cancels. Cancelling a Work Item with another actor's active claim requires `--force`; expired claims do not require force. Cancelling a human-executor Work Item or a subtree containing human-executor Work Items requires `--allow-human`.
+Cascading cancellation applies only to open descendants. Done and already-cancelled descendants are left unchanged. Successful cancellation clears claims on each Ticket it cancels. Cancelling a Ticket with another actor's active claim requires `--force`; expired claims do not require force. Cancelling a human-executor Ticket or a subtree containing human-executor Tickets requires `--allow-human`.
 
 ### Delete
 
-`tm delete` is a destructive cleanup command for mistaken, duplicate, or accidental records. Prefer `tm cancel` for real work that is no longer needed, and use `tm release` only when clearing an abandoned claim while leaving unfinished Work Items open.
+`tm delete` is a destructive cleanup command for mistaken, duplicate, or accidental records. Prefer `tm cancel` for real work that is no longer needed, and use `tm release` only when clearing an abandoned claim while leaving unfinished Tickets open.
 
 Because the CLI is non-interactive, destructive deletion requires `--yes` before storage is mutated:
 
@@ -186,17 +186,17 @@ Because the CLI is non-interactive, destructive deletion requires `--yes` before
 tm delete abc123 --yes
 ```
 
-Deleting a human-executor Work Item or subtree requires `--allow-human` in addition to `--yes`.
+Deleting a human-executor Ticket or subtree requires `--allow-human` in addition to `--yes`.
 
-Running without `--yes` previews the Work Items that would be permanently deleted and exits without mutation. If the selected Work Item has descendants, the entire subtree is deleted together.
+Running without `--yes` previews the Tickets that would be permanently deleted and exits without mutation. If the selected Ticket has descendants, the entire subtree is deleted together.
 
-Deletion refuses to leave dangling dependencies. If any remaining Work Item depends on a Work Item that would be deleted, first `tm unblock` the dependency, `tm cancel` the dependent Work Item, or include the dependent Work Item in the deleted subtree.
+Deletion refuses to leave dangling dependencies. If any remaining Ticket depends on a Ticket that would be deleted, first `tm unblock` the dependency, `tm cancel` the dependent Ticket, or include the dependent Ticket in the deleted subtree.
 
 The lifecycle is intentionally one-way: there is no `tm reopen` command.
 
 ## Dependencies
 
-A **Dependency** says one Work Item should be completed before another begins.
+A **Dependency** says one Ticket should be completed before another begins.
 
 Dependencies are separate from hierarchy:
 
@@ -205,7 +205,7 @@ Dependencies are separate from hierarchy:
 
 Dependencies may cross hierarchy boundaries. For example, a Subtask in one Epic may depend on a standalone Task, or a Task in one Epic may depend on a Task in another Epic.
 
-Use repeatable `tm create --blocked-by <dependency-id>` when dependencies are known before creating the blocked Work Item. Use `tm block <id> --by <dependency-id>` to record a dependency after both Work Items already exist, and `tm unblock <id> --by <dependency-id>` when the ordering constraint is no longer needed. IDs may be full IDs or unique prefixes, and storage always keeps the resolved full dependency IDs. Removing a dependency where either side is human-executor requires `tm unblock --allow-human` because it can clear a human gate.
+Use repeatable `tm create --blocked-by <dependency-id>` when dependencies are known before creating the blocked Ticket. Use `tm block <id> --by <dependency-id>` to record a dependency after both Tickets already exist, and `tm unblock <id> --by <dependency-id>` when the ordering constraint is no longer needed. IDs may be full IDs or unique prefixes, and storage always keeps the resolved full dependency IDs. Removing a dependency where either side is human-executor requires `tm unblock --allow-human` because it can clear a human gate.
 
 ```sh
 tm create "Add API endpoint" \
@@ -221,8 +221,8 @@ tm unblock <api-id> --by <model-id>
 
 Dependency enforcement is soft:
 
-- `tm next` skips blocked Work Items by default,
-- `tm complete` refuses to complete a blocked Work Item unless `--force` is used,
+- `tm next` skips blocked Tickets by default,
+- `tm complete` refuses to complete a blocked Ticket unless `--force` is used,
 - `tm complete --force` also requires `--allow-human` when it bypasses an incomplete human-executor dependency,
 - self-dependencies, duplicate dependencies, and dependency cycles are invalid.
 
@@ -243,7 +243,7 @@ Good Actor Identity examples:
 
 Avoid vague names like `agent`, `me`, or `test`.
 
-A **Claim** is an advisory signal that an actor is actively working on a Work Item.
+A **Claim** is an advisory signal that an actor is actively working on a Ticket.
 
 Example idea:
 
@@ -261,9 +261,9 @@ Claims are:
 - **lightweight** — just fields in the JSONL record,
 - **expiring** — abandoned work does not stay claimed forever.
 
-The default claim window is 1 hour. Actionable leaf Work Items should be scoped to complete within that hour. This is guidance, not CLI validation, because the tool cannot objectively know how long a Work Item will take. If an agent expects the work to take longer, it should split the Work Item before starting or create Subtasks.
+The default claim window is 1 hour. Actionable leaf Tickets should be scoped to complete within that hour. This is guidance, not CLI validation, because the tool cannot objectively know how long a Ticket will take. If an agent expects the work to take longer, it should split the Ticket before starting or create Subtasks.
 
-`tm next` skips actively claimed Work Items unless `--include-claimed` is used. It is read-only and does not create claims. Agents should explicitly claim work after selecting it.
+`tm next` skips actively claimed Tickets unless `--include-claimed` is used. It is read-only and does not create claims. Agents should explicitly claim work after selecting it.
 
 ## Storage
 
@@ -277,7 +277,7 @@ Default layout:
 
 By default, Task Manager stores data under the nearest Git root. If no Git root is found, it stores data under the working directory or the directory passed with `--cwd` / `TM_CWD`. Use `--storage-path <dir>` or `TM_STORAGE_PATH` to override the `.tasks` directory.
 
-`tasks.jsonl` stores one snapshot per Work Item. It is not an append-only event log. Records use `schemaVersion: 3` and require `executor` and neutral `context` fields; Claim records use `actor`. Older records must be edited manually because the CLI intentionally provides no migration command.
+`tasks.jsonl` stores one snapshot per Ticket. It is not an append-only event log. Records use `schemaVersion: 3` and require `executor` and neutral `context` fields; Claim records use `actor`. Older records must be edited manually because the CLI intentionally provides no migration command.
 
 Why snapshots:
 
@@ -288,7 +288,7 @@ Why snapshots:
 
 ## IDs
 
-Work Item IDs are stable, random six-character lowercase base-36 strings. They contain only `a`-`z` and `0`-`9`.
+Ticket IDs are stable, random six-character lowercase base-36 strings. They contain only `a`-`z` and `0`-`9`.
 
 Example:
 
@@ -300,7 +300,7 @@ Storage and public output always use the canonical six-character ID unchanged. C
 
 ## Planning workflow
 
-There is no `tm plan <file>` command. Planning stays explicit: a human or AI agent creates Work Items one at a time with CLI commands.
+There is no `tm plan <file>` command. Planning stays explicit: a human or AI agent creates Tickets one at a time with CLI commands.
 
 This means an agent may read a Markdown plan or discuss a plan with you, but it records the Backlog through ordinary commands:
 
@@ -338,7 +338,7 @@ Why planning stays explicit:
 
 This repository includes an agent-facing skill at [`../skills/task-manager/SKILL.md`](../skills/task-manager/SKILL.md). If your coding agent supports skill directories, add or copy the whole [`../skills/task-manager/`](../skills/task-manager/) directory to its configured skills path.
 
-If you are not installing the whole skill folder, ask the agent to read `../skills/task-manager/SKILL.md` before planning or executing task-manager work. The skill teaches conservative CLI use: create Work Items, record dependencies with `tm create --blocked-by` or `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete with strong `tm complete` Results.
+If you are not installing the whole skill folder, ask the agent to read `../skills/task-manager/SKILL.md` before planning or executing task-manager work. The skill teaches conservative CLI use: create Tickets, record dependencies with `tm create --blocked-by` or `tm block`, select work with `tm next`, coordinate with `tm claim`, and complete with strong `tm complete` Results.
 
 ## Common workflows
 
@@ -363,7 +363,7 @@ tm create \
 For longer Markdown, keep the Subject and Description together in a message file, and keep Context in a separate context file:
 
 ```sh
-cat > work-item-message.md <<'EOF'
+cat > ticket-message.md <<'EOF'
 Add JWT authentication
 
 Implement JWT-based authentication for the API.
@@ -377,7 +377,7 @@ EOF
 
 tm create \
   --level task \
-  --message-file ./work-item-message.md \
+  --message-file ./ticket-message.md \
   --context-file ./agent-context.md
 ```
 
@@ -396,9 +396,9 @@ tm create "Implement login endpoint" \
   --context "Accept email/password, verify with bcrypt, return token pair."
 ```
 
-### Refine Work Items
+### Refine Tickets
 
-Use `tm update <id>` to correct or clarify the text fields on an existing Work Item without manually editing `.tasks/tasks.jsonl`:
+Use `tm update <id>` to correct or clarify the text fields on an existing Ticket without manually editing `.tasks/tasks.jsonl`:
 
 ```sh
 tm update abc123 --subject "Implement login flow"
@@ -410,7 +410,7 @@ tm set-executor abc123 human --allow-human
 
 `--message` and `--message-file` follow the same Git-style format as `tm create`: the first line is the Subject, then a blank line, then the Description. Do not combine message input with `--subject` or Description flags (`--description`, `--description-file`). Description and Context cannot be cleared accidentally; pass `--allow-empty-description` or `--allow-empty-context` with the matching empty update when clearing is intentional.
 
-Updates do not change Executor, lifecycle status, dependencies, claims, Result, or Cancellation data. Done and cancelled Work Items can still be updated for typo or context corrections. Use `tm set-executor <id> agent|human` for Executor changes. Any change to or from `human` requires `--allow-human`; setting the current Executor is a no-op and does not change `updatedAt`.
+Updates do not change Executor, lifecycle status, dependencies, claims, Result, or Cancellation data. Done and cancelled Tickets can still be updated for typo or context corrections. Use `tm set-executor <id> agent|human` for Executor changes. Any change to or from `human` requires `--allow-human`; setting the current Executor is a no-op and does not change `updatedAt`.
 
 ### Record dependencies
 
@@ -424,15 +424,15 @@ tm block <api-id> --by <model-id>
 tm unblock <api-id> --by <model-id>
 ```
 
-Use repeatable `--blocked-by <id>` during creation when dependency IDs are already known. Use `tm block` for dependencies discovered after creation. Dependencies are independent of hierarchy, so a Work Item can be blocked by any other Work Item as long as the edge does not duplicate an existing dependency, point at itself, or create a cycle.
+Use repeatable `--blocked-by <id>` during creation when dependency IDs are already known. Use `tm block` for dependencies discovered after creation. Dependencies are independent of hierarchy, so a Ticket can be blocked by any other Ticket as long as the edge does not duplicate an existing dependency, point at itself, or create a cycle.
 
-### Show Work Item details
+### Show Ticket details
 
 ```sh
 tm show abc123
 ```
 
-`tm show` is an inspection command. In human mode it shows the selected Work Item's status, Executor, parent ID, dependencies, current claim, Description, Context, Result, and Cancellation. In JSON mode it returns the encoded Work Item. Use `tm list --root <id>` when you need a subtree view.
+`tm show` is an inspection command. In human mode it shows the selected Ticket's status, Executor, parent ID, dependencies, current claim, Description, Context, Result, and Cancellation. In JSON mode it returns the encoded Ticket. Use `tm list --root <id>` when you need a subtree view.
 
 ### List the Backlog
 
@@ -440,7 +440,7 @@ tm show abc123
 tm list
 ```
 
-`tm list` shows open agent-executor Work Items by default so the default view is safe for unattended agent execution. Human work appears with `--executor human`, while `--all-executors` shows both queues. Completed and cancelled Work Items leave the default list, but remain inspectable through lifecycle filters:
+`tm list` shows the complete hierarchy across all lifecycle states and both Executors by default. Use lifecycle and Executor flags when you need a narrower view; `--all` and `--all-executors` remain available as explicit all-value filters:
 
 ```sh
 tm list --status done
@@ -456,7 +456,7 @@ tm list --status done --executor human
 tm list --all --executor human
 ```
 
-Filtered lists include matching Work Items plus any ancestors needed for hierarchy context. Human tree output includes `[status] [executor]`; JSON tree nodes include `executor` and `matchesFilter` so scripts can distinguish matching nodes from context-only ancestors.
+Filtered lists include matching Tickets plus any ancestors needed for hierarchy context. Human output renders roots as `[marker] id: title` and descendants with four-space tree indentation. The markers are `[ ]` for open, `[x]` for done, `[-]` for cancelled, and `[/]` for an open parent containing completed work. JSON tree nodes keep lifecycle `status`, `executor`, and `matchesFilter` fields so scripts can distinguish matching nodes from context-only ancestors.
 
 Use `--root <id>` for a focused subtree view. Root scoping composes with lifecycle and Executor filters:
 
@@ -466,7 +466,7 @@ tm list --root abc123 --status cancelled
 tm list --root abc123 --all
 ```
 
-`--all` includes open, done, and cancelled Work Items. `--status` accepts one lifecycle state per invocation. `--all` and `--status` cannot be combined, but either can compose with `--executor`. In JSON mode, list output keeps the same tree node shape and reflects the selected filters.
+`--all` includes open, done, and cancelled Tickets, which is also the lifecycle default. `--status` accepts one lifecycle state per invocation. `--all` and `--status` cannot be combined, but either can compose with `--executor`. In JSON mode, list output keeps the same tree node shape and reflects the selected filters.
 
 ### Find work for an agent
 
@@ -474,18 +474,18 @@ tm list --root abc123 --all
 tm next
 ```
 
-By default this returns the first actionable open agent-executor leaf Work Item in deterministic tree order. Parent Work Items are skipped while they still contain open children; a parent with only done or cancelled children can be returned if it matches the requested Executor.
+By default this returns the first actionable open agent-executor leaf Ticket in deterministic tree order. Parent Tickets are skipped while they still contain open children; a parent with only done or cancelled children can be returned if it matches the requested Executor.
 
-Human output uses the same detailed Work Item rendering as `tm show`. JSON output includes the encoded Work Item:
+Human output uses the same detailed Ticket rendering as `tm show`. JSON output includes the encoded Ticket:
 
 ```json
-{ "ok": true, "item": { "id": "abc123" } }
+{ "ok": true, "ticket": { "id": "abc123" } }
 ```
 
 When no work is available, human output is:
 
 ```text
-No actionable Work Items.
+No actionable Tickets.
 ```
 
 JSON output is:
@@ -496,15 +496,15 @@ JSON output is:
 
 There is no priority field. `tm next` chooses deterministically by hierarchy order, with root Epics before root Tasks and siblings ordered by creation time with ID as a tie-breaker.
 
-Use `--root <id>` to choose the next actionable Work Item inside a specific open Epic, Task, or Subtask subtree:
+Use `--root <id>` to choose the next actionable Ticket inside a specific open Epic, Task, or Subtask subtree:
 
 ```sh
 tm next --root abc123
 ```
 
-Use `--executor human` for the next human-only Work Item, or `--all-executors` for the true deterministic frontier regardless of Executor. Executor is a hard filter; `tm next --executor human` does not fall back to agent work. `--executor` and `--all-executors` cannot be combined.
+Use `--executor human` for the next human-only Ticket, or `--all-executors` for the true deterministic frontier regardless of Executor. Executor is a hard filter; `tm next --executor human` does not fall back to agent work. `--executor` and `--all-executors` cannot be combined.
 
-`tm next` is read-only and does not claim the Work Item. It skips actively claimed Work Items by default; use `--include-claimed` to include them in selection. Expired claims do not block selection.
+`tm next` is read-only and does not claim the Ticket. It skips actively claimed Tickets by default; use `--include-claimed` to include them in selection. Expired claims do not block selection.
 
 ### Claim work
 
@@ -512,7 +512,7 @@ Use `--executor human` for the next human-only Work Item, or `--all-executors` f
 tm claim abc123 --actor codex-auth-session
 ```
 
-A claim tells other agents to choose something else unless they intentionally override. Claiming a Work Item already claimed by another active agent requires `--force`. The same agent can refresh its own active claim, and expired claims can be replaced without `--force`. Claiming a human-executor Work Item requires `--allow-human`.
+A claim tells other agents to choose something else unless they intentionally override. Claiming a Ticket already claimed by another active agent requires `--force`. The same agent can refresh its own active claim, and expired claims can be replaced without `--force`. Claiming a human-executor Ticket requires `--allow-human`.
 
 Use `TM_ACTOR` instead of `--actor` when it is more convenient:
 
@@ -526,7 +526,7 @@ Release a claim when abandoning or handing off work:
 tm release abc123 --actor codex-auth-session
 ```
 
-Releasing another actor's active claim requires `--force`; expired claims can be released by anyone. Completing a Work Item claimed by another active actor also requires `--force`; expired claims do not require `--force`.
+Releasing another actor's active claim requires `--force`; expired claims can be released by anyone. Completing a Ticket claimed by another active actor also requires `--force`; expired claims do not require `--force`.
 
 ### Complete work
 
@@ -552,7 +552,7 @@ tm complete abc123 \
 
 For longer messages, write the same format to a file and pass `--result-message-file <path>`.
 
-Only open Work Items can be completed. Before completing, the CLI rejects open children, incomplete dependencies, and another actor's active claim. Use `--force` only to override incomplete dependencies or another active claim. Completing a human-executor Work Item requires `--allow-human`; forcing past an incomplete human-executor dependency also requires `--allow-human`. Verification evidence is required by default; use the explicit `--allow-no-verification` escape hatch when no verification can be recorded.
+Only open Tickets can be completed. Before completing, the CLI rejects open children, incomplete dependencies, and another actor's active claim. Use `--force` only to override incomplete dependencies or another active claim. Completing a human-executor Ticket requires `--allow-human`; forcing past an incomplete human-executor dependency also requires `--allow-human`. Verification evidence is required by default; use the explicit `--allow-no-verification` escape hatch when no verification can be recorded.
 
 ### Cancel work
 
@@ -573,11 +573,11 @@ tm cancel epic01 \
   --yes
 ```
 
-Only open Work Items are cancelled by a cascade. Done and already-cancelled descendants are preserved. Cancelling another actor's active claim requires `--force`; expired claims and claims held by the same actor do not. Cancelling a human-executor Work Item or a cascade containing a human-executor descendant requires `--allow-human`. Successful cancellation clears claims on the cancelled Work Items.
+Only open Tickets are cancelled by a cascade. Done and already-cancelled descendants are preserved. Cancelling another actor's active claim requires `--force`; expired claims and claims held by the same actor do not. Cancelling a human-executor Ticket or a cascade containing a human-executor descendant requires `--allow-human`. Successful cancellation clears claims on the cancelled Tickets.
 
 ### Delete accidental records
 
-Use deletion only for mistaken, duplicate, or accidental records. Prefer `tm cancel` when a Work Item represented real work that intentionally stopped unfinished.
+Use deletion only for mistaken, duplicate, or accidental records. Prefer `tm cancel` when a Ticket represented real work that intentionally stopped unfinished.
 
 Preview the destructive operation without mutating storage:
 
@@ -591,16 +591,16 @@ Confirm deletion explicitly with `--yes`:
 tm delete abc123 --yes
 ```
 
-If the deleted Work Item or subtree includes human-executor work, pass `--allow-human` as well.
+If the deleted Ticket or subtree includes human-executor work, pass `--allow-human` as well.
 
-If the selected Work Item has descendants, the full subtree is deleted. The command refuses to delete a Work Item when any remaining Work Item would still depend on it; unblock, cancel, or delete the dependent Work Items first.
+If the selected Ticket has descendants, the full subtree is deleted. The command refuses to delete a Ticket when any remaining Ticket would still depend on it; unblock, cancel, or delete the dependent Tickets first.
 
 In JSON mode, successful deletion returns the deleted IDs, subjects, and Executors:
 
 ```json
 {
   "ok": true,
-  "deleted": [{ "id": "abc123", "subject": "Accidental Work Item", "executor": "agent" }]
+  "deleted": [{ "id": "abc123", "subject": "Accidental Ticket", "executor": "agent" }]
 }
 ```
 
@@ -610,7 +610,7 @@ The CLI supports:
 
 - local JSONL storage,
 - non-interactive CLI input through flags and files,
-- Work Item creation, Executor, safe field updates, validation, inspection, and filtered backlog listing,
+- Ticket creation, Executor, safe field updates, validation, inspection, and filtered backlog listing,
 - hierarchy validation for Epics, Tasks, and Subtasks,
 - dependencies through repeatable `tm create --blocked-by`, `tm block`, and `tm unblock`,
 - deterministic work selection through `tm next`,

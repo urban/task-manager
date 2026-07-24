@@ -7,22 +7,23 @@ import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
 import {
-  clearWorkItemClaim,
+  clearTicketClaim,
   formatClaimExpiresAt,
   isClaimActive,
-  resolveWorkItem,
-  type WorkItem,
-  type WorkItemClaim,
-} from "../domain/WorkItem";
+  resolveTicket,
+} from "../domain/Ticket";
+
+type Ticket = import("../domain/Ticket").Ticket;
+type TicketClaim = import("../domain/Ticket").TicketClaim;
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
 import { actorFlag } from "./shared/flags";
 import { resolveActorIdentity } from "./shared/input";
-import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
-import { activeClaimConflictMessage, replaceWorkItem } from "./shared/work-items";
+import { encodeTicketForOutput, executeCommand, renderJson } from "./shared/output";
+import { activeClaimConflictMessage, replaceTicket } from "./shared/tickets";
 
-const renderReleasedHuman = (item: WorkItem, claim: WorkItemClaim): string =>
-  `Released claim on ${item.subject} (${item.id}) held by ${claim.actor} until ${formatClaimExpiresAt(
+const renderReleasedHuman = (ticket: Ticket, claim: TicketClaim): string =>
+  `Released claim on ${ticket.subject} (${ticket.id}) held by ${claim.actor} until ${formatClaimExpiresAt(
     claim,
   )}.`;
 
@@ -41,34 +42,34 @@ export const commandRelease = Command.make("release", {
           const identity = yield* resolveActorIdentity(actor);
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
-          const item = yield* resolveWorkItem(items, id);
-          const currentClaim = item.claim;
+          const tickets = yield* loadStore(paths);
+          const ticket = yield* resolveTicket(tickets, id);
+          const currentClaim = ticket.claim;
 
           if (currentClaim === undefined) {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} has no claim to release.`,
+              message: `Ticket ${ticket.id} has no claim to release.`,
             });
           }
 
           const now = yield* DateTime.now;
           if (isClaimActive(currentClaim, now) && currentClaim.actor !== identity && !force) {
             return yield* new CommandFailure({
-              message: activeClaimConflictMessage(item, currentClaim, "release it"),
+              message: activeClaimConflictMessage(ticket, currentClaim, "release it"),
             });
           }
 
-          const updatedItem = clearWorkItemClaim({ item, updatedAt: now });
-          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
-          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+          const updatedTicket = clearTicketClaim({ ticket, updatedAt: now });
+          const persistedTickets = yield* writeStore(paths, replaceTicket(tickets, updatedTicket));
+          const persistedTicket = yield* resolveTicket(persistedTickets, ticket.id);
 
           yield* Console.log(
             root.json
               ? renderJson({
                   ok: true,
-                  item: encodeItemForOutput(persistedItem),
+                  ticket: encodeTicketForOutput(persistedTicket),
                 })
-              : renderReleasedHuman(persistedItem, currentClaim),
+              : renderReleasedHuman(persistedTicket, currentClaim),
           );
         }),
       );

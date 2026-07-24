@@ -5,19 +5,19 @@ import * as Argument from "effect/unstable/cli/Argument";
 import * as Command from "effect/unstable/cli/Command";
 import * as Flag from "effect/unstable/cli/Flag";
 
-import { ensureCanCreateItem } from "../domain/Validation";
-import { ensureValidSubject, makeOpenWorkItem, makeWorkItemId } from "../domain/WorkItem";
+import { ensureCanCreateTicket } from "../domain/Validation";
+import { ensureValidSubject, makeOpenTicket, makeTicketId } from "../domain/Ticket";
 import { CommandFailure } from "../domain/Errors";
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
-import { resolveWorkItem } from "../domain/WorkItem";
+import { resolveTicket } from "../domain/Ticket";
 import { commandRoot } from "./root";
 import { resolveTextInput } from "./shared/input";
 import { parseMessage } from "./shared/message";
 import {
-  encodeItemForOutput,
+  encodeTicketForOutput,
   executeCommand,
   renderJson,
-  renderWorkItemHuman,
+  renderTicketHuman,
 } from "./shared/output";
 
 export const commandCreate = Command.make("create", {
@@ -27,15 +27,15 @@ export const commandCreate = Command.make("create", {
     Flag.withDefault("task"),
   ),
   executor: Flag.choice("executor", ["agent", "human"]).pipe(
-    Flag.withDescription("Executor for the Work Item"),
+    Flag.withDescription("Executor for the Ticket"),
     Flag.withDefault("agent"),
   ),
   parent: Flag.string("parent").pipe(
-    Flag.withDescription("Parent Work Item id or unique prefix"),
+    Flag.withDescription("Parent Ticket id or unique prefix"),
     Flag.optional,
   ),
   blockedBy: Flag.string("blocked-by").pipe(
-    Flag.withDescription("Existing Work Item id or unique prefix that blocks the new Work Item"),
+    Flag.withDescription("Existing Ticket id or unique prefix that blocks the new Ticket"),
     Flag.atMost(Number.MAX_SAFE_INTEGER),
   ),
   description: Flag.string("description").pipe(Flag.optional),
@@ -47,7 +47,7 @@ export const commandCreate = Command.make("create", {
   allowEmptyDescription: Flag.boolean("allow-empty-description"),
   allowEmptyContext: Flag.boolean("allow-empty-context"),
 }).pipe(
-  Command.withDescription("Create a Work Item"),
+  Command.withDescription("Create a Ticket"),
   Command.withHandler(
     Effect.fnUntraced(function* (input) {
       const root = yield* commandRoot;
@@ -99,13 +99,13 @@ export const commandCreate = Command.make("create", {
 
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
+          const tickets = yield* loadStore(paths);
           const parent = yield* Option.match(input.parent, {
             onNone: () => Effect.void,
-            onSome: (value) => resolveWorkItem(items, value),
+            onSome: (value) => resolveTicket(tickets, value),
           });
 
-          const createValidation = ensureCanCreateItem({
+          const createValidation = ensureCanCreateTicket({
             level: input.level,
             ...(parent === undefined ? {} : { parent }),
             subject,
@@ -119,7 +119,7 @@ export const commandCreate = Command.make("create", {
           }
 
           const dependencies = yield* Effect.forEach(input.blockedBy, (value) =>
-            resolveWorkItem(items, value),
+            resolveTicket(tickets, value),
           );
           const duplicateDependency = dependencies.find((dependency, index) =>
             dependencies.some(
@@ -134,14 +134,14 @@ export const commandCreate = Command.make("create", {
           }
           const blockedBy = dependencies.map((dependency) => dependency.id);
 
-          const id = yield* makeWorkItemId(new Set(items.map((item) => item.id)));
+          const id = yield* makeTicketId(new Set(tickets.map((ticket) => ticket.id)));
           if (blockedBy.includes(id)) {
             return yield* new CommandFailure({
-              message: `Work Item ${id} cannot depend on itself.`,
+              message: `Ticket ${id} cannot depend on itself.`,
             });
           }
 
-          const workItem = yield* makeOpenWorkItem({
+          const ticket = yield* makeOpenTicket({
             id,
             level: input.level,
             subject,
@@ -152,17 +152,17 @@ export const commandCreate = Command.make("create", {
             blockedBy,
           });
 
-          const nextItems = [...items, workItem];
-          const persistedItems = yield* writeStore(paths, nextItems);
-          const createdItem = yield* resolveWorkItem(persistedItems, id);
+          const nextTickets = [...tickets, ticket];
+          const persistedTickets = yield* writeStore(paths, nextTickets);
+          const createdTicket = yield* resolveTicket(persistedTickets, id);
 
           yield* Console.log(
             root.json
               ? renderJson({
                   ok: true,
-                  item: encodeItemForOutput(createdItem),
+                  ticket: encodeTicketForOutput(createdTicket),
                 })
-              : renderWorkItemHuman(createdItem),
+              : renderTicketHuman(createdTicket),
           );
         }),
       );

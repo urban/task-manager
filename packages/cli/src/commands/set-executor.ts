@@ -6,16 +6,18 @@ import * as Command from "effect/unstable/cli/Command";
 import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
-import { resolveWorkItem, setWorkItemExecutor, type WorkItem } from "../domain/WorkItem";
+import { resolveTicket, setTicketExecutor } from "../domain/Ticket";
+
+type Ticket = import("../domain/Ticket").Ticket;
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
-import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
-import { replaceWorkItem } from "./shared/work-items";
+import { encodeTicketForOutput, executeCommand, renderJson } from "./shared/output";
+import { replaceTicket } from "./shared/tickets";
 
-const renderSetExecutorHuman = (item: WorkItem, changed: boolean): string =>
+const renderSetExecutorHuman = (ticket: Ticket, changed: boolean): string =>
   changed
-    ? `Set executor for ${item.subject} (${item.id}) to ${item.executor}.`
-    : `Executor for ${item.subject} (${item.id}) is already ${item.executor}.`;
+    ? `Set executor for ${ticket.subject} (${ticket.id}) to ${ticket.executor}.`
+    : `Executor for ${ticket.subject} (${ticket.id}) is already ${ticket.executor}.`;
 
 export const commandSetExecutor = Command.make("set-executor", {
   id: Argument.string("id"),
@@ -24,7 +26,7 @@ export const commandSetExecutor = Command.make("set-executor", {
     Flag.withDescription("Allow changing to or from human executor"),
   ),
 }).pipe(
-  Command.withDescription("Change a Work Item executor"),
+  Command.withDescription("Change a Ticket executor"),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, executor, allowHuman }) {
       const root = yield* commandRoot;
@@ -33,33 +35,33 @@ export const commandSetExecutor = Command.make("set-executor", {
         Effect.gen(function* () {
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
-          const item = yield* resolveWorkItem(items, id);
+          const tickets = yield* loadStore(paths);
+          const ticket = yield* resolveTicket(tickets, id);
 
-          if (item.executor === executor) {
+          if (ticket.executor === executor) {
             yield* Console.log(
               root.json
-                ? renderJson({ ok: true, item: encodeItemForOutput(item) })
-                : renderSetExecutorHuman(item, false),
+                ? renderJson({ ok: true, ticket: encodeTicketForOutput(ticket) })
+                : renderSetExecutorHuman(ticket, false),
             );
             return;
           }
 
-          if ((item.executor === "human" || executor === "human") && !allowHuman) {
+          if ((ticket.executor === "human" || executor === "human") && !allowHuman) {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} involves human executor. Pass --allow-human to change executor.`,
+              message: `Ticket ${ticket.id} involves human executor. Pass --allow-human to change executor.`,
             });
           }
 
           const now = yield* DateTime.now;
-          const updatedItem = setWorkItemExecutor({ item, executor, updatedAt: now });
-          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
-          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+          const updatedTicket = setTicketExecutor({ ticket, executor, updatedAt: now });
+          const persistedTickets = yield* writeStore(paths, replaceTicket(tickets, updatedTicket));
+          const persistedTicket = yield* resolveTicket(persistedTickets, ticket.id);
 
           yield* Console.log(
             root.json
-              ? renderJson({ ok: true, item: encodeItemForOutput(persistedItem) })
-              : renderSetExecutorHuman(persistedItem, true),
+              ? renderJson({ ok: true, ticket: encodeTicketForOutput(persistedTicket) })
+              : renderSetExecutorHuman(persistedTicket, true),
           );
         }),
       );

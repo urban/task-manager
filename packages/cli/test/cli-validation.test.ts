@@ -4,8 +4,8 @@ import * as Effect from "effect/Effect";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as FileSystem from "effect/FileSystem";
 
-import { encodeWorkItemJsonLine } from "../src/domain/WorkItem";
-import { createWorkItem, readTasksFile, run, withTempDirectory } from "./cli-test-support";
+import { encodeTicketJsonLine } from "../src/domain/Ticket";
+import { createTicket, readTasksFile, run, withTempDirectory } from "./cli-test-support";
 
 describe("tm validation and compatibility", () => {
   it.effect("rejects removed mode and agent compatibility inputs", () =>
@@ -27,18 +27,18 @@ describe("tm validation and compatibility", () => {
         ]);
         assert.strictEqual(modeResult.exit._tag, "Failure");
 
-        const item = yield* createWorkItem(directory, "Reject legacy actor");
+        const ticket = yield* createTicket(directory, "Reject legacy actor");
         const agentResult = yield* run([
           "--cwd",
           directory,
           "claim",
-          item.id,
+          ticket.id,
           "--agent",
           "legacy-agent",
         ]);
         assert.strictEqual(agentResult.exit._tag, "Failure");
 
-        const environmentResult = yield* run(["--cwd", directory, "claim", item.id]).pipe(
+        const environmentResult = yield* run(["--cwd", directory, "claim", ticket.id]).pipe(
           Effect.provide(
             ConfigProvider.layer(ConfigProvider.fromUnknown({ TM_AGENT: "legacy-agent" })),
           ),
@@ -53,7 +53,7 @@ describe("tm validation and compatibility", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        yield* createWorkItem(directory, "Validate lifecycle variants");
+        yield* createTicket(directory, "Validate lifecycle variants");
         const validLine = yield* readTasksFile(directory);
         const result =
           '"result":{"summary":"Invalid","details":"","decisions":[],"verification":[],"completedAt":"2026-01-01T00:00:00.000Z","completedBy":"test"},';
@@ -99,12 +99,12 @@ describe("tm validation and compatibility", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Reject prefixed ID");
+        const ticket = yield* createTicket(directory, "Reject prefixed ID");
         const content = yield* readTasksFile(directory);
         const fs = yield* FileSystem.FileSystem;
         yield* fs.writeFileString(
           `${directory}/.tasks/tasks.jsonl`,
-          content.replace(`"id":"${item.id}"`, `"id":"wi_${item.id}"`),
+          content.replace(`"id":"${ticket.id}"`, `"id":"wi_${ticket.id}"`),
         );
 
         const validateResult = yield* run(["--cwd", directory, "validate"]);
@@ -119,13 +119,13 @@ describe("tm validation and compatibility", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Add exporter");
-        const dependency = yield* createWorkItem(directory, "Add serializer");
-        const duplicateDependencyLine = yield* encodeWorkItemJsonLine({
-          ...item,
+        const ticket = yield* createTicket(directory, "Add exporter");
+        const dependency = yield* createTicket(directory, "Add serializer");
+        const duplicateDependencyLine = yield* encodeTicketJsonLine({
+          ...ticket,
           blockedBy: [dependency.id, dependency.id],
         });
-        const dependencyLine = yield* encodeWorkItemJsonLine(dependency);
+        const dependencyLine = yield* encodeTicketJsonLine(dependency);
         const fs = yield* FileSystem.FileSystem;
         yield* fs.writeFileString(
           `${directory}/.tasks/tasks.jsonl`,

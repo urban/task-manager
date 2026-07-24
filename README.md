@@ -2,7 +2,7 @@
 
 A local-first CLI task manager for durable development work, designed for people and AI coding agents.
 
-Task Manager stores rich, hierarchical Work Items in a Git-friendly `.tasks/tasks.jsonl` file so work can survive chat sessions, be reviewed in diffs, and be resumed by another agent without reconstructing context from memory.
+Task Manager stores rich, hierarchical Tickets in a Git-friendly `.tasks/tasks.jsonl` file so work can survive chat sessions, be reviewed in diffs, and be resumed by another agent without reconstructing context from memory.
 
 ## Why this exists
 
@@ -11,12 +11,12 @@ AI coding agents are good at keeping an in-session TODO list, but that state usu
 - what work exists,
 - why it matters,
 - what context an agent needs to execute it,
-- how Work Items relate through hierarchy and dependencies,
+- how Tickets relate through hierarchy and dependencies,
 - who has currently claimed work,
 - which work completed or was cancelled, and
 - what evidence proved completed work was actually done.
 
-One key differentiator is **Executor**. Each Work Item records whether it is `agent` work that an LLM can execute directly or `human` work that requires human-in-the-loop (HITL) handling such as review, approval, credentials, or manual action. That keeps mixed human/agent backlogs honest: agents can filter for executable work, while work that truly needs a person stays explicit instead of being rediscovered only after an agent gets stuck.
+One key differentiator is **Executor**. Each Ticket records whether it is `agent` work that an LLM can execute directly or `human` work that requires human-in-the-loop (HITL) handling such as review, approval, credentials, or manual action. That keeps mixed human/agent backlogs honest: agents can filter for executable work, while work that truly needs a person stays explicit instead of being rediscovered only after an agent gets stuck.
 
 Task Manager is an offline, repository-backed workflow for planning, handoff, and auditability.
 
@@ -29,16 +29,16 @@ Available commands:
 - `tm init`: initialize `.tasks/tasks.jsonl` storage.
 - `tm validate`: validate the JSONL store on disk.
 - `tm create`: create an Epic, Task, or Subtask with Description, Context, Executor, and optional repeatable `--blocked-by <id>` dependencies.
-- `tm update`: safely update a Work Item's Subject, Description, or Context.
-- `tm set-executor`: change a Work Item's Executor; changes to or from `human` require `--allow-human`.
-- `tm show`: show one Work Item by full ID or unique ID prefix.
-- `tm list`: list open agent-executor work by default, optionally scoped with `--root <id>`, filtered by lifecycle (`--status done`, `--status cancelled`, `--all`) or Executor (`--executor agent|human`), or expanded with `--all-executors`.
-- `tm next`: select the first actionable open agent-executor leaf Work Item in deterministic tree order, optionally scoped with `--root <id>`, filtered with `--executor human`, or expanded with `--all-executors`; it skips Work Items with incomplete dependencies and active claims unless run with `--include-claimed`.
+- `tm update`: safely update a Ticket's Subject, Description, or Context.
+- `tm set-executor`: change a Ticket's Executor; changes to or from `human` require `--allow-human`.
+- `tm show`: show one Ticket by full ID or unique ID prefix.
+- `tm list`: list the complete Ticket hierarchy by default in checkbox-tree format, optionally scoped with `--root <id>` or filtered by lifecycle (`--status open|done|cancelled`) and Executor (`--executor agent|human`); `--all` and `--all-executors` remain explicit all-value filters.
+- `tm next`: select the first actionable open agent-executor leaf Ticket in deterministic tree order, optionally scoped with `--root <id>`, filtered with `--executor human`, or expanded with `--all-executors`; it skips Tickets with incomplete dependencies and active claims unless run with `--include-claimed`.
 - `tm claim` and `tm release`: manage one-hour advisory Claims using `--actor <name>` or `TM_ACTOR`.
-- `tm complete`: mark an open Work Item done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
-- `tm cancel`: mark open Work Items cancelled with a structured Cancellation reason; parent cancellation cascades to open descendants only with `--yes`.
-- `tm delete`: destructively delete accidental Work Items and their descendants with `--yes`, refusing to leave dangling dependencies.
-- `tm block` and `tm unblock`: add or remove dependency relationships between Work Items.
+- `tm complete`: mark an open Ticket done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
+- `tm cancel`: mark open Tickets cancelled with a structured Cancellation reason; parent cancellation cascades to open descendants only with `--yes`.
+- `tm delete`: destructively delete accidental Tickets and their descendants with `--yes`, refusing to leave dangling dependencies.
+- `tm block` and `tm unblock`: add or remove dependency relationships between Tickets.
 
 Shared flags:
 
@@ -50,7 +50,7 @@ Writes are guarded by a transient lock file and persisted by writing a temporary
 
 ## Core concepts
 
-- **Work Item**: any persisted unit of work.
+- **Ticket**: any persisted unit of work.
 - **Epic**: top-level container for larger work.
 - **Task**: significant executable work; may be standalone or under an Epic.
 - **Subtask**: atomic step under a Task.
@@ -58,12 +58,12 @@ Writes are guarded by a transient lock file and persisted by writing a temporary
 - **Description**: human-facing Markdown explaining the requested work.
 - **Context**: execution handoff context for an AI agent.
 - **Executor**: `agent` for LLM-executable work or `human` for work requiring human action, review, approval, credentials, or other HITL handling.
-- **Dependency**: an ordering relationship where one Work Item is blocked by another.
+- **Dependency**: an ordering relationship where one Ticket is blocked by another.
 - **Claim**: advisory one-hour claim that helps agents avoid duplicate work.
 - **Result**: completion record with summary, details, decisions, verification evidence, timestamp, and Actor Identity.
 - **Cancellation**: cancellation record with reason, timestamp, and Actor Identity for real work that intentionally stopped unfinished.
 
-See [`CONTEXT.md`](./CONTEXT.md) for the project vocabulary.
+See the [detailed guide](./docs/README.md) for the project vocabulary.
 
 ## Quick start
 
@@ -112,7 +112,7 @@ All examples below assume `tm` is on your `PATH`.
 
 This repo includes an agent skill at [`skills/task-manager/SKILL.md`](./skills/task-manager/SKILL.md). If your coding agent supports skill folders, add or copy the whole [`skills/task-manager/`](./skills/task-manager/) directory to its configured skills path.
 
-If you are not installing the whole skill folder, ask the agent to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Work Items from PRDs/specs, record dependencies with `tm create --blocked-by` or `tm block`, separate agent and human work with `--executor`, select agent work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
+If you are not installing the whole skill folder, ask the agent to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Tickets from PRDs/specs, record dependencies with `tm create --blocked-by` or `tm block`, separate agent and human work with `--executor`, select agent work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
 
 #### Prompt workflows
 
@@ -121,7 +121,7 @@ Use these prompts as starting points when asking an AI coding agent to use `tm`.
 Quick creation from an explicit list:
 
 ```text
-Use the task-manager skill. Create these Work Items now with tm, without drafting a separate approval plan unless something is ambiguous:
+Use the task-manager skill. Create these Tickets now with tm, without drafting a separate approval plan unless something is ambiguous:
 
 1. Add login form
 2. Validate login credentials
@@ -133,48 +133,48 @@ Make them Tasks under an Epic called “Add authentication”. Run tm validate b
 Plan a backlog from a PRD or spec:
 
 ```text
-Use the task-manager skill. Turn this spec into tm Work Items.
+Use the task-manager skill. Turn this spec into tm Tickets.
 
 Draft the hierarchy first and wait for my approval before creating anything. Prefer vertical slices. Include dependencies only when ordering is real.
 ```
 
-Create dependent Work Items:
+Create dependent Tickets:
 
 ```text
 Use the task-manager skill. Create this backlog with dependencies:
 
 Epic: Improve task selection
 - Task: Add root filtering
-- Task: Add claimed-item filtering, blocked by Add root filtering
+- Task: Add claimed-ticket filtering, blocked by Add root filtering
 - Task: Add JSON tests, blocked by both previous tasks
 
 Use tm create --json, capture IDs with jq, then add dependency edges with tm block if needed.
 ```
 
-Execute the next actionable Work Item:
+Execute the next actionable Ticket:
 
 ```text
-Use the task-manager skill. Pick the next actionable agent-executor Work Item with tm next --json, claim it as agent “pi”, implement it, run bun run check, then complete it with a detailed Result.
+Use the task-manager skill. Pick the next actionable agent-executor Ticket with tm next --json, claim it as agent “pi”, implement it, run bun run check, then complete it with a detailed Result.
 ```
 
 Work under a specific root:
 
 ```text
-Use the task-manager skill. Continue the next actionable Work Item under root <id>. Use tm next --root <id> --json.
+Use the task-manager skill. Continue the next actionable Ticket under root <id>. Use tm next --root <id> --json.
 ```
 
-Release, cancel, or delete Work Items:
+Release, cancel, or delete Tickets:
 
 ```text
-Use the task-manager skill. Release my claim on Work Item <id> as agent “pi”. Validate afterward.
-```
-
-```text
-Use the task-manager skill. Cancel Work Item <id> because it is obsolete. Use a structured reason and validate afterward.
+Use the task-manager skill. Release my claim on Ticket <id> as agent “pi”. Validate afterward.
 ```
 
 ```text
-Use the task-manager skill. Delete Work Item <id> because it was created accidentally. Confirm with --yes and validate afterward.
+Use the task-manager skill. Cancel Ticket <id> because it is obsolete. Use a structured reason and validate afterward.
+```
+
+```text
+Use the task-manager skill. Delete Ticket <id> because it was created accidentally. Confirm with --yes and validate afterward.
 ```
 
 Initialize task storage in the current Git repository:
@@ -218,7 +218,7 @@ tm create "Implement API endpoint" \
   --description "Build the endpoint after the model work." \
   --context "Use the completed data model and verify the endpoint."
 
-# Or when both Work Items already exist:
+# Or when both Tickets already exist:
 tm block <api-id> --by <model-id>
 tm update <api-id> --message $'Refine API work\n\nClarify the requested API behavior.'
 tm set-executor <api-id> human --allow-human
@@ -260,7 +260,7 @@ tm next --include-claimed --json
 tm validate --json
 ```
 
-Human-executor Work Items require explicit `--allow-human` on risky mutations such as `claim`, `complete`, `cancel`, `delete`, and `unblock`. `tm list` and `tm next` default to agent-executor work; use `--executor human` for the human queue or `--all-executors` for a view across both Executors.
+Human-executor Tickets require explicit `--allow-human` on risky mutations such as `claim`, `complete`, `cancel`, `delete`, and `unblock`. `tm list` shows both Executors by default and accepts `--executor agent|human` as an explicit filter. `tm next` defaults to agent-executor work; use `tm next --executor human` for the human queue or `tm next --all-executors` for the actionable frontier across both Executors.
 
 ## Storage model
 
@@ -272,7 +272,7 @@ By default, Task Manager stores data under the nearest Git root. If no Git root 
   lock          # transient; not for Git
 ```
 
-`tasks.jsonl` stores one snapshot per Work Item. Schema v3 records use `executor`, neutral `context`, and `claim.actor`. Work Item IDs are canonical six-character lowercase base-36 strings without a type prefix. Older records, including legacy `wi_`-prefixed IDs, must be edited manually; this breaking release intentionally provides no migration command. The file is intended to be readable, diffable, and safe to commit when the task state should travel with the repository.
+`tasks.jsonl` stores one snapshot per Ticket. Schema v3 records use `executor`, neutral `context`, and `claim.actor`. Ticket IDs are canonical six-character lowercase base-36 strings without a type prefix. Older records, including legacy `wi_`-prefixed IDs, must be edited manually; this breaking release intentionally provides no migration command. The file is intended to be readable, diffable, and safe to commit when the task state should travel with the repository.
 
 You can override storage with:
 

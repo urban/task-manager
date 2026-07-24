@@ -4,13 +4,13 @@ import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import { TestClock } from "effect/testing";
 
-type WorkItem = import("../src/domain/WorkItem").WorkItem;
+type Ticket = import("../src/domain/Ticket").Ticket;
 import {
   readTasksFile,
   writeTasksFile,
-  createWorkItem,
-  decodeItemOutput,
-  makeFixtureOpenWorkItem,
+  createTicket,
+  decodeTicketOutput,
+  makeFixtureOpenTicket,
   markDone,
   run,
   withTempDirectory,
@@ -21,13 +21,13 @@ describe("tm next", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Add next command");
+        const ticket = yield* createTicket(directory, "Add next command");
         const before = yield* readTasksFile(directory);
 
         const result = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(result.exit._tag, "Success");
-        const selected = decodeItemOutput(String(result.logs[0]));
-        assert.strictEqual(selected.item.id, item.id);
+        const selected = decodeTicketOutput(String(result.logs[0]));
+        assert.strictEqual(selected.ticket.id, ticket.id);
 
         const after = yield* readTasksFile(directory);
         assert.strictEqual(after, before);
@@ -39,16 +39,16 @@ describe("tm next", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const humanItem = yield* createWorkItem(directory, "Review import plan", {
+        const humanTicket = yield* createTicket(directory, "Review import plan", {
           executor: "human",
         });
         yield* TestClock.adjust("1 second");
-        const agentItem = yield* createWorkItem(directory, "Implement import plan");
+        const agentTicket = yield* createTicket(directory, "Implement import plan");
 
         const defaultResult = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(defaultResult.exit._tag, "Success");
-        const defaultSelection = decodeItemOutput(String(defaultResult.logs[0])).item;
-        assert.strictEqual(defaultSelection.id, agentItem.id);
+        const defaultSelection = decodeTicketOutput(String(defaultResult.logs[0])).ticket;
+        assert.strictEqual(defaultSelection.id, agentTicket.id);
 
         const humanResult = yield* run([
           "--cwd",
@@ -59,13 +59,13 @@ describe("tm next", () => {
           "--json",
         ]);
         assert.strictEqual(humanResult.exit._tag, "Success");
-        const humanSelection = decodeItemOutput(String(humanResult.logs[0])).item;
-        assert.strictEqual(humanSelection.id, humanItem.id);
+        const humanSelection = decodeTicketOutput(String(humanResult.logs[0])).ticket;
+        assert.strictEqual(humanSelection.id, humanTicket.id);
 
         const anyResult = yield* run(["--cwd", directory, "next", "--all-executors", "--json"]);
         assert.strictEqual(anyResult.exit._tag, "Success");
-        const anySelection = decodeItemOutput(String(anyResult.logs[0])).item;
-        assert.strictEqual(anySelection.id, humanItem.id);
+        const anySelection = decodeTicketOutput(String(anyResult.logs[0])).ticket;
+        assert.strictEqual(anySelection.id, humanTicket.id);
       }),
     ),
   );
@@ -95,12 +95,12 @@ describe("tm next", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const task = yield* createWorkItem(directory, "Build execution loop");
-        const firstSubtask = yield* createWorkItem(directory, "Write selector tests", {
+        const task = yield* createTicket(directory, "Build execution loop");
+        const firstSubtask = yield* createTicket(directory, "Write selector tests", {
           level: "subtask",
           parent: task.id,
         });
-        const secondSubtask = yield* createWorkItem(directory, "Implement selector", {
+        const secondSubtask = yield* createTicket(directory, "Implement selector", {
           level: "subtask",
           parent: task.id,
         });
@@ -108,13 +108,13 @@ describe("tm next", () => {
           ...secondSubtask,
           createdAt: firstSubtask.createdAt.pipe(DateTime.add({ seconds: 1 })),
           updatedAt: firstSubtask.updatedAt.pipe(DateTime.add({ seconds: 1 })),
-        } satisfies WorkItem;
+        } satisfies Ticket;
         yield* writeTasksFile(directory, [task, firstSubtask, laterSecondSubtask]);
 
         const result = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(result.exit._tag, "Success");
-        const selected = decodeItemOutput(String(result.logs[0]));
-        assert.strictEqual(selected.item.id, firstSubtask.id);
+        const selected = decodeTicketOutput(String(result.logs[0]));
+        assert.strictEqual(selected.ticket.id, firstSubtask.id);
       }),
     ),
   );
@@ -123,12 +123,12 @@ describe("tm next", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const task = yield* createWorkItem(directory, "Build command handler");
-        const firstSubtask = yield* createWorkItem(directory, "Add handler test", {
+        const task = yield* createTicket(directory, "Build command handler");
+        const firstSubtask = yield* createTicket(directory, "Add handler test", {
           level: "subtask",
           parent: task.id,
         });
-        const secondSubtask = yield* createWorkItem(directory, "Wire handler", {
+        const secondSubtask = yield* createTicket(directory, "Wire handler", {
           level: "subtask",
           parent: task.id,
         });
@@ -138,18 +138,18 @@ describe("tm next", () => {
 
         const result = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(result.exit._tag, "Success");
-        const selected = decodeItemOutput(String(result.logs[0]));
-        assert.strictEqual(selected.item.id, task.id);
+        const selected = decodeTicketOutput(String(result.logs[0]));
+        assert.strictEqual(selected.ticket.id, task.id);
       }),
     ),
   );
 
-  it.effect("skips blocked Work Items until dependencies are done", () =>
+  it.effect("skips blocked Tickets until dependencies are done", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const target = yield* createWorkItem(directory, "Implement report export");
-        const dependency = yield* createWorkItem(directory, "Prepare report data");
+        const target = yield* createTicket(directory, "Implement report export");
+        const dependency = yield* createTicket(directory, "Prepare report data");
         const blockResult = yield* run([
           "--cwd",
           directory,
@@ -160,20 +160,20 @@ describe("tm next", () => {
           "--json",
         ]);
         assert.strictEqual(blockResult.exit._tag, "Success");
-        const blockedTarget = decodeItemOutput(String(blockResult.logs[0])).item;
+        const blockedTarget = decodeTicketOutput(String(blockResult.logs[0])).ticket;
 
         const blockedSelection = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(blockedSelection.exit._tag, "Success");
-        const selectedWhileBlocked = decodeItemOutput(String(blockedSelection.logs[0]));
-        assert.strictEqual(selectedWhileBlocked.item.id, dependency.id);
+        const selectedWhileBlocked = decodeTicketOutput(String(blockedSelection.logs[0]));
+        assert.strictEqual(selectedWhileBlocked.ticket.id, dependency.id);
 
         const doneDependency = yield* markDone(dependency);
         yield* writeTasksFile(directory, [blockedTarget, doneDependency]);
 
         const unblockedSelection = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(unblockedSelection.exit._tag, "Success");
-        const selectedAfterDependency = decodeItemOutput(String(unblockedSelection.logs[0]));
-        assert.strictEqual(selectedAfterDependency.item.id, target.id);
+        const selectedAfterDependency = decodeTicketOutput(String(unblockedSelection.logs[0]));
+        assert.strictEqual(selectedAfterDependency.ticket.id, target.id);
       }),
     ),
   );
@@ -182,58 +182,58 @@ describe("tm next", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const standaloneTask = yield* createWorkItem(directory, "Add standalone task");
-        const epic = yield* createWorkItem(directory, "Ship selection flow", { level: "epic" });
-        const firstChild = yield* createWorkItem(directory, "Design selector", {
+        const standaloneTask = yield* createTicket(directory, "Add standalone task");
+        const epic = yield* createTicket(directory, "Ship selection flow", { level: "epic" });
+        const firstChild = yield* createTicket(directory, "Design selector", {
           parent: epic.id,
         });
-        const secondChild = yield* createWorkItem(directory, "Wire selector CLI", {
+        const secondChild = yield* createTicket(directory, "Wire selector CLI", {
           parent: epic.id,
         });
         const laterSecondChild = {
           ...secondChild,
           createdAt: firstChild.createdAt.pipe(DateTime.add({ seconds: 1 })),
           updatedAt: firstChild.updatedAt.pipe(DateTime.add({ seconds: 1 })),
-        } satisfies WorkItem;
+        } satisfies Ticket;
         yield* writeTasksFile(directory, [standaloneTask, epic, firstChild, laterSecondChild]);
 
         const firstSelection = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(firstSelection.exit._tag, "Success");
-        const selectedFirst = decodeItemOutput(String(firstSelection.logs[0]));
-        assert.strictEqual(selectedFirst.item.id, firstChild.id);
+        const selectedFirst = decodeTicketOutput(String(firstSelection.logs[0]));
+        assert.strictEqual(selectedFirst.ticket.id, firstChild.id);
 
         const doneFirstChild = yield* markDone(firstChild);
         yield* writeTasksFile(directory, [standaloneTask, doneFirstChild, laterSecondChild, epic]);
 
         const secondSelection = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(secondSelection.exit._tag, "Success");
-        const selectedSecond = decodeItemOutput(String(secondSelection.logs[0]));
-        assert.strictEqual(selectedSecond.item.id, secondChild.id);
+        const selectedSecond = decodeTicketOutput(String(secondSelection.logs[0]));
+        assert.strictEqual(selectedSecond.ticket.id, secondChild.id);
       }),
     ),
   );
 
-  it.effect("uses Work Item id as the creation-time tie-breaker", () =>
+  it.effect("uses Ticket id as the creation-time tie-breaker", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
         const createdAt = yield* DateTime.now;
-        const laterIdTask = makeFixtureOpenWorkItem({
+        const laterIdTask = makeFixtureOpenTicket({
           id: "tie00b",
-          subject: "Add second tie item",
+          subject: "Add second tie ticket",
           createdAt,
         });
-        const earlierIdTask = makeFixtureOpenWorkItem({
+        const earlierIdTask = makeFixtureOpenTicket({
           id: "tie00a",
-          subject: "Add first tie item",
+          subject: "Add first tie ticket",
           createdAt,
         });
         yield* writeTasksFile(directory, [laterIdTask, earlierIdTask]);
 
         const result = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(result.exit._tag, "Success");
-        const selected = decodeItemOutput(String(result.logs[0]));
-        assert.strictEqual(selected.item.id, earlierIdTask.id);
+        const selected = decodeTicketOutput(String(result.logs[0]));
+        assert.strictEqual(selected.ticket.id, earlierIdTask.id);
       }),
     ),
   );
@@ -242,17 +242,17 @@ describe("tm next", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const firstEpic = yield* createWorkItem(directory, "Build first area", { level: "epic" });
-        yield* createWorkItem(directory, "Implement first area", { parent: firstEpic.id });
-        const secondEpic = yield* createWorkItem(directory, "Build second area", { level: "epic" });
-        const secondChild = yield* createWorkItem(directory, "Implement second area", {
+        const firstEpic = yield* createTicket(directory, "Build first area", { level: "epic" });
+        yield* createTicket(directory, "Implement first area", { parent: firstEpic.id });
+        const secondEpic = yield* createTicket(directory, "Build second area", { level: "epic" });
+        const secondChild = yield* createTicket(directory, "Implement second area", {
           parent: secondEpic.id,
         });
 
         const result = yield* run(["--cwd", directory, "next", "--root", secondEpic.id, "--json"]);
         assert.strictEqual(result.exit._tag, "Success");
-        const selected = decodeItemOutput(String(result.logs[0]));
-        assert.strictEqual(selected.item.id, secondChild.id);
+        const selected = decodeTicketOutput(String(result.logs[0]));
+        assert.strictEqual(selected.ticket.id, secondChild.id);
       }),
     ),
   );
@@ -264,7 +264,7 @@ describe("tm next", () => {
 
         const humanResult = yield* run(["--cwd", directory, "next"]);
         assert.strictEqual(humanResult.exit._tag, "Success");
-        assert.strictEqual(String(humanResult.logs[0]), "No actionable Work Items.");
+        assert.strictEqual(String(humanResult.logs[0]), "No actionable Tickets.");
 
         const jsonResult = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(jsonResult.exit._tag, "Success");
@@ -288,11 +288,11 @@ describe("tm next", () => {
         assert.strictEqual(missingRootResult.exit._tag, "Failure");
         assert.isTrue(String(missingRootResult.errors[0]).includes("was not found"));
 
-        const item = yield* createWorkItem(directory, "Close root item");
-        const doneItem = yield* markDone(item);
-        yield* writeTasksFile(directory, [doneItem]);
+        const ticket = yield* createTicket(directory, "Close root ticket");
+        const doneTicket = yield* markDone(ticket);
+        yield* writeTasksFile(directory, [doneTicket]);
 
-        const doneRootResult = yield* run(["--cwd", directory, "next", "--root", item.id]);
+        const doneRootResult = yield* run(["--cwd", directory, "next", "--root", ticket.id]);
         assert.strictEqual(doneRootResult.exit._tag, "Failure");
         assert.isTrue(String(doneRootResult.errors[0]).includes("is not open"));
       }),

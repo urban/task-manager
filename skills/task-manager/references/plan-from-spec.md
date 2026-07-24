@@ -8,7 +8,7 @@ Read this when decomposing a PRD, specification, plan, or conversation into an a
 2. If terminology, codebase constraints, or acceptance criteria are ambiguous, ask whether to inspect the codebase before drafting.
 3. Draft the hierarchy and dependency plan before creating anything.
 4. Ask for explicit approval.
-5. After approval, create using [`create-work-items.md`](./create-work-items.md).
+5. After approval, create using [`create-tickets.md`](./create-tickets.md).
 
 ## Default hierarchy
 
@@ -29,8 +29,8 @@ Prefer tracer-bullet Tasks over horizontal layers. A Task should usually produce
 Prefer:
 
 - `Add login form submission`
-- `Persist completed Work Item result`
-- `Show cancelled items in list filter`
+- `Persist completed Ticket result`
+- `Show cancelled tickets in list filter`
 
 Avoid standalone layer work unless the source truly requires it:
 
@@ -40,7 +40,7 @@ Avoid standalone layer work unless the source truly requires it:
 
 ## Draft format
 
-For each proposed Work Item, show:
+For each proposed Ticket, show:
 
 - Subject
 - Level: Epic, Task, or Subtask
@@ -79,13 +79,13 @@ After approval:
 
 1. Run `tm init` and `tm validate`.
 2. Create parent-before-child with `tm create --json --executor agent|human`.
-3. Capture IDs from `.item.id`.
+3. Capture IDs from `.ticket.id`.
 4. Record dependencies with `--blocked-by` or `tm block`.
 5. Run `tm validate` and `tm list`.
 
 ## Traceability
 
-Every created Work Item should include source traceability in Description, Context, or both:
+Every created Ticket should include source traceability in Description, Context, or both:
 
 ```markdown
 ## Source
@@ -107,7 +107,7 @@ Weak dependency:
 
 - `Add settings page` blocked by `Add profile page` only because both are in the same Epic.
 
-When dependency IDs are unknown during creation, create both Work Items first, then record the edge with:
+When dependency IDs are unknown during creation, create both Tickets first, then record the edge with:
 
 ```bash
 tm block "$blocked_id" --by "$dependency_id"

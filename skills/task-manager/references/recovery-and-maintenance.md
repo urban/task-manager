@@ -2,7 +2,7 @@
 
 Read this when listing, showing, updating, blocking, unblocking, cancelling, deleting, releasing claims, or recovering from command failures.
 
-## Inspect existing Work Items
+## Inspect existing Tickets
 
 Validate first:
 
@@ -80,7 +80,7 @@ Use `tm claim --force` only when the user explicitly wants to replace another ac
 
 ## Cancel vs delete
 
-Use `tm cancel` for real Work Items that should stop but remain part of history:
+Use `tm cancel` for real Tickets that should stop but remain part of history:
 
 ```bash
 tm cancel "$id" \
@@ -88,7 +88,7 @@ tm cancel "$id" \
   --reason "No longer needed because the feature was removed from scope."
 ```
 
-If cancellation cascades to descendants and the CLI asks for confirmation, use `--yes` only when the user intended that cascade. If the target or cascade includes human-executor Work Items, use `--allow-human` only after explicit approval.
+If cancellation cascades to descendants and the CLI asks for confirmation, use `--yes` only when the user intended that cascade. If the target or cascade includes human-executor Tickets, use `--allow-human` only after explicit approval.
 
 Use `tm delete --yes` only for mistaken, duplicate, or accidental records:
 
@@ -96,7 +96,7 @@ Use `tm delete --yes` only for mistaken, duplicate, or accidental records:
 tm delete "$id" --yes
 ```
 
-If the target subtree includes human-executor Work Items, use `--allow-human` only after explicit approval.
+If the target subtree includes human-executor Tickets, use `--allow-human` only after explicit approval.
 
 Do not delete legitimate historical work just because it is obsolete; cancel it instead.
 
@@ -110,7 +110,7 @@ If a command fails:
 
 1. Stop the current mutation sequence.
 2. Read the exact error output.
-3. Report the command, failed Work Item ID, and any mutations already completed.
+3. Report the command, failed Ticket ID, and any mutations already completed.
 4. Prefer a CLI correction (`tm update`, `tm set-executor`, `tm unblock`, `tm release`, `tm cancel`, or `tm delete`) over storage edits.
 5. Ask before using `--force`, `--allow-human`, destructive delete, or low-level recovery.
 

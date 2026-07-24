@@ -13,20 +13,20 @@ import * as CliOutput from "effect/unstable/cli/CliOutput";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import {
-  encodeWorkItemJsonLine,
+  encodeTicketJsonLine,
   schemaVersion,
-  sortWorkItems,
-  WorkItemSchema,
-} from "../src/domain/WorkItem";
+  sortTickets,
+  TicketSchema,
+} from "../src/domain/Ticket";
 import { runTmCli } from "../src/main";
 
 type CliEnvironment = import("effect/unstable/cli/Command").Environment;
-type CancelledWorkItem = import("../src/domain/WorkItem").CancelledWorkItem;
-type DoneWorkItem = import("../src/domain/WorkItem").DoneWorkItem;
-type OpenWorkItem = import("../src/domain/WorkItem").OpenWorkItem;
-type WorkItem = import("../src/domain/WorkItem").WorkItem;
-type WorkItemExecutor = import("../src/domain/WorkItem").WorkItemExecutor;
-type WorkItemLevel = import("../src/domain/WorkItem").WorkItemLevel;
+type CancelledTicket = import("../src/domain/Ticket").CancelledTicket;
+type DoneTicket = import("../src/domain/Ticket").DoneTicket;
+type OpenTicket = import("../src/domain/Ticket").OpenTicket;
+type Ticket = import("../src/domain/Ticket").Ticket;
+type TicketExecutor = import("../src/domain/Ticket").TicketExecutor;
+type TicketLevel = import("../src/domain/Ticket").TicketLevel;
 
 const cliOutputLayer = CliOutput.layer(
   CliOutput.defaultFormatter({
@@ -68,22 +68,22 @@ export const run = (args: ReadonlyArray<string>) =>
 
 const ValidateOutputSchema = Schema.Struct({
   ok: Schema.Literal(true),
-  workItemCount: Schema.Number,
+  ticketCount: Schema.Number,
   tasksFile: Schema.String,
 });
 
-const ItemOutputSchema = Schema.Struct({
+const TicketOutputSchema = Schema.Struct({
   ok: Schema.Literal(true),
-  item: WorkItemSchema,
+  ticket: TicketSchema,
 });
 
 const CancelOutputSchema = Schema.Struct({
   ok: Schema.Literal(true),
-  item: WorkItemSchema,
-  cancelledItems: Schema.Array(WorkItemSchema),
+  ticket: TicketSchema,
+  cancelledTickets: Schema.Array(TicketSchema),
 });
 
-const DeletedItemOutputSchema = Schema.Struct({
+const DeletedTicketOutputSchema = Schema.Struct({
   id: Schema.String,
   subject: Schema.String,
   executor: Schema.String,
@@ -91,7 +91,7 @@ const DeletedItemOutputSchema = Schema.Struct({
 
 const DeleteOutputSchema = Schema.Struct({
   ok: Schema.Literal(true),
-  deleted: Schema.Array(DeletedItemOutputSchema),
+  deleted: Schema.Array(DeletedTicketOutputSchema),
 });
 
 const ListTreeChildNodeSchema = Schema.Struct({
@@ -116,11 +116,11 @@ const ListTreeNodeSchema = Schema.Struct({
 
 const ListOutputSchema = Schema.Struct({
   ok: Schema.Literal(true),
-  items: Schema.Array(ListTreeNodeSchema),
+  tickets: Schema.Array(ListTreeNodeSchema),
 });
 
 export const decodeValidateOutput = Schema.decodeSync(Schema.fromJsonString(ValidateOutputSchema));
-export const decodeItemOutput = Schema.decodeSync(Schema.fromJsonString(ItemOutputSchema));
+export const decodeTicketOutput = Schema.decodeSync(Schema.fromJsonString(TicketOutputSchema));
 export const decodeCancelOutput = Schema.decodeSync(Schema.fromJsonString(CancelOutputSchema));
 export const decodeDeleteOutput = Schema.decodeSync(Schema.fromJsonString(DeleteOutputSchema));
 export const decodeListOutput = Schema.decodeSync(Schema.fromJsonString(ListOutputSchema));
@@ -132,16 +132,16 @@ export const withTempDirectory = <A, E, R>(f: (directory: string) => Effect.Effe
     return yield* f(directory);
   }).pipe(Effect.provide(baseLayer));
 
-export const createWorkItem = (
+export const createTicket = (
   directory: string,
   subject: string,
   options?: {
-    readonly level?: WorkItemLevel;
+    readonly level?: TicketLevel;
     readonly parent?: string;
     readonly blockedBy?: ReadonlyArray<string>;
-    readonly executor?: WorkItemExecutor;
+    readonly executor?: TicketExecutor;
   },
-): Effect.Effect<OpenWorkItem, never, CliEnvironment> =>
+): Effect.Effect<OpenTicket, never, CliEnvironment> =>
   Effect.gen(function* () {
     const parentArgs = options?.parent === undefined ? [] : ["--parent", options.parent];
     const blockedByArgs = (options?.blockedBy ?? []).flatMap((id) => ["--blocked-by", id]);
@@ -163,14 +163,14 @@ export const createWorkItem = (
       "--json",
     ]);
     assert.strictEqual(result.exit._tag, "Success");
-    const item = decodeItemOutput(String(result.logs[0])).item;
-    if (item.status !== "open") {
-      return yield* Effect.die("Expected create to return an open Work Item");
+    const ticket = decodeTicketOutput(String(result.logs[0])).ticket;
+    if (ticket.status !== "open") {
+      return yield* Effect.die("Expected create to return an open Ticket");
     }
-    return item;
+    return ticket;
   });
 
-export const claimWorkItem = (
+export const claimTicket = (
   directory: string,
   id: string,
   agent: string,
@@ -178,7 +178,7 @@ export const claimWorkItem = (
     readonly force?: boolean;
     readonly allowHuman?: boolean;
   },
-): Effect.Effect<OpenWorkItem, never, CliEnvironment> =>
+): Effect.Effect<OpenTicket, never, CliEnvironment> =>
   Effect.gen(function* () {
     const forceArgs = options?.force === true ? ["--force"] : [];
     const allowHumanArgs = options?.allowHuman === true ? ["--allow-human"] : [];
@@ -194,11 +194,11 @@ export const claimWorkItem = (
       "--json",
     ]);
     assert.strictEqual(result.exit._tag, "Success");
-    const item = decodeItemOutput(String(result.logs[0])).item;
-    if (item.status !== "open") {
-      return yield* Effect.die("Expected claim to return an open Work Item");
+    const ticket = decodeTicketOutput(String(result.logs[0])).ticket;
+    if (ticket.status !== "open") {
+      return yield* Effect.die("Expected claim to return an open Ticket");
     }
-    return item;
+    return ticket;
   });
 
 export const readTasksFile = (directory: string) =>
@@ -207,25 +207,25 @@ export const readTasksFile = (directory: string) =>
     return yield* fs.readFileString(`${directory}/.tasks/tasks.jsonl`);
   });
 
-export const writeTasksFile = (directory: string, items: ReadonlyArray<WorkItem>) =>
+export const writeTasksFile = (directory: string, tickets: ReadonlyArray<Ticket>) =>
   Effect.gen(function* () {
-    const encodedLines = yield* Effect.forEach(sortWorkItems(items), (item) =>
-      encodeWorkItemJsonLine(item),
+    const encodedLines = yield* Effect.forEach(sortTickets(tickets), (ticket) =>
+      encodeTicketJsonLine(ticket),
     );
     const fs = yield* FileSystem.FileSystem;
     yield* fs.writeFileString(`${directory}/.tasks/tasks.jsonl`, encodedLines.join("\n"));
   });
 
-export const markDone = (item: OpenWorkItem) =>
+export const markDone = (ticket: OpenTicket) =>
   Effect.gen(function* () {
     const completedAt = yield* DateTime.now;
 
-    const { status: _status, claim: _claim, ...base } = item;
+    const { status: _status, claim: _claim, ...base } = ticket;
     return {
       ...base,
       status: "done",
       result: {
-        summary: `${item.subject} done`,
+        summary: `${ticket.subject} done`,
         details: "Completed by a test fixture.",
         decisions: [],
         verification: ["fixture"],
@@ -233,33 +233,33 @@ export const markDone = (item: OpenWorkItem) =>
         completedBy: "test-agent",
       },
       updatedAt: completedAt,
-    } satisfies WorkItem;
+    } satisfies Ticket;
   });
 
-export const markCancelled = (item: OpenWorkItem) =>
+export const markCancelled = (ticket: OpenTicket) =>
   Effect.gen(function* () {
     const cancelledAt = yield* DateTime.now;
 
-    const { status: _status, claim: _claim, ...base } = item;
+    const { status: _status, claim: _claim, ...base } = ticket;
     return {
       ...base,
       status: "cancelled",
       cancellation: {
-        reason: `${item.subject} cancelled`,
+        reason: `${ticket.subject} cancelled`,
         cancelledAt,
         cancelledBy: "test-agent",
       },
       updatedAt: cancelledAt,
-    } satisfies WorkItem;
+    } satisfies Ticket;
   });
 
-export const makeFixtureOpenWorkItem = (options: {
+export const makeFixtureOpenTicket = (options: {
   readonly id: string;
   readonly subject: string;
-  readonly createdAt: WorkItem["createdAt"];
-  readonly level?: WorkItemLevel;
+  readonly createdAt: Ticket["createdAt"];
+  readonly level?: TicketLevel;
   readonly parentId?: string;
-}): OpenWorkItem =>
+}): OpenTicket =>
   ({
     schemaVersion,
     id: options.id,
@@ -272,23 +272,23 @@ export const makeFixtureOpenWorkItem = (options: {
     ...(options.parentId === undefined ? {} : { parentId: options.parentId }),
     createdAt: options.createdAt,
     updatedAt: options.createdAt,
-  }) satisfies WorkItem;
+  }) satisfies Ticket;
 
-export const requireDoneWorkItem = (item: WorkItem): DoneWorkItem => {
-  if (item.status !== "done") {
-    assert.fail(`Expected done Work Item, received ${item.status}.`);
+export const requireDoneTicket = (ticket: Ticket): DoneTicket => {
+  if (ticket.status !== "done") {
+    assert.fail(`Expected done Ticket, received ${ticket.status}.`);
   }
-  return item;
+  return ticket;
 };
 
-export const requireCancelledWorkItem = (item: WorkItem): CancelledWorkItem => {
-  if (item.status !== "cancelled") {
-    assert.fail(`Expected cancelled Work Item, received ${item.status}.`);
+export const requireCancelledTicket = (ticket: Ticket): CancelledTicket => {
+  if (ticket.status !== "cancelled") {
+    assert.fail(`Expected cancelled Ticket, received ${ticket.status}.`);
   }
-  return item;
+  return ticket;
 };
 
-export const compareWorkItemsForSelection = (left: WorkItem, right: WorkItem): number => {
+export const compareTicketsForSelection = (left: Ticket, right: Ticket): number => {
   const diff = DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt);
   if (diff !== 0) {
     return diff;

@@ -7,26 +7,26 @@ import { TestClock } from "effect/testing";
 
 import {
   readTasksFile,
-  claimWorkItem,
-  createWorkItem,
-  decodeItemOutput,
+  claimTicket,
+  createTicket,
+  decodeTicketOutput,
   emptyConfigLayer,
   run,
   withTempDirectory,
 } from "./cli-test-support";
 
 describe("tm claim and release", () => {
-  it.effect("claims Work Items with actor flag in human and JSON modes", () =>
+  it.effect("claims Tickets with actor flag in human and JSON modes", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Claim flag work");
+        const ticket = yield* createTicket(directory, "Claim flag work");
 
         const humanResult = yield* run([
           "--cwd",
           directory,
           "claim",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
         ]);
@@ -39,13 +39,13 @@ describe("tm claim and release", () => {
           "--cwd",
           directory,
           "claim",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--json",
         ]);
         assert.strictEqual(jsonResult.exit._tag, "Success");
-        const claimed = decodeItemOutput(String(jsonResult.logs[0])).item;
+        const claimed = decodeTicketOutput(String(jsonResult.logs[0])).ticket;
         const claim = claimed.claim;
         if (claim === undefined) {
           assert.fail("Expected JSON claim output to include the persisted claim.");
@@ -68,7 +68,7 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Review claim handoff", {
+        const ticket = yield* createTicket(directory, "Review claim handoff", {
           executor: "human",
         });
 
@@ -76,14 +76,14 @@ describe("tm claim and release", () => {
           "--cwd",
           directory,
           "claim",
-          item.id,
+          ticket.id,
           "--actor",
           "human-urban",
         ]);
         assert.strictEqual(rejected.exit._tag, "Failure");
         assert.isTrue(String(rejected.errors[0]).includes("Pass --allow-human"));
 
-        const allowed = yield* claimWorkItem(directory, item.id, "human-urban", {
+        const allowed = yield* claimTicket(directory, ticket.id, "human-urban", {
           allowHuman: true,
         });
         assert.strictEqual(allowed.claim?.actor, "human-urban");
@@ -91,12 +91,12 @@ describe("tm claim and release", () => {
     ),
   );
 
-  it.effect("claims Work Items with TM_ACTOR fallback", () =>
+  it.effect("claims Tickets with TM_ACTOR fallback", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Claim env work");
-        const result = yield* run(["--cwd", directory, "claim", item.id, "--json"]).pipe(
+        const ticket = yield* createTicket(directory, "Claim env work");
+        const result = yield* run(["--cwd", directory, "claim", ticket.id, "--json"]).pipe(
           Effect.provide(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
@@ -107,7 +107,7 @@ describe("tm claim and release", () => {
         );
 
         assert.strictEqual(result.exit._tag, "Success");
-        const claimed = decodeItemOutput(String(result.logs[0])).item;
+        const claimed = decodeTicketOutput(String(result.logs[0])).ticket;
         const claim = claimed.claim;
         if (claim === undefined) {
           assert.fail("Expected TM_ACTOR claim output to include the persisted claim.");
@@ -122,16 +122,16 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Require claim actor");
+        const ticket = yield* createTicket(directory, "Require claim actor");
         const before = yield* readTasksFile(directory);
 
-        const missingResult = yield* run(["--cwd", directory, "claim", item.id]).pipe(
+        const missingResult = yield* run(["--cwd", directory, "claim", ticket.id]).pipe(
           Effect.provide(emptyConfigLayer),
         );
         assert.strictEqual(missingResult.exit._tag, "Failure");
         assert.isTrue(String(missingResult.errors[0]).includes("Actor Identity is required"));
 
-        const blankResult = yield* run(["--cwd", directory, "claim", item.id, "--actor", "   "]);
+        const blankResult = yield* run(["--cwd", directory, "claim", ticket.id, "--actor", "   "]);
         assert.strictEqual(blankResult.exit._tag, "Failure");
         assert.isTrue(String(blankResult.errors[0]).includes("must not be empty"));
 
@@ -145,10 +145,10 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Refresh claim work");
-        const firstClaimed = yield* claimWorkItem(directory, item.id, "codex-session");
+        const ticket = yield* createTicket(directory, "Refresh claim work");
+        const firstClaimed = yield* claimTicket(directory, ticket.id, "codex-session");
         yield* TestClock.adjust("10 minutes");
-        const refreshed = yield* claimWorkItem(directory, item.id, "codex-session");
+        const refreshed = yield* claimTicket(directory, ticket.id, "codex-session");
 
         const firstClaim = firstClaimed.claim;
         const refreshedClaim = refreshed.claim;
@@ -177,11 +177,11 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Protect active claim");
-        yield* claimWorkItem(directory, item.id, "agent-a");
+        const ticket = yield* createTicket(directory, "Protect active claim");
+        yield* claimTicket(directory, ticket.id, "agent-a");
         const before = yield* readTasksFile(directory);
 
-        const result = yield* run(["--cwd", directory, "claim", item.id, "--actor", "agent-b"]);
+        const result = yield* run(["--cwd", directory, "claim", ticket.id, "--actor", "agent-b"]);
         assert.strictEqual(result.exit._tag, "Failure");
         assert.isTrue(String(result.errors[0]).includes("actively claimed by agent-a"));
         assert.isTrue(String(result.errors[0]).includes("--force"));
@@ -195,11 +195,11 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Force claim work");
-        yield* claimWorkItem(directory, item.id, "agent-a");
+        const ticket = yield* createTicket(directory, "Force claim work");
+        yield* claimTicket(directory, ticket.id, "agent-a");
         yield* TestClock.adjust("1 minute");
 
-        const replaced = yield* claimWorkItem(directory, item.id, "agent-b", { force: true });
+        const replaced = yield* claimTicket(directory, ticket.id, "agent-b", { force: true });
         const claim = replaced.claim;
         if (claim === undefined) {
           assert.fail("Expected force replacement to persist a claim.");
@@ -214,11 +214,11 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Replace expired claim");
-        yield* claimWorkItem(directory, item.id, "agent-a");
+        const ticket = yield* createTicket(directory, "Replace expired claim");
+        yield* claimTicket(directory, ticket.id, "agent-a");
         yield* TestClock.adjust("1 hour");
 
-        const replaced = yield* claimWorkItem(directory, item.id, "agent-b");
+        const replaced = yield* claimTicket(directory, ticket.id, "agent-b");
         const claim = replaced.claim;
         if (claim === undefined) {
           assert.fail("Expected expired claim replacement to persist a claim.");
@@ -233,10 +233,10 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Release own claim");
-        const claimed = yield* claimWorkItem(directory, item.id, "agent-a");
+        const ticket = yield* createTicket(directory, "Release own claim");
+        const claimed = yield* claimTicket(directory, ticket.id, "agent-a");
 
-        const missingAgentResult = yield* run(["--cwd", directory, "release", item.id]).pipe(
+        const missingAgentResult = yield* run(["--cwd", directory, "release", ticket.id]).pipe(
           Effect.provide(emptyConfigLayer),
         );
         assert.strictEqual(missingAgentResult.exit._tag, "Failure");
@@ -247,13 +247,13 @@ describe("tm claim and release", () => {
           "--cwd",
           directory,
           "release",
-          item.id,
+          ticket.id,
           "--actor",
           "agent-a",
           "--json",
         ]);
         assert.strictEqual(releaseResult.exit._tag, "Success");
-        const released = decodeItemOutput(String(releaseResult.logs[0])).item;
+        const released = decodeTicketOutput(String(releaseResult.logs[0])).ticket;
         assert.strictEqual(released.claim, undefined);
         assert.isAbove(
           DateTime.toEpochMillis(released.updatedAt),
@@ -264,7 +264,7 @@ describe("tm claim and release", () => {
           "--cwd",
           directory,
           "release",
-          item.id,
+          ticket.id,
           "--actor",
           "agent-a",
         ]);
@@ -278,11 +278,11 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Protect release claim");
-        yield* claimWorkItem(directory, item.id, "agent-a");
+        const ticket = yield* createTicket(directory, "Protect release claim");
+        yield* claimTicket(directory, ticket.id, "agent-a");
         const before = yield* readTasksFile(directory);
 
-        const result = yield* run(["--cwd", directory, "release", item.id, "--actor", "agent-b"]);
+        const result = yield* run(["--cwd", directory, "release", ticket.id, "--actor", "agent-b"]);
         assert.strictEqual(result.exit._tag, "Failure");
         assert.isTrue(String(result.errors[0]).includes("actively claimed by agent-a"));
         assert.isTrue(String(result.errors[0]).includes("--force"));
@@ -293,14 +293,14 @@ describe("tm claim and release", () => {
           "--cwd",
           directory,
           "release",
-          item.id,
+          ticket.id,
           "--actor",
           "agent-b",
           "--force",
           "--json",
         ]);
         assert.strictEqual(forcedResult.exit._tag, "Success");
-        const released = decodeItemOutput(String(forcedResult.logs[0])).item;
+        const released = decodeTicketOutput(String(forcedResult.logs[0])).ticket;
         assert.strictEqual(released.claim, undefined);
       }),
     ),
@@ -310,21 +310,21 @@ describe("tm claim and release", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Release expired claim");
-        yield* claimWorkItem(directory, item.id, "agent-a");
+        const ticket = yield* createTicket(directory, "Release expired claim");
+        yield* claimTicket(directory, ticket.id, "agent-a");
         yield* TestClock.adjust("1 hour");
 
         const result = yield* run([
           "--cwd",
           directory,
           "release",
-          item.id,
+          ticket.id,
           "--actor",
           "agent-b",
           "--json",
         ]);
         assert.strictEqual(result.exit._tag, "Success");
-        const released = decodeItemOutput(String(result.logs[0])).item;
+        const released = decodeTicketOutput(String(result.logs[0])).ticket;
         assert.strictEqual(released.claim, undefined);
       }),
     ),

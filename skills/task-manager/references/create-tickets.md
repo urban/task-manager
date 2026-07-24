@@ -1,10 +1,10 @@
-# Create Work Items
+# Create Tickets
 
-Read this when creating direct or bulk Work Items, capturing IDs, writing content, setting parents, or adding dependencies.
+Read this when creating direct or bulk Tickets, capturing IDs, writing content, setting parents, or adding dependencies.
 
 ## Direct-create decision
 
-Create immediately when the user gives concrete Work Items and asks to create/add/record them. Ask first only when one of these is unclear:
+Create immediately when the user gives concrete Tickets and asks to create/add/record them. Ask first only when one of these is unclear:
 
 - target task store (`cwd` or storage path)
 - hierarchy or parent
@@ -31,7 +31,7 @@ If the user gives a PRD/spec/plan and asks you to break it down, switch to [`pla
    tm validate
    ```
 
-3. Create parent items before children.
+3. Create parent tickets before children.
 4. Pass `--executor agent` or `--executor human` explicitly when planning from source; default create behavior is `agent`.
 5. Capture every created ID from `tm create --json`.
 6. Use captured IDs for `--parent`, `--blocked-by`, and `tm block`.
@@ -62,7 +62,7 @@ created_json="$(tm create "Add login flow" \
   --description "Implement the first end-to-end login slice." \
   --context $'## Source\n\nDerived from the user request.\n\n## Verification expectations\n\n- Run bun run check.' \
   --json)"
-created_id="$(printf '%s\n' "$created_json" | jq -r '.item.id')"
+created_id="$(printf '%s\n' "$created_json" | jq -r '.ticket.id')"
 ```
 
 Use `--message` when Subject and Description are naturally drafted together:
@@ -81,7 +81,7 @@ Derived from specs/auth.md.
 
 - Run bun run check." \
   --json)"
-epic_id="$(printf '%s\n' "$created_json" | jq -r '.item.id')"
+epic_id="$(printf '%s\n' "$created_json" | jq -r '.ticket.id')"
 ```
 
 Use file flags for large Markdown or tricky shell quoting:
@@ -89,8 +89,8 @@ Use file flags for large Markdown or tricky shell quoting:
 ```bash
 tm create --level task \
   --executor agent \
-  --message-file /tmp/work-item-message.md \
-  --context-file /tmp/work-item-context.md \
+  --message-file /tmp/ticket-message.md \
+  --context-file /tmp/ticket-context.md \
   --json
 ```
 
@@ -106,7 +106,7 @@ task_json="$(tm create "Add login form" \
   --description "Build the login form UI and submit path." \
   --context $'## Verification expectations\n\n- Run bun run check.' \
   --json)"
-task_id="$(printf '%s\n' "$task_json" | jq -r '.item.id')"
+task_id="$(printf '%s\n' "$task_json" | jq -r '.ticket.id')"
 ```
 
 Record dependencies during creation only when IDs are already known:
@@ -129,7 +129,7 @@ Record dependencies after creation when needed:
 tm block "$blocked_id" --by "$dependency_id"
 ```
 
-Do not infer IDs from subjects. Keep an in-memory map from draft label to `.item.id`.
+Do not infer IDs from subjects. Keep an in-memory map from draft label to `.ticket.id`.
 
 ## Content template
 
@@ -138,7 +138,7 @@ Description should explain the human-facing work:
 ```markdown
 ## What to build
 
-Describe the end-to-end behavior this Work Item should deliver.
+Describe the end-to-end behavior this Ticket should deliver.
 
 ## Acceptance criteria
 
@@ -195,9 +195,9 @@ Use `--allow-empty-description` or `--allow-empty-context` only when intentional
 
 If `tm create` fails:
 
-1. Stop creating more Work Items.
+1. Stop creating more Tickets.
 2. Read the error output.
-3. Report which Work Item failed and which IDs were already created.
+3. Report which Ticket failed and which IDs were already created.
 4. Correct the failed draft.
 5. Ask for approval only if the correction changes user intent or hierarchy.
 

@@ -8,29 +8,29 @@ import { TestClock } from "effect/testing";
 
 import {
   readTasksFile,
-  claimWorkItem,
-  createWorkItem,
-  decodeItemOutput,
+  claimTicket,
+  createTicket,
+  decodeTicketOutput,
   emptyConfigLayer,
-  requireDoneWorkItem,
+  requireDoneTicket,
   run,
   withTempDirectory,
 } from "./cli-test-support";
 
 describe("tm complete", () => {
-  it.effect("completes Work Items with structured flags and clears same-actor claims", () =>
+  it.effect("completes Tickets with structured flags and clears same-actor claims", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Complete structured work");
-        const claimed = yield* claimWorkItem(directory, item.id, "codex-session");
+        const ticket = yield* createTicket(directory, "Complete structured work");
+        const claimed = yield* claimTicket(directory, ticket.id, "codex-session");
         yield* TestClock.adjust("1 minute");
 
         const result = yield* run([
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--summary",
@@ -48,7 +48,7 @@ describe("tm complete", () => {
           "--json",
         ]);
         assert.strictEqual(result.exit._tag, "Success");
-        const completed = requireDoneWorkItem(decodeItemOutput(String(result.logs[0])).item);
+        const completed = requireDoneTicket(decodeTicketOutput(String(result.logs[0])).ticket);
 
         assert.strictEqual(completed.status, "done");
         assert.strictEqual(completed.claim, undefined);
@@ -87,7 +87,7 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Approve release plan", {
+        const ticket = yield* createTicket(directory, "Approve release plan", {
           executor: "human",
         });
 
@@ -95,7 +95,7 @@ describe("tm complete", () => {
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "human-urban",
           "--summary",
@@ -110,7 +110,7 @@ describe("tm complete", () => {
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "human-urban",
           "--summary",
@@ -121,7 +121,7 @@ describe("tm complete", () => {
           "--json",
         ]);
         assert.strictEqual(allowed.exit._tag, "Success");
-        const completed = requireDoneWorkItem(decodeItemOutput(String(allowed.logs[0])).item);
+        const completed = requireDoneTicket(decodeTicketOutput(String(allowed.logs[0])).ticket);
         assert.strictEqual(completed.status, "done");
         assert.strictEqual(completed.executor, "human");
       }),
@@ -132,13 +132,13 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Complete message work");
+        const ticket = yield* createTicket(directory, "Complete message work");
 
         const result = yield* run([
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--result-message",
@@ -146,7 +146,7 @@ describe("tm complete", () => {
           "--json",
         ]);
         assert.strictEqual(result.exit._tag, "Success");
-        const completed = requireDoneWorkItem(decodeItemOutput(String(result.logs[0])).item);
+        const completed = requireDoneTicket(decodeTicketOutput(String(result.logs[0])).ticket);
         const completionResult = completed.result;
         if (completionResult === undefined) {
           assert.fail("Expected result-message completion to persist a Result.");
@@ -164,7 +164,7 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Complete file work");
+        const ticket = yield* createTicket(directory, "Complete file work");
         const fs = yield* FileSystem.FileSystem;
         const messageFile = `${directory}/result-message.txt`;
         yield* fs.writeFileString(
@@ -176,7 +176,7 @@ describe("tm complete", () => {
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--result-message-file",
           messageFile,
           "--json",
@@ -190,7 +190,7 @@ describe("tm complete", () => {
           ),
         );
         assert.strictEqual(result.exit._tag, "Success");
-        const completed = requireDoneWorkItem(decodeItemOutput(String(result.logs[0])).item);
+        const completed = requireDoneTicket(decodeTicketOutput(String(result.logs[0])).ticket);
         const completionResult = completed.result;
         if (completionResult === undefined) {
           assert.fail("Expected file completion to persist a Result.");
@@ -208,14 +208,14 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Require complete agent");
+        const ticket = yield* createTicket(directory, "Require complete agent");
         const before = yield* readTasksFile(directory);
 
         const result = yield* run([
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--summary",
           "Implemented complete work",
           "--verification",
@@ -234,14 +234,14 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Require result summary");
+        const ticket = yield* createTicket(directory, "Require result summary");
         const before = yield* readTasksFile(directory);
 
         const result = yield* run([
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--verification",
@@ -257,7 +257,7 @@ describe("tm complete", () => {
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--summary",
@@ -278,14 +278,14 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Allow missing verification");
+        const ticket = yield* createTicket(directory, "Allow missing verification");
         const before = yield* readTasksFile(directory);
 
         const missingVerification = yield* run([
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--summary",
@@ -299,7 +299,7 @@ describe("tm complete", () => {
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--summary",
@@ -316,7 +316,7 @@ describe("tm complete", () => {
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--summary",
@@ -325,7 +325,7 @@ describe("tm complete", () => {
           "--json",
         ]);
         assert.strictEqual(allowed.exit._tag, "Success");
-        const completed = requireDoneWorkItem(decodeItemOutput(String(allowed.logs[0])).item);
+        const completed = requireDoneTicket(decodeTicketOutput(String(allowed.logs[0])).ticket);
         const completionResult = completed.result;
         if (completionResult === undefined) {
           assert.fail("Expected allow-no-verification to still persist a Result.");
@@ -340,8 +340,8 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const parent = yield* createWorkItem(directory, "Complete parent work");
-        yield* createWorkItem(directory, "Keep child open", {
+        const parent = yield* createTicket(directory, "Complete parent work");
+        yield* createTicket(directory, "Keep child open", {
           level: "subtask",
           parent: parent.id,
         });
@@ -370,8 +370,8 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const target = yield* createWorkItem(directory, "Complete blocked work");
-        const dependency = yield* createWorkItem(directory, "Leave dependency open");
+        const target = yield* createTicket(directory, "Complete blocked work");
+        const dependency = yield* createTicket(directory, "Leave dependency open");
         yield* run(["--cwd", directory, "block", target.id, "--by", dependency.id]);
         const before = yield* readTasksFile(directory);
 
@@ -406,7 +406,7 @@ describe("tm complete", () => {
           "--json",
         ]);
         assert.strictEqual(forced.exit._tag, "Success");
-        const completed = requireDoneWorkItem(decodeItemOutput(String(forced.logs[0])).item);
+        const completed = requireDoneTicket(decodeTicketOutput(String(forced.logs[0])).ticket);
         assert.strictEqual(completed.status, "done");
         assert.deepStrictEqual(completed.blockedBy, [dependency.id]);
       }),
@@ -417,8 +417,8 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const target = yield* createWorkItem(directory, "Finish gated work");
-        const dependency = yield* createWorkItem(directory, "Approve gated work", {
+        const target = yield* createTicket(directory, "Finish gated work");
+        const dependency = yield* createTicket(directory, "Approve gated work", {
           executor: "human",
         });
         yield* run(["--cwd", directory, "block", target.id, "--by", dependency.id]);
@@ -455,7 +455,7 @@ describe("tm complete", () => {
           "--json",
         ]);
         assert.strictEqual(allowed.exit._tag, "Success");
-        const completed = requireDoneWorkItem(decodeItemOutput(String(allowed.logs[0])).item);
+        const completed = requireDoneTicket(decodeTicketOutput(String(allowed.logs[0])).ticket);
         assert.strictEqual(completed.status, "done");
       }),
     ),
@@ -465,15 +465,15 @@ describe("tm complete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Protect complete claim");
-        yield* claimWorkItem(directory, item.id, "agent-a");
+        const ticket = yield* createTicket(directory, "Protect complete claim");
+        yield* claimTicket(directory, ticket.id, "agent-a");
         const before = yield* readTasksFile(directory);
 
         const conflict = yield* run([
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "agent-b",
           "--summary",
@@ -489,7 +489,7 @@ describe("tm complete", () => {
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "agent-b",
           "--summary",
@@ -500,7 +500,7 @@ describe("tm complete", () => {
           "--json",
         ]);
         assert.strictEqual(forced.exit._tag, "Success");
-        const completed = requireDoneWorkItem(decodeItemOutput(String(forced.logs[0])).item);
+        const completed = requireDoneTicket(decodeTicketOutput(String(forced.logs[0])).ticket);
         assert.strictEqual(completed.claim, undefined);
         const completionResult = completed.result;
         if (completionResult === undefined) {
@@ -512,17 +512,17 @@ describe("tm complete", () => {
     ),
   );
 
-  it.effect("completed Work Items leave the default list and render Result in show", () =>
+  it.effect("completed Tickets remain visible by default and render Result in show", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Hide completed work");
+        const ticket = yield* createTicket(directory, "Hide completed work");
 
         const completeResult = yield* run([
           "--cwd",
           directory,
           "complete",
-          item.id,
+          ticket.id,
           "--actor",
           "codex-session",
           "--summary",
@@ -536,9 +536,9 @@ describe("tm complete", () => {
 
         const listResult = yield* run(["--cwd", directory, "list"]);
         assert.strictEqual(listResult.exit._tag, "Success");
-        assert.strictEqual(String(listResult.logs[0]), "No open agent Work Items.");
+        assert.strictEqual(String(listResult.logs[0]), `[x] ${ticket.id}: ${ticket.subject}`);
 
-        const showResult = yield* run(["--cwd", directory, "show", item.id]);
+        const showResult = yield* run(["--cwd", directory, "show", ticket.id]);
         assert.strictEqual(showResult.exit._tag, "Success");
         const output = String(showResult.logs[0]);
         assert.isTrue(output.includes("Status: done"));

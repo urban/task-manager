@@ -3,132 +3,178 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
-  compareWorkItemsForSelection,
-  createWorkItem,
-  decodeItemOutput,
+  compareTicketsForSelection,
+  createTicket,
   decodeListOutput,
+  markCancelled,
+  markDone,
   run,
   withTempDirectory,
+  writeTasksFile,
 } from "./cli-test-support";
 
 describe("tm list", () => {
-  it.effect("renders hierarchy in deterministic tree order", () =>
+  it.effect("renders exact nested checkbox output in deterministic tree order", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
 
-        const epicResult = yield* run([
-          "--cwd",
-          directory,
-          "create",
-          "Ship MVP CLI",
-          "--level",
-          "epic",
-          "--description",
-          "Deliver the first offline CLI.",
-          "--context",
-          "Root planning item.",
-          "--json",
-        ]);
-        const epic = decodeItemOutput(String(epicResult.logs[0]));
-
-        const storageTaskResult = yield* run([
-          "--cwd",
-          directory,
-          "create",
-          "Bootstrap storage",
-          "--level",
-          "task",
-          "--parent",
-          epic.item.id,
-          "--description",
-          "Implement init and validate.",
-          "--context",
-          "Needs atomic writes.",
-          "--json",
-        ]);
-        const storageTask = decodeItemOutput(String(storageTaskResult.logs[0]));
-
-        const createTaskResult = yield* run([
-          "--cwd",
-          directory,
-          "create",
-          "Create first task",
-          "--level",
-          "task",
-          "--parent",
-          epic.item.id,
-          "--description",
-          "Implement create and show.",
-          "--context",
-          "Need JSONL persistence.",
-          "--json",
-        ]);
-        const createTask = decodeItemOutput(String(createTaskResult.logs[0]));
+        const epic = yield* createTicket(directory, "Ship MVP CLI", { level: "epic" });
+        const storageTask = yield* createTicket(directory, "Bootstrap storage", {
+          parent: epic.id,
+        });
+        const createTask = yield* createTicket(directory, "Create first task", {
+          parent: epic.id,
+        });
+        const storageSubtask = yield* createTicket(directory, "Write storage atomically", {
+          level: "subtask",
+          parent: storageTask.id,
+        });
 
         const listResult = yield* run(["--cwd", directory, "list"]);
         assert.strictEqual(listResult.exit._tag, "Success");
-        const orderedTasks = [storageTask.item, createTask.item].toSorted(
-          compareWorkItemsForSelection,
-        );
+        const orderedTasks = [storageTask, createTask].toSorted(compareTicketsForSelection);
+        const expectedChildren = orderedTasks.flatMap((ticket, index) => {
+          const isLast = index === orderedTasks.length - 1;
+          const line = `    ${isLast ? "└──" : "├──"} [ ] ${ticket.id}: ${ticket.subject}`;
+          return ticket.id === storageTask.id
+            ? [
+                line,
+                `${isLast ? "        " : "    │   "}└── [ ] ${storageSubtask.id}: ${storageSubtask.subject}`,
+              ]
+            : [line];
+        });
+
         assert.deepStrictEqual(String(listResult.logs[0]).split("\n"), [
-          "└─ Ship MVP CLI [open] [agent] (" + epic.item.id + ")",
-          ...orderedTasks.map(
-            (item, index) =>
-              `${index === orderedTasks.length - 1 ? "   └─" : "   ├─"} ${item.subject} [open] [agent] (${item.id})`,
-          ),
+          `[ ] ${epic.id}: ${epic.subject}`,
+          ...expectedChildren,
         ]);
       }),
     ),
   );
 
-  it.effect("filters list by executor while preserving ancestors", () =>
+  it.effect("defaults to every status and executor while preserving explicit filters", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const epic = yield* createWorkItem(directory, "Coordinate import work", { level: "epic" });
-        const humanTask = yield* createWorkItem(directory, "Review import UX", {
+        const epic = yield* createTicket(directory, "Coordinate import work", { level: "epic" });
+        const humanTask = yield* createTicket(directory, "Review import UX", {
           parent: epic.id,
           executor: "human",
         });
-        const agentTask = yield* createWorkItem(directory, "Implement import UX", {
+        const agentTask = yield* createTicket(directory, "Implement import UX", {
           parent: epic.id,
         });
+        const doneBase = yield* createTicket(directory, "Document import UX", {
+          parent: epic.id,
+        });
+        const cancelledBase = yield* createTicket(directory, "Discard import mockup", {
+          parent: epic.id,
+          executor: "human",
+        });
+        const doneTask = yield* markDone(doneBase);
+        const cancelledTask = yield* markCancelled(cancelledBase);
+        yield* writeTasksFile(directory, [epic, humanTask, agentTask, doneTask, cancelledTask]);
 
         const defaultList = yield* run(["--cwd", directory, "list"]);
         assert.strictEqual(defaultList.exit._tag, "Success");
-        assert.isTrue(String(defaultList.logs[0]).includes(agentTask.id));
-        assert.isFalse(String(defaultList.logs[0]).includes(humanTask.id));
+        const defaultOutput = String(defaultList.logs[0]);
+        for (const ticket of [epic, humanTask, agentTask, doneTask, cancelledTask]) {
+          assert.isTrue(defaultOutput.includes(ticket.id));
+        }
 
-        const allExecutorsList = yield* run(["--cwd", directory, "list", "--all-executors"]);
-        assert.strictEqual(allExecutorsList.exit._tag, "Success");
-        assert.isTrue(String(allExecutorsList.logs[0]).includes(agentTask.id));
-        assert.isTrue(String(allExecutorsList.logs[0]).includes(humanTask.id));
+        const defaultJson = yield* run(["--cwd", directory, "list", "--json"]);
+        assert.strictEqual(defaultJson.exit._tag, "Success");
+        const decodedDefault = decodeListOutput(String(defaultJson.logs[0]));
+        const [defaultRoot] = decodedDefault.tickets;
+        if (defaultRoot === undefined) {
+          assert.fail("Expected the default JSON list to include the root.");
+        }
+        assert.deepStrictEqual(
+          new Set(defaultRoot.children.map((child) => `${child.status}:${child.executor}`)),
+          new Set(["open:human", "open:agent", "done:agent", "cancelled:human"]),
+        );
+        assert.isTrue(defaultRoot.children.every((child) => child.matchesFilter));
 
         const humanList = yield* run(["--cwd", directory, "list", "--executor", "human"]);
         assert.strictEqual(humanList.exit._tag, "Success");
         const humanOutput = String(humanList.logs[0]);
-        assert.isTrue(humanOutput.includes(`Coordinate import work [open] [agent] (${epic.id})`));
-        assert.isTrue(humanOutput.includes(`Review import UX [open] [human] (${humanTask.id})`));
+        assert.isTrue(humanOutput.includes(`${humanTask.id}: ${humanTask.subject}`));
+        assert.isTrue(humanOutput.includes(`[-] ${cancelledTask.id}: ${cancelledTask.subject}`));
         assert.isFalse(humanOutput.includes(agentTask.id));
+        assert.isFalse(humanOutput.includes(doneTask.id));
 
-        const jsonList = yield* run(["--cwd", directory, "list", "--executor", "human", "--json"]);
-        assert.strictEqual(jsonList.exit._tag, "Success");
-        const decoded = decodeListOutput(String(jsonList.logs[0]));
-        const [rootNode] = decoded.items;
-        if (rootNode === undefined) {
-          assert.fail("Expected filtered list to include the context ancestor.");
+        const doneList = yield* run(["--cwd", directory, "list", "--status", "done"]);
+        assert.strictEqual(doneList.exit._tag, "Success");
+        assert.strictEqual(
+          String(doneList.logs[0]),
+          `[/] ${epic.id}: ${epic.subject}\n    └── [x] ${doneTask.id}: ${doneTask.subject}`,
+        );
+
+        const openList = yield* run(["--cwd", directory, "list", "--status", "open"]);
+        assert.strictEqual(openList.exit._tag, "Success");
+        const openOutput = String(openList.logs[0]);
+        assert.isTrue(openOutput.includes(humanTask.id));
+        assert.isTrue(openOutput.includes(agentTask.id));
+        assert.isFalse(openOutput.includes(doneTask.id));
+        assert.isFalse(openOutput.includes(cancelledTask.id));
+
+        for (const args of [["--all"], ["--all-executors"]]) {
+          const explicitAll = yield* run(["--cwd", directory, "list", ...args]);
+          assert.strictEqual(explicitAll.exit._tag, "Success");
+          assert.isTrue(String(explicitAll.logs[0]).includes(doneTask.id));
+          assert.isTrue(String(explicitAll.logs[0]).includes(cancelledTask.id));
         }
-        const [childNode] = rootNode.children;
-        if (childNode === undefined) {
-          assert.fail("Expected filtered list to include the matching child.");
-        }
-        assert.strictEqual(rootNode.id, epic.id);
-        assert.strictEqual(rootNode.executor, "agent");
-        assert.isFalse(rootNode.matchesFilter);
-        assert.strictEqual(childNode.id, humanTask.id);
-        assert.strictEqual(childNode.executor, "human");
-        assert.isTrue(childNode.matchesFilter);
+      }),
+    ),
+  );
+
+  it.effect("derives partial parent markers from completed descendants", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const epic = yield* createTicket(directory, "Deliver task manager", { level: "epic" });
+        const task = yield* createTicket(directory, "Build list command", { parent: epic.id });
+        const doneBase = yield* createTicket(directory, "Render completed marker", {
+          level: "subtask",
+          parent: task.id,
+        });
+        const openSubtask = yield* createTicket(directory, "Render open marker", {
+          level: "subtask",
+          parent: task.id,
+        });
+        const cancelledBase = yield* createTicket(directory, "Render obsolete marker", {
+          level: "subtask",
+          parent: task.id,
+        });
+        const doneSubtask = yield* markDone(doneBase);
+        const cancelledSubtask = yield* markCancelled(cancelledBase);
+        yield* writeTasksFile(directory, [epic, task, doneSubtask, openSubtask, cancelledSubtask]);
+
+        const result = yield* run(["--cwd", directory, "list"]);
+        assert.strictEqual(result.exit._tag, "Success");
+        const orderedSubtasks = [doneSubtask, openSubtask, cancelledSubtask].toSorted(
+          compareTicketsForSelection,
+        );
+        const markerFor = (status: "open" | "done" | "cancelled"): string => {
+          switch (status) {
+            case "open":
+              return "[ ]";
+            case "done":
+              return "[x]";
+            case "cancelled":
+              return "[-]";
+          }
+        };
+
+        assert.deepStrictEqual(String(result.logs[0]).split("\n"), [
+          `[/] ${epic.id}: ${epic.subject}`,
+          `    └── [/] ${task.id}: ${task.subject}`,
+          ...orderedSubtasks.map(
+            (ticket, index) =>
+              `        ${index === orderedSubtasks.length - 1 ? "└──" : "├──"} ${markerFor(ticket.status)} ${ticket.id}: ${ticket.subject}`,
+          ),
+        ]);
       }),
     ),
   );

@@ -2,7 +2,9 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 
-import { CommandFailure, type TmError } from "../../domain/Errors";
+import { CommandFailure } from "../../domain/Errors";
+
+type TmError = import("../../domain/Errors").TmError;
 import { readTextFile } from "../../storage/TaskStore";
 
 export const resolveActorIdentity = (

@@ -5,26 +5,24 @@ import * as Command from "effect/unstable/cli/Command";
 import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
-import { resolveWorkItem, updateWorkItemDependencies } from "../domain/WorkItem";
+import { resolveTicket, updateTicketDependencies } from "../domain/Ticket";
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
-import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
+import { encodeTicketForOutput, executeCommand, renderJson } from "./shared/output";
 import {
-  firstHumanExecutorWorkItem,
+  firstHumanExecutorTicket,
   humanExecutorGuardMessage,
-  replaceWorkItem,
-} from "./shared/work-items";
+  replaceTicket,
+} from "./shared/tickets";
 
 export const commandUnblock = Command.make("unblock", {
   id: Argument.string("id"),
-  by: Flag.string("by").pipe(
-    Flag.withDescription("Current dependency Work Item id or unique prefix"),
-  ),
+  by: Flag.string("by").pipe(Flag.withDescription("Current dependency Ticket id or unique prefix")),
   allowHuman: Flag.boolean("allow-human").pipe(
     Flag.withDescription("Allow removing human-executor dependency gates"),
   ),
 }).pipe(
-  Command.withDescription("Remove a dependency from a Work Item"),
+  Command.withDescription("Remove a dependency from a Ticket"),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, by, allowHuman }) {
       const root = yield* commandRoot;
@@ -33,38 +31,38 @@ export const commandUnblock = Command.make("unblock", {
         Effect.gen(function* () {
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
-          const item = yield* resolveWorkItem(items, id);
-          const dependency = yield* resolveWorkItem(items, by);
-          const currentDependencies = item.blockedBy ?? [];
+          const tickets = yield* loadStore(paths);
+          const ticket = yield* resolveTicket(tickets, id);
+          const dependency = yield* resolveTicket(tickets, by);
+          const currentDependencies = ticket.blockedBy ?? [];
 
           if (!currentDependencies.includes(dependency.id)) {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} does not depend on ${dependency.id}.`,
+              message: `Ticket ${ticket.id} does not depend on ${dependency.id}.`,
             });
           }
 
-          const humanItem = firstHumanExecutorWorkItem([item, dependency]);
-          if (humanItem !== undefined && !allowHuman) {
+          const humanTicket = firstHumanExecutorTicket([ticket, dependency]);
+          if (humanTicket !== undefined && !allowHuman) {
             return yield* new CommandFailure({
-              message: humanExecutorGuardMessage(humanItem, "unblock it"),
+              message: humanExecutorGuardMessage(humanTicket, "unblock it"),
             });
           }
 
-          const updatedItem = yield* updateWorkItemDependencies({
-            item,
+          const updatedTicket = yield* updateTicketDependencies({
+            ticket,
             blockedBy: currentDependencies.filter((dependencyId) => dependencyId !== dependency.id),
           });
-          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
-          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+          const persistedTickets = yield* writeStore(paths, replaceTicket(tickets, updatedTicket));
+          const persistedTicket = yield* resolveTicket(persistedTickets, ticket.id);
 
           yield* Console.log(
             root.json
               ? renderJson({
                   ok: true,
-                  item: encodeItemForOutput(persistedItem),
+                  ticket: encodeTicketForOutput(persistedTicket),
                 })
-              : `Unblocked ${persistedItem.subject} (${persistedItem.id}) from ${dependency.subject} (${dependency.id}).`,
+              : `Unblocked ${persistedTicket.subject} (${persistedTicket.id}) from ${dependency.subject} (${dependency.id}).`,
           );
         }),
       );

@@ -27,20 +27,14 @@ export class StorageNotInitialized extends Schema.TaggedErrorClass<StorageNotIni
   },
 ) {}
 
-export class WorkItemNotFound extends Schema.TaggedErrorClass<WorkItemNotFound>()(
-  "WorkItemNotFound",
-  {
-    query: Schema.String,
-  },
-) {}
+export class TicketNotFound extends Schema.TaggedErrorClass<TicketNotFound>()("TicketNotFound", {
+  query: Schema.String,
+}) {}
 
-export class WorkItemAmbiguous extends Schema.TaggedErrorClass<WorkItemAmbiguous>()(
-  "WorkItemAmbiguous",
-  {
-    query: Schema.String,
-    matches: Schema.Array(Schema.String),
-  },
-) {}
+export class TicketAmbiguous extends Schema.TaggedErrorClass<TicketAmbiguous>()("TicketAmbiguous", {
+  query: Schema.String,
+  matches: Schema.Array(Schema.String),
+}) {}
 
 export class LockUnavailable extends Schema.TaggedErrorClass<LockUnavailable>()("LockUnavailable", {
   lockFile: Schema.String,
@@ -54,16 +48,16 @@ export type TmError =
   | ValidationFailure
   | StorageFailure
   | StorageNotInitialized
-  | WorkItemNotFound
-  | WorkItemAmbiguous
+  | TicketNotFound
+  | TicketAmbiguous
   | LockUnavailable
   | CommandFailure;
 
 const isValidationFailure = Schema.is(ValidationFailure);
 const isStorageFailure = Schema.is(StorageFailure);
 const isStorageNotInitialized = Schema.is(StorageNotInitialized);
-const isWorkItemNotFound = Schema.is(WorkItemNotFound);
-const isWorkItemAmbiguous = Schema.is(WorkItemAmbiguous);
+const isTicketNotFound = Schema.is(TicketNotFound);
+const isTicketAmbiguous = Schema.is(TicketAmbiguous);
 const isLockUnavailable = Schema.is(LockUnavailable);
 const isCommandFailure = Schema.is(CommandFailure);
 
@@ -71,7 +65,7 @@ export const isTmError = (error: unknown): error is TmError =>
   isValidationFailure(error) ||
   isStorageFailure(error) ||
   isStorageNotInitialized(error) ||
-  isWorkItemNotFound(error) ||
-  isWorkItemAmbiguous(error) ||
+  isTicketNotFound(error) ||
+  isTicketAmbiguous(error) ||
   isLockUnavailable(error) ||
   isCommandFailure(error);

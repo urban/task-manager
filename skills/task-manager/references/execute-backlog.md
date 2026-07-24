@@ -10,11 +10,11 @@ Read this when selecting, claiming, implementing, releasing, or completing backl
    tm validate
    ```
 
-2. Select the next actionable Work Item:
+2. Select the next actionable Ticket:
 
    ```bash
    next_json="$(tm next --json)"
-   next_id="$(printf '%s\n' "$next_json" | jq -r '.item.id // empty')"
+   next_id="$(printf '%s\n' "$next_json" | jq -r '.ticket.id // empty')"
    ```
 
 3. If `next_id` is empty, report:
@@ -23,7 +23,7 @@ Read this when selecting, claiming, implementing, releasing, or completing backl
    printf '%s\n' "$next_json" | jq -r '.reason // "no-actionable-work"'
    ```
 
-4. Inspect the selected Work Item:
+4. Inspect the selected Ticket:
 
    ```bash
    tm show "$next_id"
@@ -47,7 +47,7 @@ tm next --executor human --json
 
 Use `tm next --all-executors --json` only when the user asks for the frontier across both Executors.
 
-Include actively claimed items only when the user asks to inspect or take over claimed work:
+Include actively claimed tickets only when the user asks to inspect or take over claimed work:
 
 ```bash
 tm next --include-claimed --json
@@ -63,17 +63,17 @@ Use a stable Actor Identity. Prefer an existing `TM_ACTOR`; otherwise pass `--ac
 tm claim "$next_id" --actor "$agent_name"
 ```
 
-If the selected Work Item is human-executor, stop unless the user explicitly asked you to handle HITL work; then use `tm claim --allow-human`. If another active claim blocks you, stop and report the conflict. Use `--force` only when the user explicitly says to take over.
+If the selected Ticket is human-executor, stop unless the user explicitly asked you to handle HITL work; then use `tm claim --allow-human`. If another active claim blocks you, stop and report the conflict. Use `--force` only when the user explicitly says to take over.
 
 ## Implement and verify
 
-Implement the selected Work Item, then run the verification requested by Context or project instructions. For this repository, normally run:
+Implement the selected Ticket, then run the verification requested by Context or project instructions. For this repository, normally run:
 
 ```bash
 bun run check
 ```
 
-If the Work Item specifies a different verification command, follow it and explain why in the completion Result.
+If the Ticket specifies a different verification command, follow it and explain why in the completion Result.
 
 ## Complete
 
@@ -91,7 +91,7 @@ Add details, decisions, and repeated verification when useful:
 ```bash
 tm complete "$next_id" \
   --actor "$agent_name" \
-  --summary "Added root filtering to next-item selection" \
+  --summary "Added root filtering to next-ticket selection" \
   --details "Implemented CLI flag parsing and repository filtering." \
   --decision "Kept filtering in selection service to avoid duplicating tree traversal." \
   --verification "bun run check: passed" \
@@ -105,7 +105,7 @@ Avoid vague Results:
 tm complete "$next_id" --actor "$agent_name" --summary "Done" --verification "Looks good"
 ```
 
-Use `--allow-human` only after explicit user approval for human-executor Work Items or forced bypass of a human-executor dependency. Use `--allow-no-verification` only after explicit user approval.
+Use `--allow-human` only after explicit user approval for human-executor Tickets or forced bypass of a human-executor dependency. Use `--allow-no-verification` only after explicit user approval.
 
 ## Release instead of completing
 
@@ -127,9 +127,9 @@ tm validate
 
 Report:
 
-- completed Work Item ID and Subject
+- completed Ticket ID and Subject
 - Result summary
 - verification command and outcome
 - confirmation that `tm validate` passed
 
-If you released rather than completed, report the Work Item ID, reason for stopping, and release outcome.
+If you released rather than completed, report the Ticket ID, reason for stopping, and release outcome.

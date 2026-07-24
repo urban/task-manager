@@ -44,5 +44,5 @@ export const runTmCli = Command.runWith(tmCommand, { version });
 export const run = Command.run(tmCommand, { version });
 
 export { isTmError as isKnownTmError } from "./domain/Errors";
-export { isLeafWorkItem, orderedOpenChildren } from "./domain/Validation";
-export { encodeItemForOutput as encodeOutputItem } from "./commands/shared/output";
+export { isLeafTicket, orderedOpenChildren } from "./domain/Validation";
+export { encodeTicketForOutput as encodeOutputTicket } from "./commands/shared/output";

@@ -6,21 +6,21 @@ import * as DateTime from "effect/DateTime";
 import {
   readTasksFile,
   writeTasksFile,
-  createWorkItem,
-  decodeItemOutput,
-  makeFixtureOpenWorkItem,
+  createTicket,
+  decodeTicketOutput,
+  makeFixtureOpenTicket,
   run,
   withTempDirectory,
 } from "./cli-test-support";
 
 describe("tm dependencies", () => {
-  it.effect("creates a Work Item with one dependency in JSON mode", () =>
+  it.effect("creates a Ticket with one dependency in JSON mode", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const dependency = yield* createWorkItem(directory, "Create data model");
+        const dependency = yield* createTicket(directory, "Create data model");
 
-        const created = yield* createWorkItem(directory, "Add API endpoint", {
+        const created = yield* createTicket(directory, "Add API endpoint", {
           blockedBy: [dependency.id],
         });
 
@@ -31,18 +31,18 @@ describe("tm dependencies", () => {
     ),
   );
 
-  it.effect("creates a Work Item with repeatable dependencies", () =>
+  it.effect("creates a Ticket with repeatable dependencies", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const firstDependency = yield* createWorkItem(directory, "Create data model");
-        const secondDependency = yield* createWorkItem(directory, "Prepare fixtures");
+        const firstDependency = yield* createTicket(directory, "Create data model");
+        const secondDependency = yield* createTicket(directory, "Prepare fixtures");
         const orderedDependencies =
           firstDependency.id.localeCompare(secondDependency.id) < 0
             ? { smaller: firstDependency, larger: secondDependency }
             : { smaller: secondDependency, larger: firstDependency };
 
-        const created = yield* createWorkItem(directory, "Add reporting endpoint", {
+        const created = yield* createTicket(directory, "Add reporting endpoint", {
           blockedBy: [orderedDependencies.larger.id, orderedDependencies.smaller.id],
         });
 
@@ -58,9 +58,9 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const dependency = yield* createWorkItem(directory, "Prepare reports");
+        const dependency = yield* createTicket(directory, "Prepare reports");
 
-        const created = yield* createWorkItem(directory, "Render reports", {
+        const created = yield* createTicket(directory, "Render reports", {
           blockedBy: [dependency.id.slice(0, 5)],
         });
 
@@ -73,16 +73,16 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const firstEpic = yield* createWorkItem(directory, "Build backend", { level: "epic" });
-        const secondEpic = yield* createWorkItem(directory, "Build frontend", { level: "epic" });
-        const backendTask = yield* createWorkItem(directory, "Design schema", {
+        const firstEpic = yield* createTicket(directory, "Build backend", { level: "epic" });
+        const secondEpic = yield* createTicket(directory, "Build frontend", { level: "epic" });
+        const backendTask = yield* createTicket(directory, "Design schema", {
           parent: firstEpic.id,
         });
-        const frontendTask = yield* createWorkItem(directory, "Create UI shell", {
+        const frontendTask = yield* createTicket(directory, "Create UI shell", {
           parent: secondEpic.id,
         });
 
-        const subtask = yield* createWorkItem(directory, "Wire UI data", {
+        const subtask = yield* createTicket(directory, "Wire UI data", {
           level: "subtask",
           parent: backendTask.id,
           blockedBy: [frontendTask.id],
@@ -98,7 +98,7 @@ describe("tm dependencies", () => {
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
 
-        const created = yield* createWorkItem(directory, "Add standalone work");
+        const created = yield* createTicket(directory, "Add standalone work");
 
         assert.strictEqual(created.blockedBy, undefined);
         const content = yield* readTasksFile(directory);
@@ -111,7 +111,7 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        yield* createWorkItem(directory, "Prepare existing work");
+        yield* createTicket(directory, "Prepare existing work");
         const before = yield* readTasksFile(directory);
 
         const result = yield* run([
@@ -142,12 +142,12 @@ describe("tm dependencies", () => {
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
         const createdAt = yield* DateTime.now;
-        const firstDependency = makeFixtureOpenWorkItem({
+        const firstDependency = makeFixtureOpenTicket({
           id: "amb001",
           subject: "Prepare alpha",
           createdAt,
         });
-        const secondDependency = makeFixtureOpenWorkItem({
+        const secondDependency = makeFixtureOpenTicket({
           id: "amb002",
           subject: "Prepare beta",
           createdAt: createdAt.pipe(DateTime.add({ seconds: 1 })),
@@ -182,7 +182,7 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const dependency = yield* createWorkItem(directory, "Prepare shared work");
+        const dependency = yield* createTicket(directory, "Prepare shared work");
         const before = yield* readTasksFile(directory);
 
         const result = yield* run([
@@ -214,9 +214,9 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const target = yield* createWorkItem(directory, "Add API endpoint");
-        const firstDependency = yield* createWorkItem(directory, "Create data model");
-        const secondDependency = yield* createWorkItem(directory, "Prepare fixtures");
+        const target = yield* createTicket(directory, "Add API endpoint");
+        const firstDependency = yield* createTicket(directory, "Create data model");
+        const secondDependency = yield* createTicket(directory, "Prepare fixtures");
         const orderedDependencies =
           firstDependency.id.localeCompare(secondDependency.id) < 0
             ? { smaller: firstDependency, larger: secondDependency }
@@ -232,8 +232,8 @@ describe("tm dependencies", () => {
           "--json",
         ]);
         assert.strictEqual(firstBlockResult.exit._tag, "Success");
-        const firstBlocked = decodeItemOutput(String(firstBlockResult.logs[0]));
-        assert.deepStrictEqual(firstBlocked.item.blockedBy, [orderedDependencies.larger.id]);
+        const firstBlocked = decodeTicketOutput(String(firstBlockResult.logs[0]));
+        assert.deepStrictEqual(firstBlocked.ticket.blockedBy, [orderedDependencies.larger.id]);
 
         const secondBlockResult = yield* run([
           "--cwd",
@@ -245,8 +245,8 @@ describe("tm dependencies", () => {
           "--json",
         ]);
         assert.strictEqual(secondBlockResult.exit._tag, "Success");
-        const secondBlocked = decodeItemOutput(String(secondBlockResult.logs[0]));
-        assert.deepStrictEqual(secondBlocked.item.blockedBy, [
+        const secondBlocked = decodeTicketOutput(String(secondBlockResult.logs[0]));
+        assert.deepStrictEqual(secondBlocked.ticket.blockedBy, [
           orderedDependencies.smaller.id,
           orderedDependencies.larger.id,
         ]);
@@ -263,15 +263,15 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const firstEpic = yield* createWorkItem(directory, "Build backend", { level: "epic" });
-        const secondEpic = yield* createWorkItem(directory, "Build frontend", { level: "epic" });
-        const backendTask = yield* createWorkItem(directory, "Design schema", {
+        const firstEpic = yield* createTicket(directory, "Build backend", { level: "epic" });
+        const secondEpic = yield* createTicket(directory, "Build frontend", { level: "epic" });
+        const backendTask = yield* createTicket(directory, "Design schema", {
           parent: firstEpic.id,
         });
-        const frontendTask = yield* createWorkItem(directory, "Create UI shell", {
+        const frontendTask = yield* createTicket(directory, "Create UI shell", {
           parent: secondEpic.id,
         });
-        const subtask = yield* createWorkItem(directory, "Wire UI data", {
+        const subtask = yield* createTicket(directory, "Wire UI data", {
           level: "subtask",
           parent: backendTask.id,
         });
@@ -291,8 +291,8 @@ describe("tm dependencies", () => {
 
         const showResult = yield* run(["--cwd", directory, "show", subtask.id, "--json"]);
         assert.strictEqual(showResult.exit._tag, "Success");
-        const shown = decodeItemOutput(String(showResult.logs[0]));
-        assert.deepStrictEqual(shown.item.blockedBy, [frontendTask.id]);
+        const shown = decodeTicketOutput(String(showResult.logs[0]));
+        assert.deepStrictEqual(shown.ticket.blockedBy, [frontendTask.id]);
       }),
     ),
   );
@@ -301,10 +301,10 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Add reporting");
-        const dependency = yield* createWorkItem(directory, "Collect metrics");
+        const ticket = yield* createTicket(directory, "Add reporting");
+        const dependency = yield* createTicket(directory, "Collect metrics");
 
-        yield* run(["--cwd", directory, "block", item.id, "--by", dependency.id]);
+        yield* run(["--cwd", directory, "block", ticket.id, "--by", dependency.id]);
         const blockedContent = yield* readTasksFile(directory);
         assert.isTrue(blockedContent.includes('"blockedBy"'));
 
@@ -312,21 +312,21 @@ describe("tm dependencies", () => {
           "--cwd",
           directory,
           "unblock",
-          item.id.slice(0, 5),
+          ticket.id.slice(0, 5),
           "--by",
           dependency.id.slice(0, 5),
           "--json",
         ]);
         assert.strictEqual(jsonUnblockResult.exit._tag, "Success");
-        const jsonUnblocked = decodeItemOutput(String(jsonUnblockResult.logs[0]));
-        assert.strictEqual(jsonUnblocked.item.blockedBy, undefined);
+        const jsonUnblocked = decodeTicketOutput(String(jsonUnblockResult.logs[0]));
+        assert.strictEqual(jsonUnblocked.ticket.blockedBy, undefined);
 
-        yield* run(["--cwd", directory, "block", item.id, "--by", dependency.id]);
+        yield* run(["--cwd", directory, "block", ticket.id, "--by", dependency.id]);
         const humanUnblockResult = yield* run([
           "--cwd",
           directory,
           "unblock",
-          item.id,
+          ticket.id,
           "--by",
           dependency.id,
         ]);
@@ -342,17 +342,17 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Implement gated path");
-        const dependency = yield* createWorkItem(directory, "Approve gated path", {
+        const ticket = yield* createTicket(directory, "Implement gated path");
+        const dependency = yield* createTicket(directory, "Approve gated path", {
           executor: "human",
         });
-        yield* run(["--cwd", directory, "block", item.id, "--by", dependency.id]);
+        yield* run(["--cwd", directory, "block", ticket.id, "--by", dependency.id]);
 
         const rejected = yield* run([
           "--cwd",
           directory,
           "unblock",
-          item.id,
+          ticket.id,
           "--by",
           dependency.id,
         ]);
@@ -363,42 +363,42 @@ describe("tm dependencies", () => {
           "--cwd",
           directory,
           "unblock",
-          item.id,
+          ticket.id,
           "--by",
           dependency.id,
           "--allow-human",
           "--json",
         ]);
         assert.strictEqual(allowed.exit._tag, "Success");
-        const unblocked = decodeItemOutput(String(allowed.logs[0])).item;
+        const unblocked = decodeTicketOutput(String(allowed.logs[0])).ticket;
         assert.strictEqual(unblocked.blockedBy, undefined);
       }),
     ),
   );
 
-  it.effect("rejects missing Work Item ids without changing storage", () =>
+  it.effect("rejects missing Ticket ids without changing storage", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Add search");
+        const ticket = yield* createTicket(directory, "Add search");
         const before = yield* readTasksFile(directory);
 
-        const missingItemResult = yield* run([
+        const missingTicketResult = yield* run([
           "--cwd",
           directory,
           "block",
-          "missing-item",
+          "missing-ticket",
           "--by",
-          item.id,
+          ticket.id,
         ]);
-        assert.strictEqual(missingItemResult.exit._tag, "Failure");
-        assert.isTrue(String(missingItemResult.errors[0]).includes("was not found"));
+        assert.strictEqual(missingTicketResult.exit._tag, "Failure");
+        assert.isTrue(String(missingTicketResult.errors[0]).includes("was not found"));
 
         const missingDependencyResult = yield* run([
           "--cwd",
           directory,
           "block",
-          item.id,
+          ticket.id,
           "--by",
           "missing-dependency",
         ]);
@@ -415,10 +415,10 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Add audit log");
+        const ticket = yield* createTicket(directory, "Add audit log");
         const before = yield* readTasksFile(directory);
 
-        const result = yield* run(["--cwd", directory, "block", item.id, "--by", item.id]);
+        const result = yield* run(["--cwd", directory, "block", ticket.id, "--by", ticket.id]);
         assert.strictEqual(result.exit._tag, "Failure");
         assert.isTrue(String(result.errors[0]).includes("cannot depend on itself"));
         const after = yield* readTasksFile(directory);
@@ -431,12 +431,12 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Add alerts");
-        const dependency = yield* createWorkItem(directory, "Add polling");
-        yield* run(["--cwd", directory, "block", item.id, "--by", dependency.id]);
+        const ticket = yield* createTicket(directory, "Add alerts");
+        const dependency = yield* createTicket(directory, "Add polling");
+        yield* run(["--cwd", directory, "block", ticket.id, "--by", dependency.id]);
         const before = yield* readTasksFile(directory);
 
-        const result = yield* run(["--cwd", directory, "block", item.id, "--by", dependency.id]);
+        const result = yield* run(["--cwd", directory, "block", ticket.id, "--by", dependency.id]);
         assert.strictEqual(result.exit._tag, "Failure");
         assert.isTrue(String(result.errors[0]).includes("already depends"));
         const after = yield* readTasksFile(directory);
@@ -449,18 +449,18 @@ describe("tm dependencies", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const firstItem = yield* createWorkItem(directory, "Add importer");
-        const secondItem = yield* createWorkItem(directory, "Add parser");
-        yield* run(["--cwd", directory, "block", secondItem.id, "--by", firstItem.id]);
+        const firstTicket = yield* createTicket(directory, "Add importer");
+        const secondTicket = yield* createTicket(directory, "Add parser");
+        yield* run(["--cwd", directory, "block", secondTicket.id, "--by", firstTicket.id]);
         const before = yield* readTasksFile(directory);
 
         const result = yield* run([
           "--cwd",
           directory,
           "block",
-          firstItem.id,
+          firstTicket.id,
           "--by",
-          secondItem.id,
+          secondTicket.id,
         ]);
         assert.strictEqual(result.exit._tag, "Failure");
         assert.isTrue(String(result.errors[0]).includes("Dependency cycle detected"));

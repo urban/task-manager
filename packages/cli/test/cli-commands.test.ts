@@ -8,14 +8,14 @@ import { TestClock } from "effect/testing";
 import {
   readTasksFile,
   writeTasksFile,
-  claimWorkItem,
-  createWorkItem,
-  decodeItemOutput,
+  claimTicket,
+  createTicket,
+  decodeTicketOutput,
   decodeValidateOutput,
   markCancelled,
   markDone,
-  requireCancelledWorkItem,
-  requireDoneWorkItem,
+  requireCancelledTicket,
+  requireDoneTicket,
   run,
   withTempDirectory,
 } from "./cli-test-support";
@@ -32,7 +32,7 @@ describe("tm cli commands", () => {
         assert.strictEqual(validateResult.exit._tag, "Success");
         assert.deepStrictEqual(decodeValidateOutput(String(validateResult.logs[0])), {
           ok: true,
-          workItemCount: 0,
+          ticketCount: 0,
           tasksFile: `${directory}/.tasks/tasks.jsonl`,
         });
       }),
@@ -71,14 +71,14 @@ describe("tm cli commands", () => {
         ]);
         assert.strictEqual(createResult.exit._tag, "Success");
 
-        const created = decodeItemOutput(String(createResult.logs[0]));
-        assert.strictEqual(created.item.schemaVersion, 3);
-        assert.strictEqual(created.item.executor, "agent");
-        assert.match(created.item.id, /^[a-z0-9]{6}$/);
-        assert.isFalse(created.item.id.startsWith("wi_"));
-        assert.isTrue((yield* readTasksFile(directory)).includes(`"id":"${created.item.id}"`));
+        const created = decodeTicketOutput(String(createResult.logs[0]));
+        assert.strictEqual(created.ticket.schemaVersion, 3);
+        assert.strictEqual(created.ticket.executor, "agent");
+        assert.match(created.ticket.id, /^[a-z0-9]{6}$/);
+        assert.isFalse(created.ticket.id.startsWith("wi_"));
+        assert.isTrue((yield* readTasksFile(directory)).includes(`"id":"${created.ticket.id}"`));
 
-        const showResult = yield* run(["--cwd", directory, "show", created.item.id]);
+        const showResult = yield* run(["--cwd", directory, "show", created.ticket.id]);
         assert.strictEqual(showResult.exit._tag, "Success");
         assert.isTrue(String(showResult.logs[0]).includes("Add CLI bootstrap"));
         assert.isTrue(String(showResult.logs[0]).includes("Executor: agent"));
@@ -104,40 +104,40 @@ describe("tm cli commands", () => {
         ]);
         assert.strictEqual(createResult.exit._tag, "Success");
 
-        const created = decodeItemOutput(String(createResult.logs[0]));
-        assert.strictEqual(created.item.subject, "Plan backlog tree");
-        assert.strictEqual(created.item.description, "Create the initial Epic and Tasks.");
+        const created = decodeTicketOutput(String(createResult.logs[0]));
+        assert.strictEqual(created.ticket.subject, "Plan backlog tree");
+        assert.strictEqual(created.ticket.description, "Create the initial Epic and Tasks.");
       }),
     ),
   );
 
-  it.effect("updates Work Item Subject by unique prefix in JSON mode", () =>
+  it.effect("updates Ticket Subject by unique prefix in JSON mode", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Update subject work");
+        const ticket = yield* createTicket(directory, "Update subject work");
         yield* TestClock.adjust("1 second");
 
         const result = yield* run([
           "--cwd",
           directory,
           "update",
-          item.id.slice(0, 5),
+          ticket.id.slice(0, 5),
           "--subject",
           "Refine update subject",
           "--json",
         ]);
         assert.strictEqual(result.exit._tag, "Success");
-        const updated = decodeItemOutput(String(result.logs[0])).item;
+        const updated = decodeTicketOutput(String(result.logs[0])).ticket;
 
-        assert.strictEqual(updated.id, item.id);
+        assert.strictEqual(updated.id, ticket.id);
         assert.strictEqual(updated.subject, "Refine update subject");
-        assert.strictEqual(updated.description, item.description);
-        assert.strictEqual(updated.context, item.context);
+        assert.strictEqual(updated.description, ticket.description);
+        assert.strictEqual(updated.context, ticket.context);
         assert.strictEqual(updated.status, "open");
         assert.isAbove(
           DateTime.toEpochMillis(updated.updatedAt),
-          DateTime.toEpochMillis(item.updatedAt),
+          DateTime.toEpochMillis(ticket.updatedAt),
         );
       }),
     ),
@@ -147,19 +147,19 @@ describe("tm cli commands", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Change executor field");
+        const ticket = yield* createTicket(directory, "Change executor field");
 
         const updateResult = yield* run([
           "--cwd",
           directory,
           "update",
-          item.id,
+          ticket.id,
           "--executor",
           "human",
         ]);
         assert.strictEqual(updateResult.exit._tag, "Failure");
 
-        const guardedResult = yield* run(["--cwd", directory, "set-executor", item.id, "human"]);
+        const guardedResult = yield* run(["--cwd", directory, "set-executor", ticket.id, "human"]);
         assert.strictEqual(guardedResult.exit._tag, "Failure");
         assert.isTrue(String(guardedResult.errors[0]).includes("--allow-human"));
 
@@ -168,20 +168,20 @@ describe("tm cli commands", () => {
           "--cwd",
           directory,
           "set-executor",
-          item.id,
+          ticket.id,
           "human",
           "--allow-human",
           "--json",
         ]);
         assert.strictEqual(changedResult.exit._tag, "Success");
-        const changed = decodeItemOutput(String(changedResult.logs[0])).item;
+        const changed = decodeTicketOutput(String(changedResult.logs[0])).ticket;
         assert.strictEqual(changed.executor, "human");
-        assert.strictEqual(changed.subject, item.subject);
-        assert.strictEqual(changed.description, item.description);
-        assert.strictEqual(changed.context, item.context);
+        assert.strictEqual(changed.subject, ticket.subject);
+        assert.strictEqual(changed.description, ticket.description);
+        assert.strictEqual(changed.context, ticket.context);
         assert.isAbove(
           DateTime.toEpochMillis(changed.updatedAt),
-          DateTime.toEpochMillis(item.updatedAt),
+          DateTime.toEpochMillis(ticket.updatedAt),
         );
 
         yield* TestClock.adjust("1 second");
@@ -189,12 +189,12 @@ describe("tm cli commands", () => {
           "--cwd",
           directory,
           "set-executor",
-          item.id,
+          ticket.id,
           "human",
           "--json",
         ]);
         assert.strictEqual(noOpResult.exit._tag, "Success");
-        const noOp = decodeItemOutput(String(noOpResult.logs[0])).item;
+        const noOp = decodeTicketOutput(String(noOpResult.logs[0])).ticket;
         assert.strictEqual(
           DateTime.toEpochMillis(noOp.updatedAt),
           DateTime.toEpochMillis(changed.updatedAt),
@@ -204,17 +204,20 @@ describe("tm cli commands", () => {
           "--cwd",
           directory,
           "set-executor",
-          item.id,
+          ticket.id,
           "agent",
           "--allow-human",
           "--json",
         ]);
         assert.strictEqual(agentResult.exit._tag, "Success");
-        assert.strictEqual(decodeItemOutput(String(agentResult.logs[0])).item.executor, "agent");
+        assert.strictEqual(
+          decodeTicketOutput(String(agentResult.logs[0])).ticket.executor,
+          "agent",
+        );
 
         const nextResult = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(nextResult.exit._tag, "Success");
-        assert.strictEqual(decodeItemOutput(String(nextResult.logs[0])).item.id, item.id);
+        assert.strictEqual(decodeTicketOutput(String(nextResult.logs[0])).ticket.id, ticket.id);
       }),
     ),
   );
@@ -223,33 +226,33 @@ describe("tm cli commands", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Update text fields");
+        const ticket = yield* createTicket(directory, "Update text fields");
 
         const descriptionResult = yield* run([
           "--cwd",
           directory,
           "update",
-          item.id,
+          ticket.id,
           "--description",
           "Updated human-facing description.",
           "--json",
         ]);
         assert.strictEqual(descriptionResult.exit._tag, "Success");
-        const descriptionUpdated = decodeItemOutput(String(descriptionResult.logs[0])).item;
+        const descriptionUpdated = decodeTicketOutput(String(descriptionResult.logs[0])).ticket;
         assert.strictEqual(descriptionUpdated.description, "Updated human-facing description.");
-        assert.strictEqual(descriptionUpdated.context, item.context);
+        assert.strictEqual(descriptionUpdated.context, ticket.context);
 
         const contextResult = yield* run([
           "--cwd",
           directory,
           "update",
-          item.id,
+          ticket.id,
           "--context",
           "Updated execution context.",
           "--json",
         ]);
         assert.strictEqual(contextResult.exit._tag, "Success");
-        const contextUpdated = decodeItemOutput(String(contextResult.logs[0])).item;
+        const contextUpdated = decodeTicketOutput(String(contextResult.logs[0])).ticket;
         assert.strictEqual(contextUpdated.description, "Updated human-facing description.");
         assert.strictEqual(contextUpdated.context, "Updated execution context.");
 
@@ -257,13 +260,13 @@ describe("tm cli commands", () => {
           "--cwd",
           directory,
           "update",
-          item.id,
+          ticket.id,
           "--message",
           "Retitle update work\n\nUpdated through message input.",
           "--json",
         ]);
         assert.strictEqual(messageResult.exit._tag, "Success");
-        const messageUpdated = decodeItemOutput(String(messageResult.logs[0])).item;
+        const messageUpdated = decodeTicketOutput(String(messageResult.logs[0])).ticket;
         assert.strictEqual(messageUpdated.subject, "Retitle update work");
         assert.strictEqual(messageUpdated.description, "Updated through message input.");
         assert.strictEqual(messageUpdated.context, "Updated execution context.");
@@ -271,11 +274,11 @@ describe("tm cli commands", () => {
     ),
   );
 
-  it.effect("updates Work Item text from files", () =>
+  it.effect("updates Ticket text from files", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Update from files");
+        const ticket = yield* createTicket(directory, "Update from files");
         const fs = yield* FileSystem.FileSystem;
         const descriptionFile = `${directory}/description.md`;
         const contextFile = `${directory}/context.md`;
@@ -291,20 +294,20 @@ describe("tm cli commands", () => {
           "--cwd",
           directory,
           "update",
-          item.id,
+          ticket.id,
           "--description-file",
           descriptionFile,
           "--json",
         ]);
         assert.strictEqual(descriptionResult.exit._tag, "Success");
-        const descriptionUpdated = decodeItemOutput(String(descriptionResult.logs[0])).item;
+        const descriptionUpdated = decodeTicketOutput(String(descriptionResult.logs[0])).ticket;
         assert.strictEqual(descriptionUpdated.description, "Description loaded from a file.");
 
         const messageResult = yield* run([
           "--cwd",
           directory,
           "update",
-          item.id,
+          ticket.id,
           "--message-file",
           messageFile,
           "--context-file",
@@ -312,7 +315,7 @@ describe("tm cli commands", () => {
           "--json",
         ]);
         assert.strictEqual(messageResult.exit._tag, "Success");
-        const messageUpdated = decodeItemOutput(String(messageResult.logs[0])).item;
+        const messageUpdated = decodeTicketOutput(String(messageResult.logs[0])).ticket;
         assert.strictEqual(messageUpdated.subject, "Retitle from file");
         assert.strictEqual(messageUpdated.description, "Description loaded through message-file.");
         assert.strictEqual(messageUpdated.context, "Context loaded from a file.");
@@ -324,13 +327,13 @@ describe("tm cli commands", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Clear update fields");
+        const ticket = yield* createTicket(directory, "Clear update fields");
 
         const result = yield* run([
           "--cwd",
           directory,
           "update",
-          item.id,
+          ticket.id,
           "--description",
           "",
           "--context",
@@ -340,8 +343,8 @@ describe("tm cli commands", () => {
           "--json",
         ]);
         assert.strictEqual(result.exit._tag, "Success");
-        const updated = decodeItemOutput(String(result.logs[0])).item;
-        assert.strictEqual(updated.subject, item.subject);
+        const updated = decodeTicketOutput(String(result.logs[0])).ticket;
+        assert.strictEqual(updated.subject, ticket.subject);
         assert.strictEqual(updated.description, "");
         assert.strictEqual(updated.context, "");
       }),
@@ -352,7 +355,7 @@ describe("tm cli commands", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Reject update inputs");
+        const ticket = yield* createTicket(directory, "Reject update inputs");
         const fs = yield* FileSystem.FileSystem;
         const descriptionFile = `${directory}/description.md`;
         const messageFile = `${directory}/message.md`;
@@ -364,25 +367,25 @@ describe("tm cli commands", () => {
           readonly expected: string;
         }> = [
           {
-            args: ["update", item.id, "--subject", "bad subject."],
+            args: ["update", ticket.id, "--subject", "bad subject."],
             expected: "Subject",
           },
           {
-            args: ["update", item.id, "--description", ""],
+            args: ["update", ticket.id, "--description", ""],
             expected: "Description is required",
           },
           {
-            args: ["update", item.id, "--context", ""],
+            args: ["update", ticket.id, "--context", ""],
             expected: "Context is required",
           },
           {
-            args: ["update", item.id],
+            args: ["update", ticket.id],
             expected: "At least one update field is required",
           },
           {
             args: [
               "update",
-              item.id,
+              ticket.id,
               "--description",
               "Inline description.",
               "--description-file",
@@ -393,7 +396,7 @@ describe("tm cli commands", () => {
           {
             args: [
               "update",
-              item.id,
+              ticket.id,
               "--message",
               "Retitle update\n\nDescription.",
               "--subject",
@@ -404,7 +407,7 @@ describe("tm cli commands", () => {
           {
             args: [
               "update",
-              item.id,
+              ticket.id,
               "--message",
               "Retitle update\n\nDescription.",
               "--message-file",
@@ -424,14 +427,14 @@ describe("tm cli commands", () => {
     ),
   );
 
-  it.effect("preserves metadata and updates done or cancelled Work Items", () =>
+  it.effect("preserves metadata and updates done or cancelled Tickets", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Preserve update metadata");
-        const dependency = yield* createWorkItem(directory, "Prepare metadata dependency");
-        yield* run(["--cwd", directory, "block", item.id, "--by", dependency.id]);
-        const claimed = yield* claimWorkItem(directory, item.id, "metadata-agent");
+        const ticket = yield* createTicket(directory, "Preserve update metadata");
+        const dependency = yield* createTicket(directory, "Prepare metadata dependency");
+        yield* run(["--cwd", directory, "block", ticket.id, "--by", dependency.id]);
+        const claimed = yield* claimTicket(directory, ticket.id, "metadata-agent");
         const originalClaim = claimed.claim;
         if (originalClaim === undefined) {
           assert.fail("Expected claimed fixture to include a claim.");
@@ -440,13 +443,13 @@ describe("tm cli commands", () => {
             "--cwd",
             directory,
             "update",
-            item.id,
+            ticket.id,
             "--description",
             "Updated while preserving metadata.",
             "--json",
           ]);
           assert.strictEqual(updateResult.exit._tag, "Success");
-          const updatedOpen = decodeItemOutput(String(updateResult.logs[0])).item;
+          const updatedOpen = decodeTicketOutput(String(updateResult.logs[0])).ticket;
           const updatedClaim = updatedOpen.claim;
           if (updatedClaim === undefined) {
             assert.fail("Expected update to preserve the existing claim.");
@@ -463,58 +466,63 @@ describe("tm cli commands", () => {
             );
             assert.strictEqual(updatedOpen.status, "open");
 
-            const doneBase = yield* createWorkItem(directory, "Update done item");
-            const cancelledBase = yield* createWorkItem(directory, "Update cancelled item");
-            const doneItem = yield* markDone(doneBase);
-            const cancelledItem = yield* markCancelled(cancelledBase);
-            yield* writeTasksFile(directory, [updatedOpen, dependency, doneItem, cancelledItem]);
+            const doneBase = yield* createTicket(directory, "Update done ticket");
+            const cancelledBase = yield* createTicket(directory, "Update cancelled ticket");
+            const doneTicket = yield* markDone(doneBase);
+            const cancelledTicket = yield* markCancelled(cancelledBase);
+            yield* writeTasksFile(directory, [
+              updatedOpen,
+              dependency,
+              doneTicket,
+              cancelledTicket,
+            ]);
 
             const doneResult = yield* run([
               "--cwd",
               directory,
               "update",
-              doneItem.id,
+              doneTicket.id,
               "--subject",
-              "Refine done item",
+              "Refine done ticket",
               "--json",
             ]);
             assert.strictEqual(doneResult.exit._tag, "Success");
-            const updatedDone = requireDoneWorkItem(
-              decodeItemOutput(String(doneResult.logs[0])).item,
+            const updatedDone = requireDoneTicket(
+              decodeTicketOutput(String(doneResult.logs[0])).ticket,
             );
-            assert.strictEqual(updatedDone.subject, "Refine done item");
-            assert.strictEqual(updatedDone.result.summary, doneItem.result.summary);
-            assert.strictEqual(updatedDone.result.completedBy, doneItem.result.completedBy);
+            assert.strictEqual(updatedDone.subject, "Refine done ticket");
+            assert.strictEqual(updatedDone.result.summary, doneTicket.result.summary);
+            assert.strictEqual(updatedDone.result.completedBy, doneTicket.result.completedBy);
             assert.strictEqual(
               DateTime.toEpochMillis(updatedDone.result.completedAt),
-              DateTime.toEpochMillis(doneItem.result.completedAt),
+              DateTime.toEpochMillis(doneTicket.result.completedAt),
             );
 
             const cancellationResult = yield* run([
               "--cwd",
               directory,
               "update",
-              cancelledItem.id,
+              cancelledTicket.id,
               "--context",
               "Corrected cancellation context.",
               "--json",
             ]);
             assert.strictEqual(cancellationResult.exit._tag, "Success");
-            const updatedCancelled = requireCancelledWorkItem(
-              decodeItemOutput(String(cancellationResult.logs[0])).item,
+            const updatedCancelled = requireCancelledTicket(
+              decodeTicketOutput(String(cancellationResult.logs[0])).ticket,
             );
             assert.strictEqual(updatedCancelled.context, "Corrected cancellation context.");
             assert.strictEqual(
               updatedCancelled.cancellation.reason,
-              cancelledItem.cancellation.reason,
+              cancelledTicket.cancellation.reason,
             );
             assert.strictEqual(
               updatedCancelled.cancellation.cancelledBy,
-              cancelledItem.cancellation.cancelledBy,
+              cancelledTicket.cancellation.cancelledBy,
             );
             assert.strictEqual(
               DateTime.toEpochMillis(updatedCancelled.cancellation.cancelledAt),
-              DateTime.toEpochMillis(cancelledItem.cancellation.cancelledAt),
+              DateTime.toEpochMillis(cancelledTicket.cancellation.cancelledAt),
             );
           }
         }
@@ -526,19 +534,19 @@ describe("tm cli commands", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const item = yield* createWorkItem(directory, "Render update output");
+        const ticket = yield* createTicket(directory, "Render update output");
 
         const result = yield* run([
           "--cwd",
           directory,
           "update",
-          item.id,
+          ticket.id,
           "--description",
           "Human output description.",
         ]);
         assert.strictEqual(result.exit._tag, "Success");
         assert.isTrue(String(result.logs[0]).includes("Updated Render update output"));
-        assert.isTrue(String(result.logs[0]).includes(item.id));
+        assert.isTrue(String(result.logs[0]).includes(ticket.id));
       }),
     ),
   );

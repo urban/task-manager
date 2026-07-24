@@ -7,20 +7,17 @@ import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
 
 import { ensureValidStore } from "../domain/Validation";
-import {
-  decodeWorkItemJsonLine,
-  encodeWorkItemJsonLine,
-  sortWorkItems,
-  type WorkItem,
-} from "../domain/WorkItem";
+import { decodeTicketJsonLine, encodeTicketJsonLine, sortTickets } from "../domain/Ticket";
 import {
   CommandFailure,
   LockUnavailable,
   StorageFailure,
   StorageNotInitialized,
   ValidationFailure,
-  type ValidationIssue,
 } from "../domain/Errors";
+
+type Ticket = import("../domain/Ticket").Ticket;
+type ValidationIssue = import("../domain/Errors").ValidationIssue;
 
 export interface StorePaths {
   readonly baseDirectory: string;
@@ -80,15 +77,15 @@ const trimTrailingEmptyLines = (lines: ReadonlyArray<string>): ReadonlyArray<str
 
 const decodeStoreContent = (
   content: string,
-): Effect.Effect<ReadonlyArray<WorkItem>, ValidationFailure> =>
+): Effect.Effect<ReadonlyArray<Ticket>, ValidationFailure> =>
   decodeLines(trimTrailingEmptyLines(content.split("\n")));
 
 const decodeLines = (
   lines: ReadonlyArray<string>,
-): Effect.Effect<ReadonlyArray<WorkItem>, ValidationFailure> =>
+): Effect.Effect<ReadonlyArray<Ticket>, ValidationFailure> =>
   Effect.gen(function* () {
     const issues: Array<ValidationIssue> = [];
-    const items: Array<WorkItem> = [];
+    const tickets: Array<Ticket> = [];
 
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
@@ -104,7 +101,7 @@ const decodeLines = (
         continue;
       }
 
-      const decoded = yield* Effect.result(decodeWorkItemJsonLine(line));
+      const decoded = yield* Effect.result(decodeTicketJsonLine(line));
       if (Result.isFailure(decoded)) {
         const schemaVersionHint =
           !line.includes('"schemaVersion":3') ||
@@ -119,10 +116,10 @@ const decodeLines = (
         continue;
       }
 
-      items.push(decoded.success);
+      tickets.push(decoded.success);
     }
 
-    const validation = ensureValidStore(items, "Store validation failed.");
+    const validation = ensureValidStore(tickets, "Store validation failed.");
     if (validation !== undefined) {
       return yield* new ValidationFailure({
         summary: validation.summary,
@@ -137,7 +134,7 @@ const decodeLines = (
       });
     }
 
-    return items;
+    return tickets;
   });
 
 export const resolveStorePaths = Effect.fnUntraced(function* (options: {
@@ -210,7 +207,7 @@ export const readTextFile = (
 export const loadStore = (
   paths: StorePaths,
 ): Effect.Effect<
-  ReadonlyArray<WorkItem>,
+  ReadonlyArray<Ticket>,
   StorageFailure | StorageNotInitialized | ValidationFailure,
   FileSystem.FileSystem
 > =>
@@ -233,34 +230,34 @@ export const loadStore = (
 export const validateStoreOnDisk = (
   paths: StorePaths,
 ): Effect.Effect<
-  ReadonlyArray<WorkItem>,
+  ReadonlyArray<Ticket>,
   StorageFailure | StorageNotInitialized | ValidationFailure,
   FileSystem.FileSystem
 > => loadStore(paths);
 
 export const writeStore = (
   paths: StorePaths,
-  items: ReadonlyArray<WorkItem>,
+  tickets: ReadonlyArray<Ticket>,
 ): Effect.Effect<
-  ReadonlyArray<WorkItem>,
+  ReadonlyArray<Ticket>,
   StorageFailure | ValidationFailure | LockUnavailable,
   FileSystem.FileSystem | Scope.Scope
 > =>
   Effect.gen(function* () {
-    const validation = ensureValidStore(items, "Store validation failed before write.");
+    const validation = ensureValidStore(tickets, "Store validation failed before write.");
     if (validation !== undefined) {
       return yield* validation;
     }
 
     yield* ensureStoreDirectory(paths);
 
-    const sortedItems = sortWorkItems(items);
-    const encodedLines = yield* Effect.forEach(sortedItems, (item) =>
-      encodeWorkItemJsonLine(item).pipe(
+    const sortedTickets = sortTickets(tickets);
+    const encodedLines = yield* Effect.forEach(sortedTickets, (ticket) =>
+      encodeTicketJsonLine(ticket).pipe(
         Effect.mapError(
           (error: { readonly message: string }) =>
             new StorageFailure({
-              message: `Failed to encode ${item.id}: ${error.message}`,
+              message: `Failed to encode ${ticket.id}: ${error.message}`,
             }),
         ),
       ),
@@ -295,15 +292,15 @@ export const writeStore = (
         const persistedContent = yield* fs
           .readFileString(paths.tasksFile)
           .pipe(mapPlatformError(`Failed to read ${paths.tasksFile}`));
-        const persistedItems = yield* decodeStoreContent(persistedContent);
+        const persistedTickets = yield* decodeStoreContent(persistedContent);
         const persistedValidation = ensureValidStore(
-          persistedItems,
+          persistedTickets,
           "Store validation failed after write.",
         );
         if (persistedValidation !== undefined) {
           return yield* persistedValidation;
         }
-        return persistedItems;
+        return persistedTickets;
       }),
     );
   });
@@ -313,7 +310,7 @@ export const initStore = (
 ): Effect.Effect<
   {
     readonly created: boolean;
-    readonly items: ReadonlyArray<WorkItem>;
+    readonly tickets: ReadonlyArray<Ticket>;
   },
   StorageFailure | ValidationFailure | LockUnavailable,
   FileSystem.FileSystem | Scope.Scope
@@ -329,17 +326,17 @@ export const initStore = (
       const content = yield* fs
         .readFileString(paths.tasksFile)
         .pipe(mapPlatformError(`Failed to read ${paths.tasksFile}`));
-      const items = yield* decodeStoreContent(content);
+      const tickets = yield* decodeStoreContent(content);
       return {
         created: false,
-        items,
+        tickets,
       };
     }
 
-    const items = yield* writeStore(paths, []);
+    const tickets = yield* writeStore(paths, []);
     return {
       created: true,
-      items,
+      tickets,
     };
   });
 

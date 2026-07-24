@@ -5,20 +5,22 @@ import * as Command from "effect/unstable/cli/Command";
 import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
-import { resolveWorkItem, sortWorkItems, type WorkItem } from "../domain/WorkItem";
+import { resolveTicket, sortTickets } from "../domain/Ticket";
+
+type Ticket = import("../domain/Ticket").Ticket;
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
 import { executeCommand, renderJson } from "./shared/output";
-import { firstHumanExecutorWorkItem, humanExecutorGuardMessage } from "./shared/work-items";
+import { firstHumanExecutorTicket, humanExecutorGuardMessage } from "./shared/tickets";
 
-interface DeletedWorkItemOutput {
+interface DeletedTicketOutput {
   readonly id: string;
   readonly subject: string;
   readonly executor: string;
 }
 
 interface DanglingDependencyRisk {
-  readonly item: WorkItem;
+  readonly ticket: Ticket;
   readonly dependencyId: string;
 }
 
@@ -26,9 +28,9 @@ const deletionWarning =
   "Deletion is destructive. Prefer tm cancel for real work; use delete only for accidental records.";
 
 const isDescendantOf = (
-  candidate: WorkItem,
+  candidate: Ticket,
   ancestorId: string,
-  itemsById: ReadonlyMap<string, WorkItem>,
+  ticketsById: ReadonlyMap<string, Ticket>,
 ): boolean => {
   let currentParentId = candidate.parentId;
 
@@ -37,7 +39,7 @@ const isDescendantOf = (
       return true;
     }
 
-    const parent = itemsById.get(currentParentId);
+    const parent = ticketsById.get(currentParentId);
     if (parent === undefined) {
       return false;
     }
@@ -48,63 +50,63 @@ const isDescendantOf = (
 };
 
 const deletedSubtreeOf = (
-  item: WorkItem,
-  items: ReadonlyArray<WorkItem>,
-): ReadonlyArray<WorkItem> => {
-  const itemsById = new Map(items.map((candidate) => [candidate.id, candidate]));
-  return sortWorkItems(items).filter(
-    (candidate) => candidate.id === item.id || isDescendantOf(candidate, item.id, itemsById),
+  ticket: Ticket,
+  tickets: ReadonlyArray<Ticket>,
+): ReadonlyArray<Ticket> => {
+  const ticketsById = new Map(tickets.map((candidate) => [candidate.id, candidate]));
+  return sortTickets(tickets).filter(
+    (candidate) => candidate.id === ticket.id || isDescendantOf(candidate, ticket.id, ticketsById),
   );
 };
 
 const findDanglingDependencyRisks = (
-  items: ReadonlyArray<WorkItem>,
+  tickets: ReadonlyArray<Ticket>,
   deletedIds: ReadonlySet<string>,
 ): ReadonlyArray<DanglingDependencyRisk> =>
-  sortWorkItems(items).flatMap((item) => {
-    if (deletedIds.has(item.id)) {
+  sortTickets(tickets).flatMap((ticket) => {
+    if (deletedIds.has(ticket.id)) {
       return [];
     }
 
-    return (item.blockedBy ?? [])
+    return (ticket.blockedBy ?? [])
       .filter((dependencyId) => deletedIds.has(dependencyId))
-      .map((dependencyId) => ({ item, dependencyId }));
+      .map((dependencyId) => ({ ticket, dependencyId }));
   });
 
-const toDeletedWorkItemOutput = (item: WorkItem): DeletedWorkItemOutput => ({
-  id: item.id,
-  subject: item.subject,
-  executor: item.executor,
+const toDeletedTicketOutput = (ticket: Ticket): DeletedTicketOutput => ({
+  id: ticket.id,
+  subject: ticket.subject,
+  executor: ticket.executor,
 });
 
-const renderWorkItemBullet = (item: WorkItem): string => `- ${item.subject} (${item.id})`;
+const renderTicketBullet = (ticket: Ticket): string => `- ${ticket.subject} (${ticket.id})`;
 
-const renderDeletePreview = (items: ReadonlyArray<WorkItem>): string =>
+const renderDeletePreview = (tickets: ReadonlyArray<Ticket>): string =>
   [
     deletionWarning,
-    `The following ${items.length} Work Item${
-      items.length === 1 ? "" : "s"
+    `The following ${tickets.length} Ticket${
+      tickets.length === 1 ? "" : "s"
     } would be permanently deleted:`,
-    ...items.map(renderWorkItemBullet),
+    ...tickets.map(renderTicketBullet),
     "Re-run with --yes to confirm destructive deletion.",
   ].join("\n");
 
 const renderDanglingDependencyRisks = (risks: ReadonlyArray<DanglingDependencyRisk>): string =>
   [
     "Deletion would leave dangling dependencies.",
-    "Please unblock, cancel, or delete dependent Work Items first.",
+    "Please unblock, cancel, or delete dependent Tickets first.",
     ...risks.map(
       (risk) =>
-        `- ${risk.item.subject} (${risk.item.id}) depends on deleted Work Item ${risk.dependencyId}`,
+        `- ${risk.ticket.subject} (${risk.ticket.id}) depends on deleted Ticket ${risk.dependencyId}`,
     ),
   ].join("\n");
 
-const renderDeletedHuman = (items: ReadonlyArray<WorkItem>): string => {
-  const [firstItem] = items;
+const renderDeletedHuman = (tickets: ReadonlyArray<Ticket>): string => {
+  const [firstTicket] = tickets;
   const deletionSummary =
-    items.length === 1 && firstItem !== undefined
-      ? `Deleted ${firstItem.subject} (${firstItem.id}).`
-      : [`Deleted ${items.length} Work Items.`, ...items.map(renderWorkItemBullet)].join("\n");
+    tickets.length === 1 && firstTicket !== undefined
+      ? `Deleted ${firstTicket.subject} (${firstTicket.id}).`
+      : [`Deleted ${tickets.length} Tickets.`, ...tickets.map(renderTicketBullet)].join("\n");
 
   return [deletionWarning, deletionSummary].join("\n");
 };
@@ -113,10 +115,10 @@ export const commandDelete = Command.make("delete", {
   id: Argument.string("id"),
   yes: Flag.boolean("yes").pipe(Flag.withDescription("Confirm destructive deletion")),
   allowHuman: Flag.boolean("allow-human").pipe(
-    Flag.withDescription("Allow deleting human-executor Work Items"),
+    Flag.withDescription("Allow deleting human-executor Tickets"),
   ),
 }).pipe(
-  Command.withDescription("Delete accidental Work Items and descendants"),
+  Command.withDescription("Delete accidental Tickets and descendants"),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, yes, allowHuman }) {
       const root = yield* commandRoot;
@@ -125,25 +127,25 @@ export const commandDelete = Command.make("delete", {
         Effect.gen(function* () {
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
-          const item = yield* resolveWorkItem(items, id);
-          const deletedItems = deletedSubtreeOf(item, items);
+          const tickets = yield* loadStore(paths);
+          const ticket = yield* resolveTicket(tickets, id);
+          const deletedTickets = deletedSubtreeOf(ticket, tickets);
 
           if (!yes) {
             return yield* new CommandFailure({
-              message: renderDeletePreview(deletedItems),
+              message: renderDeletePreview(deletedTickets),
             });
           }
 
-          const humanDeletedItem = firstHumanExecutorWorkItem(deletedItems);
-          if (humanDeletedItem !== undefined && !allowHuman) {
+          const humanDeletedTicket = firstHumanExecutorTicket(deletedTickets);
+          if (humanDeletedTicket !== undefined && !allowHuman) {
             return yield* new CommandFailure({
-              message: humanExecutorGuardMessage(humanDeletedItem, "delete it"),
+              message: humanExecutorGuardMessage(humanDeletedTicket, "delete it"),
             });
           }
 
-          const deletedIds = new Set(deletedItems.map((deletedItem) => deletedItem.id));
-          const danglingDependencyRisks = findDanglingDependencyRisks(items, deletedIds);
+          const deletedIds = new Set(deletedTickets.map((deletedTicket) => deletedTicket.id));
+          const danglingDependencyRisks = findDanglingDependencyRisks(tickets, deletedIds);
           if (danglingDependencyRisks.length > 0) {
             return yield* new CommandFailure({
               message: renderDanglingDependencyRisks(danglingDependencyRisks),
@@ -152,16 +154,16 @@ export const commandDelete = Command.make("delete", {
 
           yield* writeStore(
             paths,
-            items.filter((candidate) => !deletedIds.has(candidate.id)),
+            tickets.filter((candidate) => !deletedIds.has(candidate.id)),
           );
 
           yield* Console.log(
             root.json
               ? renderJson({
                   ok: true,
-                  deleted: deletedItems.map(toDeletedWorkItemOutput),
+                  deleted: deletedTickets.map(toDeletedTicketOutput),
                 })
-              : renderDeletedHuman(deletedItems),
+              : renderDeletedHuman(deletedTickets),
           );
         }),
       );

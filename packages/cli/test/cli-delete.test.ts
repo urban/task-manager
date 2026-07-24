@@ -5,10 +5,10 @@ import { TestClock } from "effect/testing";
 
 import {
   readTasksFile,
-  claimWorkItem,
-  createWorkItem,
+  claimTicket,
+  createTicket,
   decodeDeleteOutput,
-  decodeItemOutput,
+  decodeTicketOutput,
   decodeValidateOutput,
   run,
   withTempDirectory,
@@ -19,8 +19,8 @@ describe("tm delete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const parent = yield* createWorkItem(directory, "Delete preview parent");
-        const child = yield* createWorkItem(directory, "Delete preview child", {
+        const parent = yield* createTicket(directory, "Delete preview parent");
+        const child = yield* createTicket(directory, "Delete preview child", {
           level: "subtask",
           parent: parent.id,
         });
@@ -40,12 +40,12 @@ describe("tm delete", () => {
     ),
   );
 
-  it.effect("deletes a leaf Work Item with human output", () =>
+  it.effect("deletes a leaf Ticket with human output", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const target = yield* createWorkItem(directory, "Delete leaf work");
-        const unrelated = yield* createWorkItem(directory, "Keep unrelated work");
+        const target = yield* createTicket(directory, "Delete leaf work");
+        const unrelated = yield* createTicket(directory, "Keep unrelated work");
 
         const result = yield* run(["--cwd", directory, "delete", target.id, "--yes"]);
 
@@ -62,7 +62,7 @@ describe("tm delete", () => {
 
         const unrelatedShow = yield* run(["--cwd", directory, "show", unrelated.id, "--json"]);
         assert.strictEqual(unrelatedShow.exit._tag, "Success");
-        const persistedUnrelated = decodeItemOutput(String(unrelatedShow.logs[0])).item;
+        const persistedUnrelated = decodeTicketOutput(String(unrelatedShow.logs[0])).ticket;
         assert.strictEqual(persistedUnrelated.id, unrelated.id);
       }),
     ),
@@ -72,7 +72,7 @@ describe("tm delete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const target = yield* createWorkItem(directory, "Delete human review", {
+        const target = yield* createTicket(directory, "Delete human review", {
           executor: "human",
         });
 
@@ -92,11 +92,11 @@ describe("tm delete", () => {
         assert.strictEqual(allowed.exit._tag, "Success");
         const decoded = decodeDeleteOutput(String(allowed.logs[0]));
         assert.deepStrictEqual(
-          decoded.deleted.map((item) => item.id),
+          decoded.deleted.map((ticket) => ticket.id),
           [target.id],
         );
         assert.deepStrictEqual(
-          decoded.deleted.map((item) => item.executor),
+          decoded.deleted.map((ticket) => ticket.executor),
           ["human"],
         );
       }),
@@ -107,16 +107,16 @@ describe("tm delete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const epic = yield* createWorkItem(directory, "Delete parent epic", { level: "epic" });
-        const task = yield* createWorkItem(directory, "Delete child task", {
+        const epic = yield* createTicket(directory, "Delete parent epic", { level: "epic" });
+        const task = yield* createTicket(directory, "Delete child task", {
           level: "task",
           parent: epic.id,
         });
-        const subtask = yield* createWorkItem(directory, "Delete child subtask", {
+        const subtask = yield* createTicket(directory, "Delete child subtask", {
           level: "subtask",
           parent: task.id,
         });
-        const unrelated = yield* createWorkItem(directory, "Keep after subtree delete");
+        const unrelated = yield* createTicket(directory, "Keep after subtree delete");
 
         const result = yield* run([
           "--cwd",
@@ -130,11 +130,11 @@ describe("tm delete", () => {
         assert.strictEqual(result.exit._tag, "Success");
         const decoded = decodeDeleteOutput(String(result.logs[0]));
         assert.deepStrictEqual(
-          decoded.deleted.map((item) => item.id).toSorted(),
+          decoded.deleted.map((ticket) => ticket.id).toSorted(),
           [epic.id, task.id, subtask.id].toSorted(),
         );
         assert.deepStrictEqual(
-          decoded.deleted.map((item) => item.subject).toSorted(),
+          decoded.deleted.map((ticket) => ticket.subject).toSorted(),
           [epic.subject, task.subject, subtask.subject].toSorted(),
         );
 
@@ -149,7 +149,7 @@ describe("tm delete", () => {
         assert.strictEqual(validateResult.exit._tag, "Success");
         assert.deepStrictEqual(decodeValidateOutput(String(validateResult.logs[0])), {
           ok: true,
-          workItemCount: 1,
+          ticketCount: 1,
           tasksFile: `${directory}/.tasks/tasks.jsonl`,
         });
       }),
@@ -160,8 +160,8 @@ describe("tm delete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const dependency = yield* createWorkItem(directory, "Delete dependency target");
-        const dependent = yield* createWorkItem(directory, "Keep dependent work", {
+        const dependency = yield* createTicket(directory, "Delete dependency target");
+        const dependent = yield* createTicket(directory, "Keep dependent work", {
           blockedBy: [dependency.id],
         });
         const before = yield* readTasksFile(directory);
@@ -182,12 +182,12 @@ describe("tm delete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const epic = yield* createWorkItem(directory, "Delete internal epic", { level: "epic" });
-        const dependency = yield* createWorkItem(directory, "Delete internal dependency", {
+        const epic = yield* createTicket(directory, "Delete internal epic", { level: "epic" });
+        const dependency = yield* createTicket(directory, "Delete internal dependency", {
           level: "task",
           parent: epic.id,
         });
-        const dependent = yield* createWorkItem(directory, "Delete internal dependent", {
+        const dependent = yield* createTicket(directory, "Delete internal dependent", {
           level: "task",
           parent: epic.id,
           blockedBy: [dependency.id],
@@ -198,7 +198,7 @@ describe("tm delete", () => {
         assert.strictEqual(result.exit._tag, "Success");
         const decoded = decodeDeleteOutput(String(result.logs[0]));
         assert.deepStrictEqual(
-          decoded.deleted.map((item) => item.id).toSorted(),
+          decoded.deleted.map((ticket) => ticket.id).toSorted(),
           [epic.id, dependency.id, dependent.id].toSorted(),
         );
 
@@ -206,7 +206,7 @@ describe("tm delete", () => {
         assert.strictEqual(validateResult.exit._tag, "Success");
         assert.deepStrictEqual(decodeValidateOutput(String(validateResult.logs[0])), {
           ok: true,
-          workItemCount: 0,
+          ticketCount: 0,
           tasksFile: `${directory}/.tasks/tasks.jsonl`,
         });
       }),
@@ -217,15 +217,15 @@ describe("tm delete", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const first = yield* createWorkItem(directory, "Claimed next work");
+        const first = yield* createTicket(directory, "Claimed next work");
         yield* TestClock.adjust("1 second");
-        const second = yield* createWorkItem(directory, "Unclaimed next work");
-        yield* claimWorkItem(directory, first.id, "agent-a");
+        const second = yield* createTicket(directory, "Unclaimed next work");
+        yield* claimTicket(directory, first.id, "agent-a");
 
         const defaultResult = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(defaultResult.exit._tag, "Success");
-        const defaultSelection = decodeItemOutput(String(defaultResult.logs[0]));
-        assert.strictEqual(defaultSelection.item.id, second.id);
+        const defaultSelection = decodeTicketOutput(String(defaultResult.logs[0]));
+        assert.strictEqual(defaultSelection.ticket.id, second.id);
 
         const includeClaimedResult = yield* run([
           "--cwd",
@@ -235,14 +235,14 @@ describe("tm delete", () => {
           "--json",
         ]);
         assert.strictEqual(includeClaimedResult.exit._tag, "Success");
-        const includeClaimedSelection = decodeItemOutput(String(includeClaimedResult.logs[0]));
-        assert.strictEqual(includeClaimedSelection.item.id, first.id);
+        const includeClaimedSelection = decodeTicketOutput(String(includeClaimedResult.logs[0]));
+        assert.strictEqual(includeClaimedSelection.ticket.id, first.id);
 
         yield* TestClock.adjust("1 hour");
         const expiredResult = yield* run(["--cwd", directory, "next", "--json"]);
         assert.strictEqual(expiredResult.exit._tag, "Success");
-        const expiredSelection = decodeItemOutput(String(expiredResult.logs[0]));
-        assert.strictEqual(expiredSelection.item.id, first.id);
+        const expiredSelection = decodeTicketOutput(String(expiredResult.logs[0]));
+        assert.strictEqual(expiredSelection.ticket.id, first.id);
       }),
     ),
   );

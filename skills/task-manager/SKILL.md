@@ -1,17 +1,17 @@
 ---
 name: task-manager
-description: "Use when managing tm CLI Work Items: create, update, set Executor, list, show, select, claim, release, complete, cancel, delete, block, and unblock local Work Items from specs, plans, or direct requests."
+description: "Use when managing tm CLI Tickets: create, update, set Executor, list, show, select, claim, release, complete, cancel, delete, block, and unblock local Tickets from specs, plans, or direct requests."
 ---
 
 # Task Manager
 
-Task Manager is the product name; `tm` is the CLI. Use it as the source of truth for durable, local-first Work Items.
+Task Manager is the product name; `tm` is the CLI. Use it as the source of truth for durable, local-first Tickets.
 
 ## Rules
 
 - Use `tm` commands for all state changes; do not manually edit `.tasks/tasks.jsonl` unless the user explicitly asks for low-level recovery.
 - Run `command -v tm >/dev/null` before `tm` work. Run `command -v jq >/dev/null` before parsing `--json` output.
-- Prefer `--json` whenever you need an ID or machine-readable state; capture IDs from `.item.id` with `jq`.
+- Prefer `--json` whenever you need an ID or machine-readable state; capture IDs from `.ticket.id` with `jq`.
 - Create hierarchy parent-before-child with `--parent`; record ordering with `--blocked-by` or `tm block`, not Markdown prose.
 - Set Executor explicitly when planning: `--executor agent` for LLM-executable work, `--executor human` for HITL decisions/reviews/manual work. `tm next` defaults to agent work.
 - Use `tm update` for text corrections, `tm set-executor` for Executor changes, `tm release` when abandoning claimed work, `tm cancel` for real work that should stop, and `tm delete --yes` only for accidental records.
@@ -20,11 +20,11 @@ Task Manager is the product name; `tm` is the CLI. Use it as the source of truth
 
 ## Constraints
 
-- Work Item levels are exactly `epic`, `task`, and `subtask`.
+- Ticket levels are exactly `epic`, `task`, and `subtask`.
 - Executors are exactly `agent` and `human`; use `--all-executors` for read views across both Executors.
 - Subjects must be non-empty, 50 characters or fewer, one line, start with a capital letter, have no surrounding whitespace, have no trailing period, and avoid Markdown markers `*`, `_`, `` ` ``, `#`, `[`, `]`.
 - Description is human-facing Markdown. Context is execution-focused Markdown for future agents. Result is structured completion evidence recorded by `tm complete`.
-- Dependencies require existing Work Item IDs or unique prefixes. Prefer full IDs captured from JSON output when creating or modifying dependencies.
+- Dependencies require existing Ticket IDs or unique prefixes. Prefer full IDs captured from JSON output when creating or modifying dependencies.
 - Actor Identity comes from `--actor <name>` or `TM_ACTOR`; reuse the same identity for claim, release, complete, or cancel.
 
 ## Requirements
@@ -33,7 +33,7 @@ Determine the user intent before running commands:
 
 | Intent                                                                 | Use this path                                                           |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| User gives concrete Work Items and says create/add/record them         | Direct create; ask only about missing high-impact fields                |
+| User gives concrete Tickets and says create/add/record them            | Direct create; ask only about missing high-impact fields                |
 | User gives a PRD, spec, plan, or conversation to decompose             | Plan from source; draft hierarchy and wait for approval before creation |
 | User says continue, pick next, work from tm, or complete backlog work  | Execute backlog                                                         |
 | User asks to inspect, edit, release, cancel, delete, block, or unblock | Manage backlog                                                          |
@@ -56,35 +56,35 @@ tm init
 tm validate
 ```
 
-For read-only work, run `tm validate` before selecting or inspecting existing Work Items.
+For read-only work, run `tm validate` before selecting or inspecting existing Tickets.
 
 ### 2. Command inventory
 
-| Need                        | Command                                                                               |
-| --------------------------- | ------------------------------------------------------------------------------------- |
-| Initialize storage          | `tm init`                                                                             |
-| Validate storage            | `tm validate`                                                                         |
-| Create Work Item            | `tm create [<subject>] --level <level> --executor agent\|human ...`                   |
-| Update text fields          | `tm update <id> ...`                                                                  |
-| Change Executor             | `tm set-executor <id> agent\|human [--allow-human]`                                   |
-| Show one item               | `tm show <id>`                                                                        |
-| List tree                   | `tm list [--root <id>] [--status <status>] [--all] [--executor ...\|--all-executors]` |
-| Select next actionable item | `tm next [--root <id>] [--include-claimed] [--executor ...\|--all-executors]`         |
-| Claim work                  | `tm claim <id> --actor <name> [--allow-human]`                                        |
-| Release claim               | `tm release <id> --actor <name>`                                                      |
-| Complete work               | `tm complete <id> --actor <name> --summary ... --verification ... [--allow-human]`    |
-| Cancel real work            | `tm cancel <id> --actor <name> --reason ... [--yes] [--allow-human]`                  |
-| Delete accidental work      | `tm delete <id> --yes [--allow-human]`                                                |
-| Add dependency              | `tm block <blocked-id> --by <dependency-id>`                                          |
-| Remove dependency           | `tm unblock <blocked-id> --by <dependency-id> [--allow-human]`                        |
+| Need                          | Command                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------- |
+| Initialize storage            | `tm init`                                                                             |
+| Validate storage              | `tm validate`                                                                         |
+| Create Ticket                 | `tm create [<subject>] --level <level> --executor agent\|human ...`                   |
+| Update text fields            | `tm update <id> ...`                                                                  |
+| Change Executor               | `tm set-executor <id> agent\|human [--allow-human]`                                   |
+| Show one ticket               | `tm show <id>`                                                                        |
+| List tree                     | `tm list [--root <id>] [--status <status>] [--all] [--executor ...\|--all-executors]` |
+| Select next actionable ticket | `tm next [--root <id>] [--include-claimed] [--executor ...\|--all-executors]`         |
+| Claim work                    | `tm claim <id> --actor <name> [--allow-human]`                                        |
+| Release claim                 | `tm release <id> --actor <name>`                                                      |
+| Complete work                 | `tm complete <id> --actor <name> --summary ... --verification ... [--allow-human]`    |
+| Cancel real work              | `tm cancel <id> --actor <name> --reason ... [--yes] [--allow-human]`                  |
+| Delete accidental work        | `tm delete <id> --yes [--allow-human]`                                                |
+| Add dependency                | `tm block <blocked-id> --by <dependency-id>`                                          |
+| Remove dependency             | `tm unblock <blocked-id> --by <dependency-id> [--allow-human]`                        |
 
 Read [`references/cli-reference.md`](./references/cli-reference.md) when you need exact flags, JSON options, list/next filters, or destructive command details.
 
 ### 3. Direct create fast path
 
-Use this when the user supplied concrete Work Items and wants them created now. Do not spend tokens drafting a separate approval plan unless fields, hierarchy, or dependencies are ambiguous.
+Use this when the user supplied concrete Tickets and wants them created now. Do not spend tokens drafting a separate approval plan unless fields, hierarchy, or dependencies are ambiguous.
 
-Create parent items first, capture IDs, then create children and dependencies:
+Create parent tickets first, capture IDs, then create children and dependencies:
 
 ```bash
 created_json="$(tm create "Add login flow" \
@@ -93,17 +93,17 @@ created_json="$(tm create "Add login flow" \
   --description "Implement the first end-to-end login slice." \
   --context $'## Source\n\nDerived from the user request.\n\n## Verification expectations\n\n- Run bun run check.' \
   --json)"
-created_id="$(printf '%s\n' "$created_json" | jq -r '.item.id')"
+created_id="$(printf '%s\n' "$created_json" | jq -r '.ticket.id')"
 ```
 
-Use repeatable `--blocked-by <id>` only when dependency IDs already exist; otherwise create the items and then run `tm block`. After creation, run:
+Use repeatable `--blocked-by <id>` only when dependency IDs already exist; otherwise create the tickets and then run `tm block`. After creation, run:
 
 ```bash
 tm validate
 tm list
 ```
 
-Read [`references/create-work-items.md`](./references/create-work-items.md) when creating multiple items, using message files, building parent/child ID maps, or writing Description and Context.
+Read [`references/create-tickets.md`](./references/create-tickets.md) when creating multiple tickets, using message files, building parent/child ID maps, or writing Description and Context.
 
 ### 4. Plan from source path
 
@@ -115,17 +115,17 @@ Read [`references/plan-from-spec.md`](./references/plan-from-spec.md) for the dr
 
 ```bash
 next_json="$(tm next --json)"
-next_id="$(printf '%s\n' "$next_json" | jq -r '.item.id // empty')"
+next_id="$(printf '%s\n' "$next_json" | jq -r '.ticket.id // empty')"
 ```
 
-Default `tm list` and `tm next` select only agent-executor work. Use `--executor human` only when the user asks for HITL work, and `--all-executors` only when the user asks for a view across both Executors.
+Plain `tm list` shows all lifecycle states and both Executors. `tm next` selects agent-executor work by default; use `--executor human` only when the user asks for HITL work, and `--all-executors` only when the user asks for the actionable frontier across both Executors.
 
 If `next_id` is empty, report `.reason // "no-actionable-work"` and stop. Otherwise:
 
 1. `tm show <id>` and read Description, Context, Executor, dependencies, claim, and status.
 2. `tm claim <id> --actor <agent-name>`.
-3. Implement the Work Item.
-4. Run the requested verification command. In this repository, normally run `bun run check` unless the Work Item says otherwise.
+3. Implement the Ticket.
+4. Run the requested verification command. In this repository, normally run `bun run check` unless the Ticket says otherwise.
 5. Complete with concrete evidence:
 
 ```bash
@@ -150,16 +150,16 @@ Use the narrow command that matches the request:
 - cancel obsolete real work with `tm cancel`
 - delete accidental records with `tm delete --yes`
 
-Read [`references/recovery-and-maintenance.md`](./references/recovery-and-maintenance.md) when managing existing items, handling command failures, or choosing between release, cancel, delete, and low-level recovery.
+Read [`references/recovery-and-maintenance.md`](./references/recovery-and-maintenance.md) when managing existing tickets, handling command failures, or choosing between release, cancel, delete, and low-level recovery.
 
 ## Gotchas
 
-- Agents often over-plan explicit create requests. If the user already gave concrete Work Items and asked to create them, run the direct create path and ask only about ambiguous hierarchy or dependencies.
+- Agents often over-plan explicit create requests. If the user already gave concrete Tickets and asked to create them, run the direct create path and ask only about ambiguous hierarchy or dependencies.
 - Dependency prose in Description or Context is not enforced. Always record real ordering with `--blocked-by` or `tm block`.
-- Inferring IDs from subjects creates wrong edges when subjects change or collide. Capture `.item.id` from `tm create --json` and use that ID map.
+- Inferring IDs from subjects creates wrong edges when subjects change or collide. Capture `.ticket.id` from `tm create --json` and use that ID map.
 - Starting work without `tm claim` hides concurrency conflicts; abandoning claimed work without `tm release` blocks other agents until expiry.
 - `tm complete` with vague verification damages handoff. Record the exact command and outcome, or ask before using `--allow-no-verification`.
-- Human-executor Work Items are intentional gates. Do not change their Executor, claim, complete, cancel, delete, unblock, or force past them unless the user explicitly approves `--allow-human`.
+- Human-executor Tickets are intentional gates. Do not change their Executor, claim, complete, cancel, delete, unblock, or force past them unless the user explicitly approves `--allow-human`.
 - `tm cancel` and `tm delete` solve different problems. Cancel obsolete real work; delete only mistaken records.
 - Large inline Markdown can break shell quoting. Use `--message-file`, `--description-file`, or `--context-file` for large content.
 - Manual JSONL edits bypass validation and can corrupt the task store. Use CLI recovery first; edit storage only when the user explicitly requests low-level repair.
@@ -167,14 +167,14 @@ Read [`references/recovery-and-maintenance.md`](./references/recovery-and-mainte
 ## Deliverables
 
 - For creation/planning: report created IDs, subjects, hierarchy, Executors, recorded dependencies, and `tm validate` result.
-- For execution: report completed Work Item ID and Subject, Result summary, verification evidence, and final `tm validate` result.
-- For management: report the command outcome, affected Work Item IDs, and validation status after state changes.
-- Every created Work Item should include useful Description, Context, and source traceability when the source is a spec, plan, file, or conversation.
+- For execution: report completed Ticket ID and Subject, Result summary, verification evidence, and final `tm validate` result.
+- For management: report the command outcome, affected Ticket IDs, and validation status after state changes.
+- Every created Ticket should include useful Description, Context, and source traceability when the source is a spec, plan, file, or conversation.
 
 ## References
 
 - [`references/cli-reference.md`](./references/cli-reference.md): Read when: you need the complete command/flag surface or global `--cwd`, `--storage-path`, `--json`, completions, or log-level options.
-- [`references/create-work-items.md`](./references/create-work-items.md): Read when: creating direct or bulk Work Items, capturing IDs, writing content, setting parents, or adding dependencies.
+- [`references/create-tickets.md`](./references/create-tickets.md): Read when: creating direct or bulk Tickets, capturing IDs, writing content, setting parents, or adding dependencies.
 - [`references/plan-from-spec.md`](./references/plan-from-spec.md): Read when: decomposing a PRD/spec/plan/conversation into an approved backlog before creation.
 - [`references/execute-backlog.md`](./references/execute-backlog.md): Read when: selecting, claiming, implementing, releasing, or completing backlog work.
 - [`references/recovery-and-maintenance.md`](./references/recovery-and-maintenance.md): Read when: listing, showing, updating, blocking, unblocking, cancelling, deleting, releasing claims, or recovering from command failures.

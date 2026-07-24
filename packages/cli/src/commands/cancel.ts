@@ -8,29 +8,30 @@ import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
 import {
-  cancelWorkItem,
+  cancelTicket,
   isClaimActive,
-  isOpenWorkItem,
-  resolveWorkItem,
-  sortWorkItems,
-  type OpenWorkItem,
-  type WorkItem,
-  type WorkItemClaim,
-} from "../domain/WorkItem";
+  isOpenTicket,
+  resolveTicket,
+  sortTickets,
+} from "../domain/Ticket";
+
+type OpenTicket = import("../domain/Ticket").OpenTicket;
+type Ticket = import("../domain/Ticket").Ticket;
+type TicketClaim = import("../domain/Ticket").TicketClaim;
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
 import { actorFlag } from "./shared/flags";
 import { resolveActorIdentity, resolveTextInput } from "./shared/input";
-import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
+import { encodeTicketForOutput, executeCommand, renderJson } from "./shared/output";
 import {
   activeClaimConflictMessage,
-  firstHumanExecutorWorkItem,
+  firstHumanExecutorTicket,
   humanExecutorGuardMessage,
-} from "./shared/work-items";
+} from "./shared/tickets";
 
 interface ClaimConflict {
-  readonly item: WorkItem;
-  readonly claim: WorkItemClaim;
+  readonly ticket: Ticket;
+  readonly claim: TicketClaim;
 }
 
 const resolveCancellationReason = Effect.fnUntraced(function* (input: {
@@ -53,9 +54,9 @@ const resolveCancellationReason = Effect.fnUntraced(function* (input: {
 });
 
 const isDescendantOf = (
-  candidate: WorkItem,
+  candidate: Ticket,
   ancestorId: string,
-  itemsById: ReadonlyMap<string, WorkItem>,
+  ticketsById: ReadonlyMap<string, Ticket>,
 ): boolean => {
   let currentParentId = candidate.parentId;
 
@@ -64,7 +65,7 @@ const isDescendantOf = (
       return true;
     }
 
-    const parent = itemsById.get(currentParentId);
+    const parent = ticketsById.get(currentParentId);
     if (parent === undefined) {
       return false;
     }
@@ -75,35 +76,36 @@ const isDescendantOf = (
 };
 
 const openDescendantsOf = (
-  item: WorkItem,
-  items: ReadonlyArray<WorkItem>,
-): ReadonlyArray<OpenWorkItem> => {
-  const itemsById = new Map(items.map((candidate) => [candidate.id, candidate]));
-  return sortWorkItems(items)
-    .filter(isOpenWorkItem)
+  ticket: Ticket,
+  tickets: ReadonlyArray<Ticket>,
+): ReadonlyArray<OpenTicket> => {
+  const ticketsById = new Map(tickets.map((candidate) => [candidate.id, candidate]));
+  return sortTickets(tickets)
+    .filter(isOpenTicket)
     .filter(
-      (candidate) => candidate.id !== item.id && isDescendantOf(candidate, item.id, itemsById),
+      (candidate) =>
+        candidate.id !== ticket.id && isDescendantOf(candidate, ticket.id, ticketsById),
     );
 };
 
 const claimConflictFor = (
-  item: WorkItem,
+  ticket: Ticket,
   identity: string,
   now: DateTime.Utc,
 ): ClaimConflict | undefined => {
-  const claim = item.claim;
+  const claim = ticket.claim;
   return claim !== undefined && isClaimActive(claim, now) && claim.actor !== identity
-    ? { item, claim }
+    ? { ticket, claim }
     : undefined;
 };
 
 const findActiveClaimConflict = (
-  items: ReadonlyArray<WorkItem>,
+  tickets: ReadonlyArray<Ticket>,
   identity: string,
   now: DateTime.Utc,
 ): ClaimConflict | undefined => {
-  for (const item of items) {
-    const conflict = claimConflictFor(item, identity, now);
+  for (const ticket of tickets) {
+    const conflict = claimConflictFor(ticket, identity, now);
     if (conflict !== undefined) {
       return conflict;
     }
@@ -112,32 +114,34 @@ const findActiveClaimConflict = (
   return undefined;
 };
 
-const replaceCancelledItems = (
-  items: ReadonlyArray<WorkItem>,
-  cancelledItems: ReadonlyArray<WorkItem>,
-): ReadonlyArray<WorkItem> => {
-  const cancelledById = new Map(cancelledItems.map((item) => [item.id, item]));
-  return items.map((item) => cancelledById.get(item.id) ?? item);
+const replaceCancelledTickets = (
+  tickets: ReadonlyArray<Ticket>,
+  cancelledTickets: ReadonlyArray<Ticket>,
+): ReadonlyArray<Ticket> => {
+  const cancelledById = new Map(cancelledTickets.map((ticket) => [ticket.id, ticket]));
+  return tickets.map((ticket) => cancelledById.get(ticket.id) ?? ticket);
 };
 
-const renderCascadePreview = (item: WorkItem, descendants: ReadonlyArray<WorkItem>): string =>
+const renderCascadePreview = (ticket: Ticket, descendants: ReadonlyArray<Ticket>): string =>
   [
-    `Work Item ${item.id} has ${descendants.length} open descendant Work Item${
+    `Ticket ${ticket.id} has ${descendants.length} open descendant Ticket${
       descendants.length === 1 ? "" : "s"
     } that would also be cancelled:`,
     ...descendants.map((descendant) => `- ${descendant.subject} (${descendant.id})`),
     "Re-run with --yes to confirm cascade cancellation.",
   ].join("\n");
 
-const renderCancelledHuman = (cancelledItems: ReadonlyArray<WorkItem>, reason: string): string => {
-  const [firstItem] = cancelledItems;
-  if (cancelledItems.length === 1 && firstItem !== undefined) {
-    return [`Cancelled ${firstItem.subject} (${firstItem.id}).`, `Reason: ${reason}`].join("\n");
+const renderCancelledHuman = (cancelledTickets: ReadonlyArray<Ticket>, reason: string): string => {
+  const [firstTicket] = cancelledTickets;
+  if (cancelledTickets.length === 1 && firstTicket !== undefined) {
+    return [`Cancelled ${firstTicket.subject} (${firstTicket.id}).`, `Reason: ${reason}`].join(
+      "\n",
+    );
   }
 
   return [
-    `Cancelled ${cancelledItems.length} Work Items.`,
-    ...cancelledItems.map((item) => `- ${item.subject} (${item.id})`),
+    `Cancelled ${cancelledTickets.length} Tickets.`,
+    ...cancelledTickets.map((ticket) => `- ${ticket.subject} (${ticket.id})`),
     `Reason: ${reason}`,
   ].join("\n");
 };
@@ -152,10 +156,10 @@ export const commandCancel = Command.make("cancel", {
   ),
   yes: Flag.boolean("yes").pipe(Flag.withDescription("Confirm cascading cancellation")),
   allowHuman: Flag.boolean("allow-human").pipe(
-    Flag.withDescription("Allow cancelling human-executor Work Items"),
+    Flag.withDescription("Allow cancelling human-executor Tickets"),
   ),
 }).pipe(
-  Command.withDescription("Cancel open Work Items with a structured Cancellation"),
+  Command.withDescription("Cancel open Tickets with a structured Cancellation"),
   Command.withHandler(
     Effect.fnUntraced(function* (input) {
       const root = yield* commandRoot;
@@ -166,24 +170,24 @@ export const commandCancel = Command.make("cancel", {
           const reason = yield* resolveCancellationReason(input);
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
-          const item = yield* resolveWorkItem(items, input.id);
+          const tickets = yield* loadStore(paths);
+          const ticket = yield* resolveTicket(tickets, input.id);
 
-          if (item.status !== "open") {
+          if (ticket.status !== "open") {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} is ${item.status} and cannot be cancelled.`,
+              message: `Ticket ${ticket.id} is ${ticket.status} and cannot be cancelled.`,
             });
           }
 
-          const openDescendants = openDescendantsOf(item, items);
+          const openDescendants = openDescendantsOf(ticket, tickets);
           if (openDescendants.length > 0 && !input.yes) {
             return yield* new CommandFailure({
-              message: renderCascadePreview(item, openDescendants),
+              message: renderCascadePreview(ticket, openDescendants),
             });
           }
 
-          const targets = [item, ...openDescendants];
-          const humanTarget = firstHumanExecutorWorkItem(targets);
+          const targets = [ticket, ...openDescendants];
+          const humanTarget = firstHumanExecutorTicket(targets);
           if (humanTarget !== undefined && !input.allowHuman) {
             return yield* new CommandFailure({
               message: humanExecutorGuardMessage(humanTarget, "cancel it"),
@@ -195,38 +199,39 @@ export const commandCancel = Command.make("cancel", {
           if (claimConflict !== undefined && !input.force) {
             return yield* new CommandFailure({
               message: activeClaimConflictMessage(
-                claimConflict.item,
+                claimConflict.ticket,
                 claimConflict.claim,
                 "cancel it",
               ),
             });
           }
 
-          const cancelledItems = targets.map((target) =>
-            cancelWorkItem({
-              item: target,
+          const cancelledTickets = targets.map((target) =>
+            cancelTicket({
+              ticket: target,
               reason,
               cancelledAt: now,
               cancelledBy: identity,
             }),
           );
-          const persistedItems = yield* writeStore(
+          const persistedTickets = yield* writeStore(
             paths,
-            replaceCancelledItems(items, cancelledItems),
+            replaceCancelledTickets(tickets, cancelledTickets),
           );
-          const persistedCancelledItems = yield* Effect.forEach(cancelledItems, (cancelledItem) =>
-            resolveWorkItem(persistedItems, cancelledItem.id),
+          const persistedCancelledTickets = yield* Effect.forEach(
+            cancelledTickets,
+            (cancelledTicket) => resolveTicket(persistedTickets, cancelledTicket.id),
           );
-          const persistedTarget = yield* resolveWorkItem(persistedItems, item.id);
+          const persistedTarget = yield* resolveTicket(persistedTickets, ticket.id);
 
           yield* Console.log(
             root.json
               ? renderJson({
                   ok: true,
-                  item: encodeItemForOutput(persistedTarget),
-                  cancelledItems: persistedCancelledItems.map(encodeItemForOutput),
+                  ticket: encodeTicketForOutput(persistedTarget),
+                  cancelledTickets: persistedCancelledTickets.map(encodeTicketForOutput),
                 })
-              : renderCancelledHuman(persistedCancelledItems, reason),
+              : renderCancelledHuman(persistedCancelledTickets, reason),
           );
         }),
       );

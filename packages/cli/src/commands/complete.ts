@@ -7,41 +7,38 @@ import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
 import { hasOpenChildren } from "../domain/Validation";
-import {
-  completeWorkItem,
-  isClaimActive,
-  resolveWorkItem,
-  type WorkItem,
-} from "../domain/WorkItem";
+import { completeTicket, isClaimActive, resolveTicket } from "../domain/Ticket";
+
+type Ticket = import("../domain/Ticket").Ticket;
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { resolveCompletionResultInput } from "./complete-input";
 import { commandRoot } from "./root";
 import { actorFlag } from "./shared/flags";
 import { resolveActorIdentity } from "./shared/input";
-import { encodeItemForOutput, executeCommand, renderBullets, renderJson } from "./shared/output";
+import { encodeTicketForOutput, executeCommand, renderBullets, renderJson } from "./shared/output";
 import {
   activeClaimConflictMessage,
-  firstHumanExecutorWorkItem,
+  firstHumanExecutorTicket,
   humanExecutorGuardMessage,
-  replaceWorkItem,
-} from "./shared/work-items";
+  replaceTicket,
+} from "./shared/tickets";
 
 const incompleteDependenciesForCompletion = (
-  item: WorkItem,
-  items: ReadonlyArray<WorkItem>,
-): ReadonlyArray<WorkItem> => {
-  const itemsById = new Map(items.map((candidate) => [candidate.id, candidate]));
-  return (item.blockedBy ?? []).flatMap((dependencyId) => {
-    const dependency = itemsById.get(dependencyId);
+  ticket: Ticket,
+  tickets: ReadonlyArray<Ticket>,
+): ReadonlyArray<Ticket> => {
+  const ticketsById = new Map(tickets.map((candidate) => [candidate.id, candidate]));
+  return (ticket.blockedBy ?? []).flatMap((dependencyId) => {
+    const dependency = ticketsById.get(dependencyId);
     return dependency === undefined || dependency.status === "done" ? [] : [dependency];
   });
 };
 
-const renderIncompleteDependencies = (dependencies: ReadonlyArray<WorkItem>): string =>
+const renderIncompleteDependencies = (dependencies: ReadonlyArray<Ticket>): string =>
   dependencies.map((dependency) => `${dependency.id} (${dependency.status})`).join(", ");
 
-const renderCompletedHuman = (item: WorkItem): string => {
-  const encoded = encodeItemForOutput(item);
+const renderCompletedHuman = (ticket: Ticket): string => {
+  const encoded = encodeTicketForOutput(ticket);
   if (encoded.status !== "done") {
     return `Completed ${encoded.subject} (${encoded.id}).`;
   }
@@ -77,10 +74,10 @@ export const commandComplete = Command.make("complete", {
     Flag.withDescription("Complete despite incomplete dependencies or another active claim"),
   ),
   allowHuman: Flag.boolean("allow-human").pipe(
-    Flag.withDescription("Allow completing human-executor Work Items or bypassing human gates"),
+    Flag.withDescription("Allow completing human-executor Tickets or bypassing human gates"),
   ),
 }).pipe(
-  Command.withDescription("Complete an open Work Item with a structured Result"),
+  Command.withDescription("Complete an open Ticket with a structured Result"),
   Command.withHandler(
     Effect.fnUntraced(function* (input) {
       const root = yield* commandRoot;
@@ -91,37 +88,37 @@ export const commandComplete = Command.make("complete", {
           const resultInput = yield* resolveCompletionResultInput(input);
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
-          const item = yield* resolveWorkItem(items, input.id);
+          const tickets = yield* loadStore(paths);
+          const ticket = yield* resolveTicket(tickets, input.id);
 
-          if (item.status !== "open") {
+          if (ticket.status !== "open") {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} is ${item.status} and cannot be completed.`,
+              message: `Ticket ${ticket.id} is ${ticket.status} and cannot be completed.`,
             });
           }
 
-          if (hasOpenChildren(item, items)) {
+          if (hasOpenChildren(ticket, tickets)) {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} has open children and cannot be completed.`,
+              message: `Ticket ${ticket.id} has open children and cannot be completed.`,
             });
           }
 
-          if (item.executor === "human" && !input.allowHuman) {
+          if (ticket.executor === "human" && !input.allowHuman) {
             return yield* new CommandFailure({
-              message: humanExecutorGuardMessage(item, "complete it"),
+              message: humanExecutorGuardMessage(ticket, "complete it"),
             });
           }
 
-          const incompleteDependencies = incompleteDependenciesForCompletion(item, items);
+          const incompleteDependencies = incompleteDependenciesForCompletion(ticket, tickets);
           if (incompleteDependencies.length > 0 && !input.force) {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} has incomplete dependencies: ${renderIncompleteDependencies(
+              message: `Ticket ${ticket.id} has incomplete dependencies: ${renderIncompleteDependencies(
                 incompleteDependencies,
               )}. Use --force to complete anyway.`,
             });
           }
 
-          const humanDependency = firstHumanExecutorWorkItem(incompleteDependencies);
+          const humanDependency = firstHumanExecutorTicket(incompleteDependencies);
           if (humanDependency !== undefined && input.force && !input.allowHuman) {
             return yield* new CommandFailure({
               message: humanExecutorGuardMessage(humanDependency, "bypass it"),
@@ -129,7 +126,7 @@ export const commandComplete = Command.make("complete", {
           }
 
           const now = yield* DateTime.now;
-          const currentClaim = item.claim;
+          const currentClaim = ticket.claim;
           if (
             currentClaim !== undefined &&
             isClaimActive(currentClaim, now) &&
@@ -137,12 +134,12 @@ export const commandComplete = Command.make("complete", {
             !input.force
           ) {
             return yield* new CommandFailure({
-              message: activeClaimConflictMessage(item, currentClaim, "complete it"),
+              message: activeClaimConflictMessage(ticket, currentClaim, "complete it"),
             });
           }
 
-          const updatedItem = completeWorkItem({
-            item,
+          const updatedTicket = completeTicket({
+            ticket,
             summary: resultInput.summary,
             details: resultInput.details,
             decisions: resultInput.decisions,
@@ -150,16 +147,16 @@ export const commandComplete = Command.make("complete", {
             completedAt: now,
             completedBy: identity,
           });
-          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
-          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+          const persistedTickets = yield* writeStore(paths, replaceTicket(tickets, updatedTicket));
+          const persistedTicket = yield* resolveTicket(persistedTickets, ticket.id);
 
           yield* Console.log(
             root.json
               ? renderJson({
                   ok: true,
-                  item: encodeItemForOutput(persistedItem),
+                  ticket: encodeTicketForOutput(persistedTicket),
                 })
-              : renderCompletedHuman(persistedItem),
+              : renderCompletedHuman(persistedTicket),
           );
         }),
       );

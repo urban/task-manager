@@ -7,19 +7,17 @@ import * as Command from "effect/unstable/cli/Command";
 import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
-import { ensureCanUpdateItem } from "../domain/Validation";
-import {
-  resolveWorkItem,
-  updateWorkItem,
-  type WorkItem,
-  type WorkItemUpdates,
-} from "../domain/WorkItem";
+import { ensureCanUpdateTicket } from "../domain/Validation";
+import { resolveTicket, updateTicket } from "../domain/Ticket";
+
+type Ticket = import("../domain/Ticket").Ticket;
+type TicketUpdates = import("../domain/Ticket").TicketUpdates;
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
 import { resolveTextInput } from "./shared/input";
 import { parseMessage } from "./shared/message";
-import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
-import { replaceWorkItem } from "./shared/work-items";
+import { encodeTicketForOutput, executeCommand, renderJson } from "./shared/output";
+import { replaceTicket } from "./shared/tickets";
 
 const hasRawUpdateField = (input: {
   readonly subject: Option.Option<string>;
@@ -54,14 +52,14 @@ const buildUpdates = (options: {
   readonly subject: string | undefined;
   readonly description: string | undefined;
   readonly context: string | undefined;
-}): WorkItemUpdates =>
+}): TicketUpdates =>
   ({
     ...(options.subject === undefined ? {} : { subject: options.subject }),
     ...(options.description === undefined ? {} : { description: options.description }),
     ...(options.context === undefined ? {} : { context: options.context }),
-  }) satisfies WorkItemUpdates;
+  }) satisfies TicketUpdates;
 
-const renderUpdatedHuman = (item: WorkItem): string => `Updated ${item.subject} (${item.id}).`;
+const renderUpdatedHuman = (ticket: Ticket): string => `Updated ${ticket.subject} (${ticket.id}).`;
 
 export const commandUpdate = Command.make("update", {
   id: Argument.string("id"),
@@ -75,7 +73,7 @@ export const commandUpdate = Command.make("update", {
   allowEmptyDescription: Flag.boolean("allow-empty-description"),
   allowEmptyContext: Flag.boolean("allow-empty-context"),
 }).pipe(
-  Command.withDescription("Update Work Item Subject, Description, or Context"),
+  Command.withDescription("Update Ticket Subject, Description, or Context"),
   Command.withHandler(
     Effect.fnUntraced(function* (input) {
       const root = yield* commandRoot;
@@ -127,7 +125,7 @@ export const commandUpdate = Command.make("update", {
             onSome: (value) => value,
           });
           const updates = buildUpdates({ subject, description, context });
-          const validation = ensureCanUpdateItem({
+          const validation = ensureCanUpdateTicket({
             ...updates,
             allowEmptyDescription: input.allowEmptyDescription,
             allowEmptyContext: input.allowEmptyContext,
@@ -138,20 +136,20 @@ export const commandUpdate = Command.make("update", {
 
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
-          const item = yield* resolveWorkItem(items, input.id);
+          const tickets = yield* loadStore(paths);
+          const ticket = yield* resolveTicket(tickets, input.id);
           const now = yield* DateTime.now;
-          const updatedItem = updateWorkItem({ item, updates, updatedAt: now });
-          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
-          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+          const updatedTicket = updateTicket({ ticket, updates, updatedAt: now });
+          const persistedTickets = yield* writeStore(paths, replaceTicket(tickets, updatedTicket));
+          const persistedTicket = yield* resolveTicket(persistedTickets, ticket.id);
 
           yield* Console.log(
             root.json
               ? renderJson({
                   ok: true,
-                  item: encodeItemForOutput(persistedItem),
+                  ticket: encodeTicketForOutput(persistedTicket),
                 })
-              : renderUpdatedHuman(persistedItem),
+              : renderUpdatedHuman(persistedTicket),
           );
         }),
       );

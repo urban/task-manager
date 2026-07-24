@@ -5,19 +5,19 @@ import * as Command from "effect/unstable/cli/Command";
 import * as Flag from "effect/unstable/cli/Flag";
 
 import { CommandFailure } from "../domain/Errors";
-import { resolveWorkItem, updateWorkItemDependencies } from "../domain/WorkItem";
+import { resolveTicket, updateTicketDependencies } from "../domain/Ticket";
 import { ensureStoreExists, loadStore, resolveStorePaths, writeStore } from "../storage/TaskStore";
 import { commandRoot } from "./root";
-import { encodeItemForOutput, executeCommand, renderJson } from "./shared/output";
-import { replaceWorkItem } from "./shared/work-items";
+import { encodeTicketForOutput, executeCommand, renderJson } from "./shared/output";
+import { replaceTicket } from "./shared/tickets";
 
 export const commandBlock = Command.make("block", {
   id: Argument.string("id"),
   by: Flag.string("by").pipe(
-    Flag.withDescription("Work Item id or unique prefix that blocks this item"),
+    Flag.withDescription("Ticket id or unique prefix that blocks this ticket"),
   ),
 }).pipe(
-  Command.withDescription("Add a dependency to a Work Item"),
+  Command.withDescription("Add a dependency to a Ticket"),
   Command.withHandler(
     Effect.fnUntraced(function* ({ id, by }) {
       const root = yield* commandRoot;
@@ -26,37 +26,37 @@ export const commandBlock = Command.make("block", {
         Effect.gen(function* () {
           const paths = yield* resolveStorePaths(root);
           yield* ensureStoreExists(paths);
-          const items = yield* loadStore(paths);
-          const item = yield* resolveWorkItem(items, id);
-          const dependency = yield* resolveWorkItem(items, by);
+          const tickets = yield* loadStore(paths);
+          const ticket = yield* resolveTicket(tickets, id);
+          const dependency = yield* resolveTicket(tickets, by);
 
-          if (item.id === dependency.id) {
+          if (ticket.id === dependency.id) {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} cannot depend on itself.`,
+              message: `Ticket ${ticket.id} cannot depend on itself.`,
             });
           }
 
-          const currentDependencies = item.blockedBy ?? [];
+          const currentDependencies = ticket.blockedBy ?? [];
           if (currentDependencies.includes(dependency.id)) {
             return yield* new CommandFailure({
-              message: `Work Item ${item.id} already depends on ${dependency.id}.`,
+              message: `Ticket ${ticket.id} already depends on ${dependency.id}.`,
             });
           }
 
-          const updatedItem = yield* updateWorkItemDependencies({
-            item,
+          const updatedTicket = yield* updateTicketDependencies({
+            ticket,
             blockedBy: [...currentDependencies, dependency.id],
           });
-          const persistedItems = yield* writeStore(paths, replaceWorkItem(items, updatedItem));
-          const persistedItem = yield* resolveWorkItem(persistedItems, item.id);
+          const persistedTickets = yield* writeStore(paths, replaceTicket(tickets, updatedTicket));
+          const persistedTicket = yield* resolveTicket(persistedTickets, ticket.id);
 
           yield* Console.log(
             root.json
               ? renderJson({
                   ok: true,
-                  item: encodeItemForOutput(persistedItem),
+                  ticket: encodeTicketForOutput(persistedTicket),
                 })
-              : `Blocked ${persistedItem.subject} (${persistedItem.id}) by ${dependency.subject} (${dependency.id}).`,
+              : `Blocked ${persistedTicket.subject} (${persistedTicket.id}) by ${dependency.subject} (${dependency.id}).`,
           );
         }),
       );

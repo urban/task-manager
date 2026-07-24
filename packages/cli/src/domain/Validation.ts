@@ -1,21 +1,23 @@
 import * as DateTime from "effect/DateTime";
 
-import { ValidationFailure, type ValidationIssue } from "./Errors";
+import { ValidationFailure } from "./Errors";
 import {
   buildTree,
   isClaimActive,
   matchesExecutorFilter,
   specificExecutorFilter,
-  type WorkItem,
-  type WorkItemExecutorFilter,
-  type WorkItemLevel,
-  type WorkItemTreeNode,
   validateSubject,
-} from "./WorkItem";
+} from "./Ticket";
+
+type ValidationIssue = import("./Errors").ValidationIssue;
+type Ticket = import("./Ticket").Ticket;
+type TicketExecutorFilter = import("./Ticket").TicketExecutorFilter;
+type TicketLevel = import("./Ticket").TicketLevel;
+type TicketTreeNode = import("./Ticket").TicketTreeNode;
 
 const toMillis = (value: DateTime.Utc): number => DateTime.toEpochMillis(value);
 
-const parentAllowsChild = (parentLevel: WorkItemLevel, childLevel: WorkItemLevel): boolean => {
+const parentAllowsChild = (parentLevel: TicketLevel, childLevel: TicketLevel): boolean => {
   if (childLevel === "task") {
     return parentLevel === "epic";
   }
@@ -26,25 +28,25 @@ const parentAllowsChild = (parentLevel: WorkItemLevel, childLevel: WorkItemLevel
 };
 
 const detectParentCycles = (
-  itemsById: ReadonlyMap<string, WorkItem>,
+  ticketsById: ReadonlyMap<string, Ticket>,
 ): ReadonlyArray<ValidationIssue> => {
   const issues: Array<ValidationIssue> = [];
 
-  for (const item of itemsById.values()) {
-    const visited = new Set<string>([item.id]);
-    let currentParentId = item.parentId;
+  for (const ticket of ticketsById.values()) {
+    const visited = new Set<string>([ticket.id]);
+    let currentParentId = ticket.parentId;
 
     while (currentParentId !== undefined) {
       if (visited.has(currentParentId)) {
         issues.push({
-          message: `Hierarchy cycle detected for ${item.id}.`,
-          path: item.id,
+          message: `Hierarchy cycle detected for ${ticket.id}.`,
+          path: ticket.id,
         });
         break;
       }
 
       visited.add(currentParentId);
-      const parent = itemsById.get(currentParentId);
+      const parent = ticketsById.get(currentParentId);
       if (parent === undefined) {
         break;
       }
@@ -56,7 +58,7 @@ const detectParentCycles = (
 };
 
 const detectDependencyCycles = (
-  itemsById: ReadonlyMap<string, WorkItem>,
+  ticketsById: ReadonlyMap<string, Ticket>,
 ): ReadonlyArray<ValidationIssue> => {
   const visiting = new Set<string>();
   const visited = new Set<string>();
@@ -77,8 +79,8 @@ const detectDependencyCycles = (
     }
 
     visiting.add(id);
-    const item = itemsById.get(id);
-    const dependencies = item?.blockedBy ?? [];
+    const ticket = ticketsById.get(id);
+    const dependencies = ticket?.blockedBy ?? [];
     for (const dependencyId of dependencies) {
       visit(dependencyId, [...path, id]);
     }
@@ -86,20 +88,20 @@ const detectDependencyCycles = (
     visited.add(id);
   };
 
-  for (const item of itemsById.values()) {
-    visit(item.id, []);
+  for (const ticket of ticketsById.values()) {
+    visit(ticket.id, []);
   }
 
   return issues;
 };
 
-export const validateStore = (items: ReadonlyArray<WorkItem>): ReadonlyArray<ValidationIssue> => {
+export const validateStore = (tickets: ReadonlyArray<Ticket>): ReadonlyArray<ValidationIssue> => {
   const issues: Array<ValidationIssue> = [];
-  const itemsById = new Map<string, WorkItem>();
+  const ticketsById = new Map<string, Ticket>();
   const lineById = new Map<string, number>();
 
-  items.forEach((item, index) => {
-    const subjectIssues = validateSubject(item.subject);
+  tickets.forEach((ticket, index) => {
+    const subjectIssues = validateSubject(ticket.subject);
     for (const subjectIssue of subjectIssues) {
       issues.push({
         ...subjectIssue,
@@ -107,111 +109,111 @@ export const validateStore = (items: ReadonlyArray<WorkItem>): ReadonlyArray<Val
       });
     }
 
-    if (itemsById.has(item.id)) {
-      const previousLine = lineById.get(item.id);
+    if (ticketsById.has(ticket.id)) {
+      const previousLine = lineById.get(ticket.id);
       issues.push({
-        message: `Duplicate Work Item id ${item.id}.`,
-        path: item.id,
+        message: `Duplicate Ticket id ${ticket.id}.`,
+        path: ticket.id,
         line: previousLine,
       });
       issues.push({
-        message: `Duplicate Work Item id ${item.id}.`,
-        path: item.id,
+        message: `Duplicate Ticket id ${ticket.id}.`,
+        path: ticket.id,
         line: index + 1,
       });
     } else {
-      itemsById.set(item.id, item);
-      lineById.set(item.id, index + 1);
+      ticketsById.set(ticket.id, ticket);
+      lineById.set(ticket.id, index + 1);
     }
 
-    if (item.level === "epic" && item.parentId !== undefined) {
+    if (ticket.level === "epic" && ticket.parentId !== undefined) {
       issues.push({
         message: "Epics cannot have parents.",
-        path: item.id,
+        path: ticket.id,
         line: index + 1,
       });
     }
 
-    if (item.level === "subtask" && item.parentId === undefined) {
+    if (ticket.level === "subtask" && ticket.parentId === undefined) {
       issues.push({
         message: "Subtasks must have a parent Task.",
-        path: item.id,
+        path: ticket.id,
         line: index + 1,
       });
     }
 
-    const dependencies = item.blockedBy ?? [];
+    const dependencies = ticket.blockedBy ?? [];
     const dependencyCounts = new Map<string, number>();
     for (const dependencyId of dependencies) {
       const previousCount = dependencyCounts.get(dependencyId) ?? 0;
       if (previousCount === 1) {
         issues.push({
           message: `Duplicate dependency ${dependencyId}.`,
-          path: item.id,
+          path: ticket.id,
           line: index + 1,
         });
       }
       dependencyCounts.set(dependencyId, previousCount + 1);
 
-      if (dependencyId === item.id) {
+      if (dependencyId === ticket.id) {
         issues.push({
-          message: "A Work Item cannot depend on itself.",
-          path: item.id,
+          message: "A Ticket cannot depend on itself.",
+          path: ticket.id,
           line: index + 1,
         });
       }
     }
   });
 
-  for (const item of items) {
-    if (item.parentId === undefined) {
+  for (const ticket of tickets) {
+    if (ticket.parentId === undefined) {
       continue;
     }
 
-    const parent = itemsById.get(item.parentId);
-    const line = lineById.get(item.id);
+    const parent = ticketsById.get(ticket.parentId);
+    const line = lineById.get(ticket.id);
     if (parent === undefined) {
       issues.push({
-        message: `Parent ${item.parentId} does not exist.`,
-        path: item.id,
+        message: `Parent ${ticket.parentId} does not exist.`,
+        path: ticket.id,
         line,
       });
       continue;
     }
 
-    if (!parentAllowsChild(parent.level, item.level)) {
+    if (!parentAllowsChild(parent.level, ticket.level)) {
       issues.push({
-        message: `${item.level} cannot be parented under ${parent.level}.`,
-        path: item.id,
+        message: `${ticket.level} cannot be parented under ${parent.level}.`,
+        path: ticket.id,
         line,
       });
     }
   }
 
-  for (const item of items) {
-    const dependencies = item.blockedBy ?? [];
+  for (const ticket of tickets) {
+    const dependencies = ticket.blockedBy ?? [];
     for (const dependencyId of dependencies) {
-      if (!itemsById.has(dependencyId)) {
+      if (!ticketsById.has(dependencyId)) {
         issues.push({
           message: `Dependency ${dependencyId} does not exist.`,
-          path: item.id,
-          line: lineById.get(item.id),
+          path: ticket.id,
+          line: lineById.get(ticket.id),
         });
       }
     }
   }
 
-  issues.push(...detectParentCycles(itemsById));
-  issues.push(...detectDependencyCycles(itemsById));
+  issues.push(...detectParentCycles(ticketsById));
+  issues.push(...detectDependencyCycles(ticketsById));
 
   return issues;
 };
 
 export const ensureValidStore = (
-  items: ReadonlyArray<WorkItem>,
+  tickets: ReadonlyArray<Ticket>,
   summary: string,
 ): ValidationFailure | undefined => {
-  const issues = validateStore(items);
+  const issues = validateStore(tickets);
   if (issues.length === 0) {
     return undefined;
   }
@@ -240,9 +242,9 @@ const validateContextRequirement = (
         path: "context",
       };
 
-export const ensureCanCreateItem = (options: {
-  readonly level: WorkItemLevel;
-  readonly parent?: WorkItem;
+export const ensureCanCreateTicket = (options: {
+  readonly level: TicketLevel;
+  readonly parent?: Ticket;
   readonly subject: string;
   readonly description: string;
   readonly context: string;
@@ -290,12 +292,12 @@ export const ensureCanCreateItem = (options: {
   }
 
   return new ValidationFailure({
-    summary: "Work Item validation failed.",
+    summary: "Ticket validation failed.",
     issues,
   });
 };
 
-export const ensureCanUpdateItem = (options: {
+export const ensureCanUpdateTicket = (options: {
   readonly subject?: string;
   readonly description?: string;
   readonly context?: string;
@@ -327,19 +329,19 @@ export const ensureCanUpdateItem = (options: {
   }
 
   return new ValidationFailure({
-    summary: "Work Item update validation failed.",
+    summary: "Ticket update validation failed.",
     issues,
   });
 };
 
-export const hasOpenChildren = (item: WorkItem, items: ReadonlyArray<WorkItem>): boolean =>
-  items.some((candidate) => candidate.parentId === item.id && candidate.status === "open");
+export const hasOpenChildren = (ticket: Ticket, tickets: ReadonlyArray<Ticket>): boolean =>
+  tickets.some((candidate) => candidate.parentId === ticket.id && candidate.status === "open");
 
-export const isLeafWorkItem = (item: WorkItem, items: ReadonlyArray<WorkItem>): boolean =>
-  !hasOpenChildren(item, items);
+export const isLeafTicket = (ticket: Ticket, tickets: ReadonlyArray<Ticket>): boolean =>
+  !hasOpenChildren(ticket, tickets);
 
-export const sortChildrenForSelection = (items: ReadonlyArray<WorkItem>): ReadonlyArray<WorkItem> =>
-  items.toSorted((left, right) => {
+export const sortChildrenForSelection = (tickets: ReadonlyArray<Ticket>): ReadonlyArray<Ticket> =>
+  tickets.toSorted((left, right) => {
     const diff = toMillis(left.createdAt) - toMillis(right.createdAt);
     if (diff !== 0) {
       return diff;
@@ -347,48 +349,50 @@ export const sortChildrenForSelection = (items: ReadonlyArray<WorkItem>): Readon
     return left.id.localeCompare(right.id);
   });
 
-const indexItemsById = (items: ReadonlyArray<WorkItem>): ReadonlyMap<string, WorkItem> => {
-  const itemsById = new Map<string, WorkItem>();
-  for (const item of items) {
-    itemsById.set(item.id, item);
+const indexTicketsById = (tickets: ReadonlyArray<Ticket>): ReadonlyMap<string, Ticket> => {
+  const ticketsById = new Map<string, Ticket>();
+  for (const ticket of tickets) {
+    ticketsById.set(ticket.id, ticket);
   }
-  return itemsById;
+  return ticketsById;
 };
 
 const hasCompletedDependencies = (
-  item: WorkItem,
-  itemsById: ReadonlyMap<string, WorkItem>,
+  ticket: Ticket,
+  ticketsById: ReadonlyMap<string, Ticket>,
 ): boolean =>
-  (item.blockedBy ?? []).every((dependencyId) => itemsById.get(dependencyId)?.status === "done");
+  (ticket.blockedBy ?? []).every(
+    (dependencyId) => ticketsById.get(dependencyId)?.status === "done",
+  );
 
 const isActionableTreeNode = (
-  node: WorkItemTreeNode,
-  itemsById: ReadonlyMap<string, WorkItem>,
+  node: TicketTreeNode,
+  ticketsById: ReadonlyMap<string, Ticket>,
   now: DateTime.Utc,
   includeClaimed: boolean,
-  executorFilter: WorkItemExecutorFilter,
+  executorFilter: TicketExecutorFilter,
 ): boolean =>
-  node.item.status === "open" &&
+  node.ticket.status === "open" &&
   node.children.length === 0 &&
-  matchesExecutorFilter(node.item, executorFilter) &&
-  hasCompletedDependencies(node.item, itemsById) &&
-  (includeClaimed || !isClaimActive(node.item.claim, now));
+  matchesExecutorFilter(node.ticket, executorFilter) &&
+  hasCompletedDependencies(node.ticket, ticketsById) &&
+  (includeClaimed || !isClaimActive(node.ticket.claim, now));
 
 const findFirstActionableNode = (
-  nodes: ReadonlyArray<WorkItemTreeNode>,
-  itemsById: ReadonlyMap<string, WorkItem>,
+  nodes: ReadonlyArray<TicketTreeNode>,
+  ticketsById: ReadonlyMap<string, Ticket>,
   now: DateTime.Utc,
   includeClaimed: boolean,
-  executorFilter: WorkItemExecutorFilter,
-): WorkItem | undefined => {
+  executorFilter: TicketExecutorFilter,
+): Ticket | undefined => {
   for (const node of nodes) {
-    if (isActionableTreeNode(node, itemsById, now, includeClaimed, executorFilter)) {
-      return node.item;
+    if (isActionableTreeNode(node, ticketsById, now, includeClaimed, executorFilter)) {
+      return node.ticket;
     }
 
     const child = findFirstActionableNode(
       node.children,
-      itemsById,
+      ticketsById,
       now,
       includeClaimed,
       executorFilter,
@@ -402,31 +406,31 @@ const findFirstActionableNode = (
 };
 
 export const orderedOpenChildren = (
-  item: WorkItem,
-  items: ReadonlyArray<WorkItem>,
-): ReadonlyArray<WorkItem> =>
+  ticket: Ticket,
+  tickets: ReadonlyArray<Ticket>,
+): ReadonlyArray<Ticket> =>
   sortChildrenForSelection(
-    items.filter((candidate) => candidate.parentId === item.id && candidate.status === "open"),
+    tickets.filter((candidate) => candidate.parentId === ticket.id && candidate.status === "open"),
   );
 
-export const findNextActionableWorkItem = (
-  items: ReadonlyArray<WorkItem>,
+export const findNextActionableTicket = (
+  tickets: ReadonlyArray<Ticket>,
   options: {
     readonly now: DateTime.Utc;
-    readonly root?: WorkItem;
+    readonly root?: Ticket;
     readonly includeClaimed?: boolean;
-    readonly executorFilter?: WorkItemExecutorFilter;
+    readonly executorFilter?: TicketExecutorFilter;
   },
-): WorkItem | undefined => {
-  const itemsById = indexItemsById(items);
-  const tree = buildTree(items, {
+): Ticket | undefined => {
+  const ticketsById = indexTicketsById(tickets);
+  const tree = buildTree(tickets, {
     ...(options.root === undefined ? {} : { root: options.root }),
     openOnly: true,
   });
 
   return findFirstActionableNode(
     tree,
-    itemsById,
+    ticketsById,
     options.now,
     options.includeClaimed ?? false,
     options.executorFilter ?? specificExecutorFilter("agent"),

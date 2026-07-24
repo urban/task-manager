@@ -15,17 +15,17 @@ export const commandValidate = Command.make("validate").pipe(
         root.json,
         Effect.gen(function* () {
           const paths = yield* resolveStorePaths(root);
-          const items = yield* validateStoreOnDisk(paths);
+          const tickets = yield* validateStoreOnDisk(paths);
           const payload = {
             ok: true,
-            workItemCount: items.length,
+            ticketCount: tickets.length,
             tasksFile: paths.tasksFile,
           };
 
           yield* Console.log(
             root.json
               ? renderJson(payload)
-              : `Validated ${items.length} Work Item${items.length === 1 ? "" : "s"} in ${paths.tasksFile}.`,
+              : `Validated ${tickets.length} Ticket${tickets.length === 1 ? "" : "s"} in ${paths.tasksFile}.`,
           );
         }),
       );
