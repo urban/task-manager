@@ -219,12 +219,12 @@ describe("tm next", () => {
         yield* run(["--cwd", directory, "init"]);
         const createdAt = yield* DateTime.now;
         const laterIdTask = makeFixtureOpenWorkItem({
-          id: "wi_tie_b",
+          id: "tie00b",
           subject: "Add second tie item",
           createdAt,
         });
         const earlierIdTask = makeFixtureOpenWorkItem({
-          id: "wi_tie_a",
+          id: "tie00a",
           subject: "Add first tie item",
           createdAt,
         });
@@ -278,7 +278,13 @@ describe("tm next", () => {
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
 
-        const missingRootResult = yield* run(["--cwd", directory, "next", "--root", "wi_missing"]);
+        const missingRootResult = yield* run([
+          "--cwd",
+          directory,
+          "next",
+          "--root",
+          "missing-root",
+        ]);
         assert.strictEqual(missingRootResult.exit._tag, "Failure");
         assert.isTrue(String(missingRootResult.errors[0]).includes("was not found"));
 

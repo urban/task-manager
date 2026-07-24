@@ -51,7 +51,7 @@ describe("tm cli commands", () => {
     ),
   );
 
-  it.effect("creates a standalone Task and shows it by unique prefix", () =>
+  it.effect("creates a standalone Task with a canonical short ID and shows it", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
@@ -74,9 +74,11 @@ describe("tm cli commands", () => {
         const created = decodeItemOutput(String(createResult.logs[0]));
         assert.strictEqual(created.item.schemaVersion, 3);
         assert.strictEqual(created.item.executor, "agent");
-        const prefix = created.item.id.slice(0, 12);
+        assert.match(created.item.id, /^[a-z0-9]{6}$/);
+        assert.isFalse(created.item.id.startsWith("wi_"));
+        assert.isTrue((yield* readTasksFile(directory)).includes(`"id":"${created.item.id}"`));
 
-        const showResult = yield* run(["--cwd", directory, "show", prefix]);
+        const showResult = yield* run(["--cwd", directory, "show", created.item.id]);
         assert.strictEqual(showResult.exit._tag, "Success");
         assert.isTrue(String(showResult.logs[0]).includes("Add CLI bootstrap"));
         assert.isTrue(String(showResult.logs[0]).includes("Executor: agent"));
@@ -120,7 +122,7 @@ describe("tm cli commands", () => {
           "--cwd",
           directory,
           "update",
-          item.id.slice(0, 12),
+          item.id.slice(0, 5),
           "--subject",
           "Refine update subject",
           "--json",

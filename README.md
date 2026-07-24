@@ -202,7 +202,7 @@ tm create "Ship offline CLI" \
 
 tm create "Implement task listing" \
   --level task \
-  --parent wi_... \
+  --parent <epic-id> \
   --description "Render the open backlog tree." \
   --context "Follow existing renderer output and include JSON mode."
 ```
@@ -214,16 +214,16 @@ Record dependencies and refine text fields without editing storage by hand:
 tm create "Implement API endpoint" \
   --level task \
   --executor agent \
-  --blocked-by wi_model... \
+  --blocked-by <model-id> \
   --description "Build the endpoint after the model work." \
   --context "Use the completed data model and verify the endpoint."
 
 # Or when both Work Items already exist:
-tm block wi_api... --by wi_model...
-tm update wi_api... --message $'Refine API work\n\nClarify the requested API behavior.'
-tm set-executor wi_api... human --allow-human
-tm show wi_api...
-tm unblock wi_api... --by wi_model... --allow-human
+tm block <api-id> --by <model-id>
+tm update <api-id> --message $'Refine API work\n\nClarify the requested API behavior.'
+tm set-executor <api-id> human --allow-human
+tm show <api-id>
+tm unblock <api-id> --by <model-id> --allow-human
 ```
 
 Select, claim, and complete executable work:
@@ -233,28 +233,28 @@ tm list
 tm list --executor human
 tm next
 tm next --executor human
-tm claim wi_api... --actor codex-session
-tm complete wi_api... \
+tm claim <api-id> --actor codex-session
+tm complete <api-id> \
   --actor codex-session \
   --summary "Implemented API endpoint" \
   --verification "bun run check: passed"
 
 # If claimed work is abandoned before completion, release it instead:
-tm release wi_other... --actor codex-session
+tm release <other-id> --actor codex-session
 ```
 
 Inspect lifecycle states, cancel obsolete real work, and delete accidental records only when needed:
 
 ```sh
 tm list --status done
-tm cancel wi_obsolete... \
+tm cancel <obsolete-id> \
   --actor codex-session \
   --reason "No longer needed after approach changed" \
   --yes
 tm list --status cancelled
 
 # Destructive cleanup for mistaken records, not real work:
-tm delete wi_duplicate... --yes
+tm delete <duplicate-id> --yes
 
 tm next --include-claimed --json
 tm validate --json
@@ -272,7 +272,7 @@ By default, Task Manager stores data under the nearest Git root. If no Git root 
   lock          # transient; not for Git
 ```
 
-`tasks.jsonl` stores one snapshot per Work Item. Schema v3 records use `executor`, neutral `context`, and `claim.actor`. Older records must be edited manually; this breaking release intentionally provides no migration command. The file is intended to be readable, diffable, and safe to commit when the task state should travel with the repository.
+`tasks.jsonl` stores one snapshot per Work Item. Schema v3 records use `executor`, neutral `context`, and `claim.actor`. Work Item IDs are canonical six-character lowercase base-36 strings without a type prefix. Older records, including legacy `wi_`-prefixed IDs, must be edited manually; this breaking release intentionally provides no migration command. The file is intended to be readable, diffable, and safe to commit when the task state should travel with the repository.
 
 You can override storage with:
 

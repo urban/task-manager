@@ -30,6 +30,8 @@ next-env.d.ts
 /.tmp
 /tmp
 /design
+/specs
+TODO.md
 
 *storybook.log
 storybook-static

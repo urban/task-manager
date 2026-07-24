@@ -134,7 +134,7 @@ export const commandCreate = Command.make("create", {
           }
           const blockedBy = dependencies.map((dependency) => dependency.id);
 
-          const id = yield* makeWorkItemId();
+          const id = yield* makeWorkItemId(new Set(items.map((item) => item.id)));
           if (blockedBy.includes(id)) {
             return yield* new CommandFailure({
               message: `Work Item ${id} cannot depend on itself.`,

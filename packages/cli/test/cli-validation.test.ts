@@ -95,6 +95,26 @@ describe("tm validation and compatibility", () => {
     ),
   );
 
+  it.effect("rejects legacy prefixed IDs with short-ID guidance", () =>
+    withTempDirectory((directory) =>
+      Effect.gen(function* () {
+        yield* run(["--cwd", directory, "init"]);
+        const item = yield* createWorkItem(directory, "Reject prefixed ID");
+        const content = yield* readTasksFile(directory);
+        const fs = yield* FileSystem.FileSystem;
+        yield* fs.writeFileString(
+          `${directory}/.tasks/tasks.jsonl`,
+          content.replace(`"id":"${item.id}"`, `"id":"wi_${item.id}"`),
+        );
+
+        const validateResult = yield* run(["--cwd", directory, "validate"]);
+        assert.strictEqual(validateResult.exit._tag, "Failure");
+        assert.isTrue(String(validateResult.errors[0]).includes("six-character"));
+        assert.isTrue(String(validateResult.errors[0]).includes("without a prefix"));
+      }),
+    ),
+  );
+
   it.effect("validate rejects duplicate dependency ids", () =>
     withTempDirectory((directory) =>
       Effect.gen(function* () {
