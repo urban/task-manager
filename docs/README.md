@@ -169,7 +169,7 @@ Example:
 Use `tm cancel <id> --actor <name> --reason <text>` to cancel an open Work Item. Use `--reason-file <path>` for longer reasons. Parent cancellation previews the open descendants that would also be cancelled and requires `--yes` before mutating storage:
 
 ```sh
-tm cancel wi_3f7d... \
+tm cancel abc123 \
   --actor codex-auth-session \
   --reason "No longer needed after the approach changed"
 ```
@@ -183,7 +183,7 @@ Cascading cancellation applies only to open descendants. Done and already-cancel
 Because the CLI is non-interactive, destructive deletion requires `--yes` before storage is mutated:
 
 ```sh
-tm delete wi_3f7d... --yes
+tm delete abc123 --yes
 ```
 
 Deleting a human-executor Work Item or subtree requires `--allow-human` in addition to `--yes`.
@@ -288,15 +288,15 @@ Why snapshots:
 
 ## IDs
 
-Work Item IDs are long, stable, random strings with a `wi_` prefix. Generated IDs are UUID-style hexadecimal strings without dashes.
+Work Item IDs are stable, random six-character lowercase base-36 strings. They contain only `a`-`z` and `0`-`9`.
 
 Example:
 
 ```text
-wi_3f7d9e2a1b4c4d8e9f00112233445566
+abc123
 ```
 
-CLI commands that take Work Item IDs accept full IDs or unique prefixes for convenience, but storage always uses the full ID.
+Storage and public output always use the canonical six-character ID unchanged. CLI commands accept a canonical ID or a shorter unique leading fragment for convenience. ID collisions are resolved during creation and duplicate IDs remain invalid.
 
 ## Planning workflow
 
@@ -401,11 +401,11 @@ tm create "Implement login endpoint" \
 Use `tm update <id>` to correct or clarify the text fields on an existing Work Item without manually editing `.tasks/tasks.jsonl`:
 
 ```sh
-tm update wi_3f7d... --subject "Implement login flow"
-tm update wi_3f7d... --description "Clarify the human-facing request."
-tm update wi_3f7d... --context-file ./agent-context.md
-tm update wi_3f7d... --message $'Implement login flow\n\nClarify the requested login behavior.'
-tm set-executor wi_3f7d... human --allow-human
+tm update abc123 --subject "Implement login flow"
+tm update abc123 --description "Clarify the human-facing request."
+tm update abc123 --context-file ./agent-context.md
+tm update abc123 --message $'Implement login flow\n\nClarify the requested login behavior.'
+tm set-executor abc123 human --allow-human
 ```
 
 `--message` and `--message-file` follow the same Git-style format as `tm create`: the first line is the Subject, then a blank line, then the Description. Do not combine message input with `--subject` or Description flags (`--description`, `--description-file`). Description and Context cannot be cleared accidentally; pass `--allow-empty-description` or `--allow-empty-context` with the matching empty update when clearing is intentional.
@@ -429,7 +429,7 @@ Use repeatable `--blocked-by <id>` during creation when dependency IDs are alrea
 ### Show Work Item details
 
 ```sh
-tm show wi_3f7d...
+tm show abc123
 ```
 
 `tm show` is an inspection command. In human mode it shows the selected Work Item's status, Executor, parent ID, dependencies, current claim, Description, Context, Result, and Cancellation. In JSON mode it returns the encoded Work Item. Use `tm list --root <id>` when you need a subtree view.
@@ -461,9 +461,9 @@ Filtered lists include matching Work Items plus any ancestors needed for hierarc
 Use `--root <id>` for a focused subtree view. Root scoping composes with lifecycle and Executor filters:
 
 ```sh
-tm list --root wi_3f7d...
-tm list --root wi_3f7d... --status cancelled
-tm list --root wi_3f7d... --all
+tm list --root abc123
+tm list --root abc123 --status cancelled
+tm list --root abc123 --all
 ```
 
 `--all` includes open, done, and cancelled Work Items. `--status` accepts one lifecycle state per invocation. `--all` and `--status` cannot be combined, but either can compose with `--executor`. In JSON mode, list output keeps the same tree node shape and reflects the selected filters.
@@ -479,7 +479,7 @@ By default this returns the first actionable open agent-executor leaf Work Item 
 Human output uses the same detailed Work Item rendering as `tm show`. JSON output includes the encoded Work Item:
 
 ```json
-{ "ok": true, "item": { "id": "wi_..." } }
+{ "ok": true, "item": { "id": "abc123" } }
 ```
 
 When no work is available, human output is:
@@ -499,7 +499,7 @@ There is no priority field. `tm next` chooses deterministically by hierarchy ord
 Use `--root <id>` to choose the next actionable Work Item inside a specific open Epic, Task, or Subtask subtree:
 
 ```sh
-tm next --root wi_3f7d...
+tm next --root abc123
 ```
 
 Use `--executor human` for the next human-only Work Item, or `--all-executors` for the true deterministic frontier regardless of Executor. Executor is a hard filter; `tm next --executor human` does not fall back to agent work. `--executor` and `--all-executors` cannot be combined.
@@ -509,7 +509,7 @@ Use `--executor human` for the next human-only Work Item, or `--all-executors` f
 ### Claim work
 
 ```sh
-tm claim wi_3f7d... --actor codex-auth-session
+tm claim abc123 --actor codex-auth-session
 ```
 
 A claim tells other agents to choose something else unless they intentionally override. Claiming a Work Item already claimed by another active agent requires `--force`. The same agent can refresh its own active claim, and expired claims can be replaced without `--force`. Claiming a human-executor Work Item requires `--allow-human`.
@@ -517,13 +517,13 @@ A claim tells other agents to choose something else unless they intentionally ov
 Use `TM_ACTOR` instead of `--actor` when it is more convenient:
 
 ```sh
-TM_ACTOR=codex-auth-session tm claim wi_3f7d...
+TM_ACTOR=codex-auth-session tm claim abc123
 ```
 
 Release a claim when abandoning or handing off work:
 
 ```sh
-tm release wi_3f7d... --actor codex-auth-session
+tm release abc123 --actor codex-auth-session
 ```
 
 Releasing another actor's active claim requires `--force`; expired claims can be released by anyone. Completing a Work Item claimed by another active actor also requires `--force`; expired claims do not require `--force`.
@@ -531,7 +531,7 @@ Releasing another actor's active claim requires `--force`; expired claims can be
 ### Complete work
 
 ```sh
-tm complete wi_3f7d... \
+tm complete abc123 \
   --actor codex-auth-session \
   --summary "Added POST /auth/login with bcrypt credential verification." \
   --details "Implemented handler validation, login response handling, and tests." \
@@ -545,7 +545,7 @@ tm complete wi_3f7d... \
 Use either structured result flags or Git-style result message input, not both:
 
 ```sh
-tm complete wi_3f7d... \
+tm complete abc123 \
   --actor codex-auth-session \
   --result-message $'Add login endpoint verification\n\nImplemented POST /auth/login with bcrypt checks.\n\nDecisions:\n- Return generic 401 for invalid credentials\n\nVerification:\n- pnpm test: 64 passing\n- pnpm build: success'
 ```
@@ -557,7 +557,7 @@ Only open Work Items can be completed. Before completing, the CLI rejects open c
 ### Cancel work
 
 ```sh
-tm cancel wi_3f7d... \
+tm cancel abc123 \
   --actor codex-auth-session \
   --reason "No longer needed after approach changed"
 ```
@@ -567,7 +567,7 @@ Use `--reason-file <path>` for longer reasons. Do not pass both `--reason` and `
 Cancelling a parent with open descendants previews the cascade and fails without mutation unless `--yes` is passed:
 
 ```sh
-tm cancel wi_epic... \
+tm cancel epic01 \
   --actor codex-auth-session \
   --reason "Initiative replaced by a different approach" \
   --yes
@@ -582,13 +582,13 @@ Use deletion only for mistaken, duplicate, or accidental records. Prefer `tm can
 Preview the destructive operation without mutating storage:
 
 ```sh
-tm delete wi_3f7d...
+tm delete abc123
 ```
 
 Confirm deletion explicitly with `--yes`:
 
 ```sh
-tm delete wi_3f7d... --yes
+tm delete abc123 --yes
 ```
 
 If the deleted Work Item or subtree includes human-executor work, pass `--allow-human` as well.
@@ -600,7 +600,7 @@ In JSON mode, successful deletion returns the deleted IDs, subjects, and Executo
 ```json
 {
   "ok": true,
-  "deleted": [{ "id": "wi_...", "subject": "Accidental Work Item", "executor": "agent" }]
+  "deleted": [{ "id": "abc123", "subject": "Accidental Work Item", "executor": "agent" }]
 }
 ```
 

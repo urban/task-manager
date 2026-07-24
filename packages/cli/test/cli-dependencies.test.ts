@@ -61,7 +61,7 @@ describe("tm dependencies", () => {
         const dependency = yield* createWorkItem(directory, "Prepare reports");
 
         const created = yield* createWorkItem(directory, "Render reports", {
-          blockedBy: [dependency.id.slice(0, 12)],
+          blockedBy: [dependency.id.slice(0, 5)],
         });
 
         assert.deepStrictEqual(created.blockedBy, [dependency.id]);
@@ -122,7 +122,7 @@ describe("tm dependencies", () => {
           "--level",
           "task",
           "--blocked-by",
-          "wi_missing_dependency",
+          "missing-dependency",
           "--description",
           "Should not be created.",
           "--context",
@@ -143,12 +143,12 @@ describe("tm dependencies", () => {
         yield* run(["--cwd", directory, "init"]);
         const createdAt = yield* DateTime.now;
         const firstDependency = makeFixtureOpenWorkItem({
-          id: "wi_ambiguous_alpha",
+          id: "amb001",
           subject: "Prepare alpha",
           createdAt,
         });
         const secondDependency = makeFixtureOpenWorkItem({
-          id: "wi_ambiguous_beta",
+          id: "amb002",
           subject: "Prepare beta",
           createdAt: createdAt.pipe(DateTime.add({ seconds: 1 })),
         });
@@ -163,7 +163,7 @@ describe("tm dependencies", () => {
           "--level",
           "task",
           "--blocked-by",
-          "wi_ambiguous",
+          "amb",
           "--description",
           "Should not be created.",
           "--context",
@@ -195,7 +195,7 @@ describe("tm dependencies", () => {
           "--blocked-by",
           dependency.id,
           "--blocked-by",
-          dependency.id.slice(0, 12),
+          dependency.id.slice(0, 5),
           "--description",
           "Should not be created.",
           "--context",
@@ -280,9 +280,9 @@ describe("tm dependencies", () => {
           "--cwd",
           directory,
           "block",
-          subtask.id.slice(0, 12),
+          subtask.id.slice(0, 5),
           "--by",
-          frontendTask.id.slice(0, 12),
+          frontendTask.id.slice(0, 5),
         ]);
         assert.strictEqual(blockResult.exit._tag, "Success");
         assert.isTrue(String(blockResult.logs[0]).includes("Blocked"));
@@ -312,9 +312,9 @@ describe("tm dependencies", () => {
           "--cwd",
           directory,
           "unblock",
-          item.id.slice(0, 12),
+          item.id.slice(0, 5),
           "--by",
-          dependency.id.slice(0, 12),
+          dependency.id.slice(0, 5),
           "--json",
         ]);
         assert.strictEqual(jsonUnblockResult.exit._tag, "Success");
@@ -387,7 +387,7 @@ describe("tm dependencies", () => {
           "--cwd",
           directory,
           "block",
-          "wi_missing_item",
+          "missing-item",
           "--by",
           item.id,
         ]);
@@ -400,7 +400,7 @@ describe("tm dependencies", () => {
           "block",
           item.id,
           "--by",
-          "wi_missing_dependency",
+          "missing-dependency",
         ]);
         assert.strictEqual(missingDependencyResult.exit._tag, "Failure");
         assert.isTrue(String(missingDependencyResult.errors[0]).includes("was not found"));

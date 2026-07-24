@@ -3,12 +3,9 @@ import * as Effect from "effect/Effect";
 import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 
-import {
-  ValidationFailure,
-  type ValidationIssue,
-  WorkItemAmbiguous,
-  WorkItemNotFound,
-} from "./Errors";
+import { CommandFailure, ValidationFailure, WorkItemAmbiguous, WorkItemNotFound } from "./Errors";
+
+type ValidationIssue = import("./Errors").ValidationIssue;
 
 export const schemaVersion = 3;
 
@@ -59,16 +56,25 @@ export const CancellationSchema = Schema.Struct({
 export type WorkItemCancellation = typeof CancellationSchema.Type;
 export type WorkItemCancellationEncoded = Schema.Codec.Encoded<typeof CancellationSchema>;
 
+export const workItemIdLength = 6;
+const workItemIdPattern = /^[a-z0-9]{6}$/;
+
+export const WorkItemIdSchema = Schema.String.check(
+  Schema.isPattern(workItemIdPattern, {
+    expected: "a six-character lowercase alphanumeric Work Item ID without a prefix",
+  }),
+).annotate({ identifier: "WorkItemId" });
+
 const WorkItemBaseFields = {
   schemaVersion: Schema.Literal(schemaVersion),
-  id: Schema.String,
+  id: WorkItemIdSchema,
   level: WorkItemLevelSchema,
   executor: WorkItemExecutorSchema,
   subject: Schema.String,
   description: Schema.String,
   context: Schema.String,
-  parentId: Schema.String.pipe(Schema.optional),
-  blockedBy: Schema.Array(Schema.String).pipe(Schema.optional),
+  parentId: WorkItemIdSchema.pipe(Schema.optional),
+  blockedBy: Schema.Array(WorkItemIdSchema).pipe(Schema.optional),
   claim: ClaimSchema.pipe(Schema.optional),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
@@ -400,9 +406,30 @@ export const validateSubject = (subject: string): ReadonlyArray<ValidationIssue>
   return issues;
 };
 
-export const makeWorkItemId = Effect.fnUntraced(function* () {
-  const uuid = yield* Random.nextUUIDv4;
-  return `wi_${uuid.replaceAll("-", "")}`;
+const workItemIdRadix = 36;
+const workItemIdSpaceSize = workItemIdRadix ** workItemIdLength;
+
+const formatWorkItemId = (value: number): string =>
+  value.toString(workItemIdRadix).padStart(workItemIdLength, "0");
+
+export const makeWorkItemId = Effect.fnUntraced(function* (existingIds: ReadonlySet<string>) {
+  if (existingIds.size >= workItemIdSpaceSize) {
+    return yield* new CommandFailure({
+      message: "Cannot create a Work Item because the short ID space is exhausted.",
+    });
+  }
+
+  const randomStart = yield* Random.nextIntBetween(0, workItemIdSpaceSize, { halfOpen: true });
+  for (let offset = 0; offset <= existingIds.size; offset += 1) {
+    const candidate = formatWorkItemId((randomStart + offset) % workItemIdSpaceSize);
+    if (!existingIds.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  return yield* new CommandFailure({
+    message: "Cannot create a Work Item because no short ID is available.",
+  });
 });
 
 export const makeOpenWorkItem = Effect.fnUntraced(function* (options: {

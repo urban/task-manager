@@ -122,7 +122,7 @@ describe("tm delete", () => {
           "--cwd",
           directory,
           "delete",
-          epic.id.slice(0, 12),
+          epic.id.slice(0, 5),
           "--yes",
           "--json",
         ]);
