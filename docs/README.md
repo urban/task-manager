@@ -456,7 +456,7 @@ tm list --status done --executor human
 tm list --all --executor human
 ```
 
-Filtered lists include matching Tickets plus any ancestors needed for hierarchy context. Human output renders roots as `[marker] id: title` and descendants with four-space tree indentation. The markers are `[ ]` for open, `[x]` for done, `[-]` for cancelled, and `[/]` for an open parent containing completed work. JSON tree nodes keep lifecycle `status`, `executor`, and `matchesFilter` fields so scripts can distinguish matching nodes from context-only ancestors.
+Filtered lists include matching Tickets plus any ancestors needed for hierarchy context. Human output renders roots as `[marker] id: title` and descendants with four-space tree indentation. Human-executor Tickets add `(H)` before the title; agent-executor Tickets remain unmarked. When `--executor` is used, matching Tickets omit the notation while context-only human ancestors retain it. The markers are `[ ]` for open, `[x]` for done, `[-]` for cancelled, and `[/]` for an open parent containing completed work. JSON tree nodes keep lifecycle `status`, `executor`, and `matchesFilter` fields so scripts can distinguish matching nodes from context-only ancestors.
 
 Use `--root <id>` for a focused subtree view. Root scoping composes with lifecycle and Executor filters:
 

@@ -11,6 +11,7 @@ type Ticket = import("../../domain/Ticket").Ticket;
 type TicketCancellationEncoded = import("../../domain/Ticket").TicketCancellationEncoded;
 type TicketEncoded = import("../../domain/Ticket").TicketEncoded;
 type TicketResultEncoded = import("../../domain/Ticket").TicketResultEncoded;
+type TicketExecutorFilter = import("../../domain/Ticket").TicketExecutorFilter;
 type TicketTreeNode = import("../../domain/Ticket").TicketTreeNode;
 
 const encodeJson = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
@@ -156,21 +157,37 @@ const renderTreeMarker = (node: TicketTreeNode): string => {
   }
 };
 
+const renderExecutorNotation = (
+  node: TicketTreeNode,
+  executorFilter: TicketExecutorFilter,
+): string => {
+  if (
+    executorFilter._tag === "SpecificExecutor" &&
+    node.ticket.executor === executorFilter.executor
+  ) {
+    return "";
+  }
+  return node.ticket.executor === "human" ? "(H) " : "";
+};
+
 const renderTreeNodeLines = (
   nodes: ReadonlyArray<TicketTreeNode>,
   prefix: string,
   roots: boolean,
+  executorFilter: TicketExecutorFilter,
 ): ReadonlyArray<string> =>
   nodes.flatMap((node, index) => {
     const isLast = index === nodes.length - 1;
     const connector = roots ? "" : isLast ? "└── " : "├── ";
-    const line = `${prefix}${connector}${renderTreeMarker(node)} ${node.ticket.id}: ${node.ticket.subject}`;
+    const line = `${prefix}${connector}${renderTreeMarker(node)} ${node.ticket.id}: ${renderExecutorNotation(node, executorFilter)}${node.ticket.subject}`;
     const childPrefix = roots ? "    " : `${prefix}${isLast ? "    " : "│   "}`;
-    return [line, ...renderTreeNodeLines(node.children, childPrefix, false)];
+    return [line, ...renderTreeNodeLines(node.children, childPrefix, false, executorFilter)];
   });
 
-export const renderTreeLines = (nodes: ReadonlyArray<TicketTreeNode>): ReadonlyArray<string> =>
-  renderTreeNodeLines(nodes, "", true);
+export const renderTreeLines = (
+  nodes: ReadonlyArray<TicketTreeNode>,
+  executorFilter: TicketExecutorFilter,
+): ReadonlyArray<string> => renderTreeNodeLines(nodes, "", true, executorFilter);
 
 export interface RenderTreeJsonNode {
   readonly id: string;

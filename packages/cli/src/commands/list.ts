@@ -109,7 +109,7 @@ export const commandList = Command.make("list", {
                 })
               : tree.length === 0
                 ? renderEmptyListMessage({ status: selectedStatus, executorFilter })
-                : renderTreeLines(tree).join("\n"),
+                : renderTreeLines(tree, executorFilter).join("\n"),
           );
         }),
       );

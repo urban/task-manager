@@ -57,7 +57,10 @@ describe("tm list", () => {
     withTempDirectory((directory) =>
       Effect.gen(function* () {
         yield* run(["--cwd", directory, "init"]);
-        const epic = yield* createTicket(directory, "Coordinate import work", { level: "epic" });
+        const epic = yield* createTicket(directory, "Coordinate import work", {
+          level: "epic",
+          executor: "human",
+        });
         const humanTask = yield* createTicket(directory, "Review import UX", {
           parent: epic.id,
           executor: "human",
@@ -79,8 +82,11 @@ describe("tm list", () => {
         const defaultList = yield* run(["--cwd", directory, "list"]);
         assert.strictEqual(defaultList.exit._tag, "Success");
         const defaultOutput = String(defaultList.logs[0]);
-        for (const ticket of [epic, humanTask, agentTask, doneTask, cancelledTask]) {
-          assert.isTrue(defaultOutput.includes(ticket.id));
+        for (const ticket of [epic, humanTask, cancelledTask]) {
+          assert.isTrue(defaultOutput.includes(`${ticket.id}: (H) ${ticket.subject}`));
+        }
+        for (const ticket of [agentTask, doneTask]) {
+          assert.isTrue(defaultOutput.includes(`${ticket.id}: ${ticket.subject}`));
         }
 
         const defaultJson = yield* run(["--cwd", directory, "list", "--json"]);
@@ -99,16 +105,27 @@ describe("tm list", () => {
         const humanList = yield* run(["--cwd", directory, "list", "--executor", "human"]);
         assert.strictEqual(humanList.exit._tag, "Success");
         const humanOutput = String(humanList.logs[0]);
+        assert.isTrue(humanOutput.includes(`${epic.id}: ${epic.subject}`));
         assert.isTrue(humanOutput.includes(`${humanTask.id}: ${humanTask.subject}`));
         assert.isTrue(humanOutput.includes(`[-] ${cancelledTask.id}: ${cancelledTask.subject}`));
+        assert.isFalse(humanOutput.includes("(H)"));
         assert.isFalse(humanOutput.includes(agentTask.id));
         assert.isFalse(humanOutput.includes(doneTask.id));
+
+        const agentList = yield* run(["--cwd", directory, "list", "--executor", "agent"]);
+        assert.strictEqual(agentList.exit._tag, "Success");
+        const agentOutput = String(agentList.logs[0]);
+        assert.isTrue(agentOutput.includes(`${epic.id}: (H) ${epic.subject}`));
+        assert.isTrue(agentOutput.includes(`${agentTask.id}: ${agentTask.subject}`));
+        assert.isTrue(agentOutput.includes(`[x] ${doneTask.id}: ${doneTask.subject}`));
+        assert.isFalse(agentOutput.includes(humanTask.id));
+        assert.isFalse(agentOutput.includes(cancelledTask.id));
 
         const doneList = yield* run(["--cwd", directory, "list", "--status", "done"]);
         assert.strictEqual(doneList.exit._tag, "Success");
         assert.strictEqual(
           String(doneList.logs[0]),
-          `[/] ${epic.id}: ${epic.subject}\n    └── [x] ${doneTask.id}: ${doneTask.subject}`,
+          `[/] ${epic.id}: (H) ${epic.subject}\n    └── [x] ${doneTask.id}: ${doneTask.subject}`,
         );
 
         const openList = yield* run(["--cwd", directory, "list", "--status", "open"]);

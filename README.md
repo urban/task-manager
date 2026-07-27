@@ -32,7 +32,7 @@ Available commands:
 - `tm update`: safely update a Ticket's Subject, Description, or Context.
 - `tm set-executor`: change a Ticket's Executor; changes to or from `human` require `--allow-human`.
 - `tm show`: show one Ticket by full ID or unique ID prefix.
-- `tm list`: list the complete Ticket hierarchy by default in checkbox-tree format, optionally scoped with `--root <id>` or filtered by lifecycle (`--status open|done|cancelled`) and Executor (`--executor agent|human`); `--all` and `--all-executors` remain explicit all-value filters.
+- `tm list`: list the complete Ticket hierarchy by default in checkbox-tree format with `(H)` notation for human-executor Tickets, optionally scoped with `--root <id>` or filtered by lifecycle (`--status open|done|cancelled`) and Executor (`--executor agent|human`); `--all` and `--all-executors` remain explicit all-value filters.
 - `tm next`: select the first actionable open agent-executor leaf Ticket in deterministic tree order, optionally scoped with `--root <id>`, filtered with `--executor human`, or expanded with `--all-executors`; it skips Tickets with incomplete dependencies and active claims unless run with `--include-claimed`.
 - `tm claim` and `tm release`: manage one-hour advisory Claims using `--actor <name>` or `TM_ACTOR`.
 - `tm complete`: mark an open Ticket done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
@@ -260,7 +260,7 @@ tm next --include-claimed --json
 tm validate --json
 ```
 
-Human-executor Tickets require explicit `--allow-human` on risky mutations such as `claim`, `complete`, `cancel`, `delete`, and `unblock`. `tm list` shows both Executors by default and accepts `--executor agent|human` as an explicit filter. `tm next` defaults to agent-executor work; use `tm next --executor human` for the human queue or `tm next --all-executors` for the actionable frontier across both Executors.
+Human-executor Tickets require explicit `--allow-human` on risky mutations such as `claim`, `complete`, `cancel`, `delete`, and `unblock`. `tm list` shows both Executors by default, marks human-executor Tickets as `(H)`, and leaves agent-executor Tickets unmarked. With an Executor filter, matching Tickets omit the notation while context-only human ancestors retain it. `tm next` defaults to agent-executor work; use `tm next --executor human` for the human queue or `tm next --all-executors` for the actionable frontier across both Executors.
 
 ## Storage model
 
