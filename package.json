@@ -8,35 +8,34 @@
       "packages/*"
     ],
     "catalog": {
-      "@effect/opentelemetry": "4.0.0-beta.66",
-      "@effect/platform-bun": "4.0.0-beta.66",
-      "@effect/platform-node": "4.0.0-beta.66",
+      "@effect/opentelemetry": "4.0.0-rc.108",
+      "@effect/platform-bun": "4.0.0-rc.108",
+      "@effect/platform-node": "4.0.0-rc.108",
       "@types/bun": "1.3.12",
       "@types/node": "24.12.2",
-      "effect": "4.0.0-beta.66",
+      "effect": "4.0.0-rc.108",
       "vite": "7.3.3"
     }
   },
   "type": "module",
   "scripts": {
-    "check": "bun run lint && bun run typecheck && bun run test",
-    "format": "oxfmt -c ./.oxfmtrc.json",
-    "lint": "oxfmt -c ./.oxfmtrc.json && oxlint --fix --tsconfig tsconfig.json -c ./.oxlintrc.json",
-    "prepare": "effect-tsgo patch",
+    "check": "bun run format && bun run lint && bun run typecheck && bun run test",
+    "format": "oxfmt -c ./oxfmt.config.ts",
+    "lint": "oxlint --fix --tsconfig tsconfig.json -c ./oxlint.config.ts .",
+    "prepare": "effect-tsgo patch --oxlint",
     "test": "vitest run",
-    "typecheck": "tsgo -b"
+    "typecheck": "tsc -b"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.6.0",
-    "@effect/vitest": "4.0.0-beta.66",
+    "@effect/tsgo": "0.36.4",
+    "@effect/vitest": "4.0.0-rc.108",
     "@types/bun": "^1.3.13",
-    "@typescript/native-preview": "7.0.0-dev.20260511.1",
     "oxfmt": "0.49.0",
-    "oxlint": "1.64.0",
-    "oxlint-tsgolint": "0.22.1",
-    "typescript": "^6.0.3",
+    "oxlint": "1.77.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typescript": "7.0.2",
     "vite": "catalog:",
-    "vitest": "3.2.4"
+    "vitest": "4.1.10"
   },
   "packageManager": "bun@1.3.13"
 }
