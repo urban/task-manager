@@ -1,294 +1,37 @@
-# Task Manager
+# Task Manager Lean V1
 
-A local-first CLI task manager for durable development work, designed for people and AI coding agents.
+This branch redevelops Task Manager as the Lean V1 local coordination kernel for people, agents, and external orchestrators.
 
-Task Manager stores rich, hierarchical Tickets in a Git-friendly `.tasks/tasks.jsonl` file so work can survive chat sessions, be reviewed in diffs, and be resumed by another agent without reconstructing context from memory.
+## Implementation authority
 
-## Why this exists
+Read these documents before implementing any slice:
 
-AI coding agents are good at keeping an in-session TODO list, but that state usually disappears when the session ends. This project makes the durable parts of development work explicit:
+1. [`AGENTS.md`](./AGENTS.md) — repository workflow and engineering constraints.
+2. [`CONTEXT.md`](./CONTEXT.md) — canonical domain language.
+3. [`specs/lean-v1.md`](./specs/lean-v1.md) — normative product, core-package, persistence, and CLI contract.
+4. [`specs/lean-v1-verification-checklist.md`](./specs/lean-v1-verification-checklist.md) — mandatory conformance evidence.
 
-- what work exists,
-- why it matters,
-- what context an agent needs to execute it,
-- how Tickets relate through hierarchy and dependencies,
-- who has currently claimed work,
-- which work completed or was cancelled, and
-- what evidence proved completed work was actually done.
+The Lean V1 architecture is authoritative. Existing source code, tests, and generated help are migration evidence, while the files under [`skills/`](./skills/) are migration placeholders and targets until rebuilt against the implemented Lean V1 CLI. None may override the architecture.
 
-One key differentiator is **Executor**. Each Ticket records whether it is `agent` work that an LLM can execute directly or `human` work that requires human-in-the-loop (HITL) handling such as review, approval, credentials, or manual action. That keeps mixed human/agent backlogs honest: agents can filter for executable work, while work that truly needs a person stays explicit instead of being rediscovered only after an agent gets stuck.
+## Target shape
 
-Task Manager is an offline, repository-backed workflow for planning, handoff, and auditability.
+Lean V1 provides:
 
-## CLI
+- `@urban/task-manager`, a typed Effect core package owning the domain, libSQL persistence, transactions, Claims, permanent Trash, and Semantic Activity;
+- `@urban/task-manager-cli`, a thin command adapter owning parsing, environment fallback, confirmations, file input, and rendering;
+- one explicitly resolved local libSQL Store shared safely by local processes;
+- exact Claim-ID fencing without force or takeover paths; and
+- the reviewed command contracts defined in the architecture.
 
-The CLI binary is `tm`.
+Task Manager coordinates durable work facts. Assignment, execution, review, and workflow policy belong to external orchestrators.
 
-Available commands:
+## Development
 
-- `tm init`: initialize `.tasks/tasks.jsonl` storage.
-- `tm validate`: validate the JSONL store on disk.
-- `tm create`: create an Epic, Task, or Subtask with Description, Context, Executor, and optional repeatable `--blocked-by <id>` dependencies.
-- `tm update`: safely update a Ticket's Subject, Description, or Context.
-- `tm set-executor`: change a Ticket's Executor; changes to or from `human` require `--allow-human`.
-- `tm show`: show one Ticket by full ID or unique ID prefix.
-- `tm list`: list the complete Ticket hierarchy by default in checkbox-tree format with `(H)` notation for human-executor Tickets, optionally scoped with `--root <id>` or filtered by lifecycle (`--status open|done|cancelled`) and Executor (`--executor agent|human`); `--all` and `--all-executors` remain explicit all-value filters.
-- `tm next`: select the first actionable open agent-executor leaf Ticket in deterministic tree order, optionally scoped with `--root <id>`, filtered with `--executor human`, or expanded with `--all-executors`; it skips Tickets with incomplete dependencies and active claims unless run with `--include-claimed`.
-- `tm claim` and `tm release`: manage one-hour advisory Claims using `--actor <name>` or `TM_ACTOR`.
-- `tm complete`: mark an open Ticket done with a structured Result; verification evidence is required unless `--allow-no-verification` is passed.
-- `tm cancel`: mark open Tickets cancelled with a structured Cancellation reason; parent cancellation cascades to open descendants only with `--yes`.
-- `tm delete`: destructively delete accidental Tickets and their descendants with `--yes`, refusing to leave dangling dependencies.
-- `tm block` and `tm unblock`: add or remove dependency relationships between Tickets.
-
-Shared flags:
-
-- `--json`: emit machine-readable JSON.
-- `--cwd <dir>` or `TM_CWD`: resolve storage from a specific working directory.
-- `--storage-path <dir>` or `TM_STORAGE_PATH`: use a custom `.tasks` directory.
-
-Writes are guarded by a transient lock file and persisted by writing a temporary file, then renaming it into place.
-
-## Core concepts
-
-- **Ticket**: any persisted unit of work.
-- **Epic**: top-level container for larger work.
-- **Task**: significant executable work; may be standalone or under an Epic.
-- **Subtask**: atomic step under a Task.
-- **Subject**: short, scannable title using Git-style subject-line rules.
-- **Description**: human-facing Markdown explaining the requested work.
-- **Context**: execution handoff context for an AI agent.
-- **Executor**: `agent` for LLM-executable work or `human` for work requiring human action, review, approval, credentials, or other HITL handling.
-- **Dependency**: an ordering relationship where one Ticket is blocked by another.
-- **Claim**: advisory one-hour claim that helps agents avoid duplicate work.
-- **Result**: completion record with summary, details, decisions, verification evidence, timestamp, and Actor Identity.
-- **Cancellation**: cancellation record with reason, timestamp, and Actor Identity for real work that intentionally stopped unfinished.
-
-See the [detailed guide](./docs/README.md) for the project vocabulary.
-
-## Quick start
-
-Requires [Bun](https://bun.sh/).
+Use Bun for dependency and script execution:
 
 ```sh
-git clone <this-repo>
-cd task-manager
 bun install
+bun run check
 ```
 
-### Put `tm` on your PATH
-
-Register the CLI package with Bun. This creates a `tm` executable in Bun's global bin directory:
-
-```sh
-(cd packages/cli && bun link)
-```
-
-Make sure Bun's global bin directory is on your `PATH`. For the current shell:
-
-```sh
-BUN_GLOBAL_BIN="$(bun pm bin -g)"
-export PATH="$BUN_GLOBAL_BIN:$PATH"
-```
-
-To make it persistent, add the same directory to your shell profile. For zsh:
-
-```sh
-BUN_GLOBAL_BIN="$(bun pm bin -g)"
-printf '\nexport PATH="%s:$PATH"\n' "$BUN_GLOBAL_BIN" >> ~/.zshrc
-```
-
-For bash, use `~/.bashrc` instead of `~/.zshrc`.
-
-Verify that `tm` is globally available:
-
-```sh
-command -v tm
-tm --help
-```
-
-All examples below assume `tm` is on your `PATH`.
-
-### Use with an AI coding agent
-
-This repo includes an agent skill at [`skills/task-manager/SKILL.md`](./skills/task-manager/SKILL.md). If your coding agent supports skill folders, add or copy the whole [`skills/task-manager/`](./skills/task-manager/) directory to its configured skills path.
-
-If you are not installing the whole skill folder, ask the agent to read `skills/task-manager/SKILL.md` before doing task-manager work. The skill teaches agents how to plan durable Tickets from PRDs/specs, record dependencies with `tm create --blocked-by` or `tm block`, separate agent and human work with `--executor`, select agent work with `tm next`, coordinate with `tm claim`, and complete work with structured verification evidence through `tm complete`.
-
-#### Prompt workflows
-
-Use these prompts as starting points when asking an AI coding agent to use `tm`.
-
-Quick creation from an explicit list:
-
-```text
-Use the task-manager skill. Create these Tickets now with tm, without drafting a separate approval plan unless something is ambiguous:
-
-1. Add login form
-2. Validate login credentials
-3. Add login integration tests
-
-Make them Tasks under an Epic called “Add authentication”. Run tm validate before and after.
-```
-
-Plan a backlog from a PRD or spec:
-
-```text
-Use the task-manager skill. Turn this spec into tm Tickets.
-
-Draft the hierarchy first and wait for my approval before creating anything. Prefer vertical slices. Include dependencies only when ordering is real.
-```
-
-Create dependent Tickets:
-
-```text
-Use the task-manager skill. Create this backlog with dependencies:
-
-Epic: Improve task selection
-- Task: Add root filtering
-- Task: Add claimed-ticket filtering, blocked by Add root filtering
-- Task: Add JSON tests, blocked by both previous tasks
-
-Use tm create --json, capture IDs with jq, then add dependency edges with tm block if needed.
-```
-
-Execute the next actionable Ticket:
-
-```text
-Use the task-manager skill. Pick the next actionable agent-executor Ticket with tm next --json, claim it as agent “pi”, implement it, run bun run check, then complete it with a detailed Result.
-```
-
-Work under a specific root:
-
-```text
-Use the task-manager skill. Continue the next actionable Ticket under root <id>. Use tm next --root <id> --json.
-```
-
-Release, cancel, or delete Tickets:
-
-```text
-Use the task-manager skill. Release my claim on Ticket <id> as agent “pi”. Validate afterward.
-```
-
-```text
-Use the task-manager skill. Cancel Ticket <id> because it is obsolete. Use a structured reason and validate afterward.
-```
-
-```text
-Use the task-manager skill. Delete Ticket <id> because it was created accidentally. Confirm with --yes and validate afterward.
-```
-
-Initialize task storage in the current Git repository:
-
-```sh
-tm init
-```
-
-Create a standalone Task:
-
-```sh
-tm create "Add JWT authentication" \
-  --level task \
-  --description "Implement JWT-based authentication for the API." \
-  --context "Add login token generation, verification middleware, refresh flow, and tests."
-```
-
-Create an Epic and a child Task:
-
-```sh
-tm create "Ship offline CLI" \
-  --level epic \
-  --description "Deliver the offline CLI." \
-  --context "Coordinate storage, rendering, validation, and command behavior."
-
-tm create "Implement task listing" \
-  --level task \
-  --parent <epic-id> \
-  --description "Render the open backlog tree." \
-  --context "Follow existing renderer output and include JSON mode."
-```
-
-Record dependencies and refine text fields without editing storage by hand:
-
-```sh
-# When the dependency is known before creation:
-tm create "Implement API endpoint" \
-  --level task \
-  --executor agent \
-  --blocked-by <model-id> \
-  --description "Build the endpoint after the model work." \
-  --context "Use the completed data model and verify the endpoint."
-
-# Or when both Tickets already exist:
-tm block <api-id> --by <model-id>
-tm update <api-id> --message $'Refine API work\n\nClarify the requested API behavior.'
-tm set-executor <api-id> human --allow-human
-tm show <api-id>
-tm unblock <api-id> --by <model-id> --allow-human
-```
-
-Select, claim, and complete executable work:
-
-```sh
-tm list
-tm list --executor human
-tm next
-tm next --executor human
-tm claim <api-id> --actor codex-session
-tm complete <api-id> \
-  --actor codex-session \
-  --summary "Implemented API endpoint" \
-  --verification "bun run check: passed"
-
-# If claimed work is abandoned before completion, release it instead:
-tm release <other-id> --actor codex-session
-```
-
-Inspect lifecycle states, cancel obsolete real work, and delete accidental records only when needed:
-
-```sh
-tm list --status done
-tm cancel <obsolete-id> \
-  --actor codex-session \
-  --reason "No longer needed after approach changed" \
-  --yes
-tm list --status cancelled
-
-# Destructive cleanup for mistaken records, not real work:
-tm delete <duplicate-id> --yes
-
-tm next --include-claimed --json
-tm validate --json
-```
-
-Human-executor Tickets require explicit `--allow-human` on risky mutations such as `claim`, `complete`, `cancel`, `delete`, and `unblock`. `tm list` shows both Executors by default, marks human-executor Tickets as `(H)`, and leaves agent-executor Tickets unmarked. With an Executor filter, matching Tickets omit the notation while context-only human ancestors retain it. `tm next` defaults to agent-executor work; use `tm next --executor human` for the human queue or `tm next --all-executors` for the actionable frontier across both Executors.
-
-## Storage model
-
-By default, Task Manager stores data under the nearest Git root. If no Git root is found, it stores data under the current working directory or the directory passed with `--cwd` / `TM_CWD`:
-
-```text
-.tasks/
-  tasks.jsonl
-  lock          # transient; not for Git
-```
-
-`tasks.jsonl` stores one snapshot per Ticket. Schema v3 records use `executor`, neutral `context`, and `claim.actor`. Ticket IDs are canonical six-character lowercase base-36 strings without a type prefix. Older records, including legacy `wi_`-prefixed IDs, must be edited manually; this breaking release intentionally provides no migration command. The file is intended to be readable, diffable, and safe to commit when the task state should travel with the repository.
-
-You can override storage with:
-
-```sh
-TM_STORAGE_PATH=/custom/path/.tasks tm list
-tm --storage-path /custom/path/.tasks list
-```
-
-## Design notes
-
-Task Manager is intentionally:
-
-- **local-first**: no network is required for core workflows,
-- **Git-native**: `.tasks/tasks.jsonl` should produce useful diffs,
-- **agent-friendly**: commands are non-interactive and support JSON output,
-- **context-rich**: work creation separates human Description from Context, and
-- **strictly scoped**: the hierarchy is limited to Epic, Task, and Subtask.
-
-Run `tm --help` or `tm <command> --help` for generated command help from the CLI.
+Implement and verify behavior through public core and CLI boundaries. Consult vendored third-party source under `.dotai/repos/` as required by `AGENTS.md`.
