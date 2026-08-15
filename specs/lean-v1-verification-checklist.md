@@ -1,9 +1,5 @@
 # Lean V1 verification checklist
 
-Status: Final
-
-Decision Ticket: **Define lean V1 core and CLI contract** (`8yqcz7`)
-
 Architecture source: [`lean-v1.md`](./lean-v1.md)
 
 ## Authority and organization
@@ -14,17 +10,9 @@ Tests assert through the public typed core interface or CLI. Private test-only p
 
 Every environment advertised as supported must pass the complete Lean V1 checklist. Initially the project should advertise only the exact development/CI runtime, native libSQL artifact, OS/architecture, local filesystem, and connection profile that it actually tests.
 
-## Deliberately excluded qualification
+## Qualification boundary
 
-Lean V1 does not require:
-
-- backup/restore tests;
-- Mutation-receipt replay tests;
-- revision-guard tests;
-- broad cross-platform qualification;
-- exhaustive crash points or physical power-loss testing;
-- migration compatibility tests;
-- complete production recovery-artifact validation.
+Lean V1 requires qualification only for its declared runtime and filesystem profile. Backup, restore, revision guards, durable retry receipts, broad cross-platform support, and exhaustive crash or physical power-loss behavior are outside this checklist.
 
 ## Public core service and Layer
 
@@ -53,7 +41,7 @@ Lean V1 does not require:
 - Reject duplicate singular flags during parsing before environment fallback. Prove higher-precedence values replace rather than merge with lower-precedence values independently for each setting.
 - Pass only the resolved canonical Store Location into the core Layer and keep Git discovery out of the core package.
 - Keep Store Identity independent of Store Location and perform no automatic Store discovery, relocation, or merging after a repository path changes.
-- Keep `task-manager.db` and its engine-owned sibling sidecars outside the repository by default. Treat `--storage-path` as selecting the containing Store Location rather than an arbitrary database filename. Do not copy Pi's exact-cwd partitioning or its JSONL persistence.
+- Keep `task-manager.db` and its engine-owned sibling sidecars outside the repository by default. Treat `--storage-path` as selecting the containing Store Location rather than an arbitrary database filename.
 
 ## Bounded diagnostics
 
@@ -88,7 +76,6 @@ Lean V1 does not require:
 - Use `activityHighWater: 0` when no Activity exists; otherwise require it to equal the greatest committed positive Activity Cursor and advance it atomically with Activity.
 - Reject a missing, duplicate, malformed, unrelated-application, or non-version-1 metadata record without modifying the database.
 - Do not treat pragmas as a second normative copy of semantic application identity or format version.
-- Exclude creation time, Store Location, project path, package or engine versions, durability profile, revisions, receipts, and migration history from Lean V1 Store metadata.
 - Use exactly `task-manager.db` as the active database filename within every resolved Store Location.
 
 ## Canonical time
@@ -111,7 +98,7 @@ Lean V1 does not require:
 ## Canonical Ticket Snapshot
 
 - Expose one closed `OpenTicket | DoneTicket | CancelledTicket` lifecycle union sharing exact `TicketBase { id, level, executor, subject, description, context?, parentId?, blockedBy?, createdAt, updatedAt }` fields.
-- Restrict level to `epic | task | subtask`, Executor to `agent | human`, and public `TicketStatus` to exact `open | done | cancelled`; use status as the lifecycle discriminant and enforce the approved hierarchy compatibility rules.
+- Restrict level to `epic | task | subtask`, Executor to `agent | human`, and public `TicketStatus` to exact `open | done | cancelled`; use status as the lifecycle discriminant and enforce the defined hierarchy compatibility rules.
 - Require open Tickets to contain no terminal fields; done Tickets to contain exactly `result`, `completedAt`, and `completedBy` beyond the base; and cancelled Tickets to contain exactly flat `reason`, `cancelledAt`, and `cancelledBy` beyond the base.
 - Reject excess or cross-lifecycle fields. Include no nested single-field `cancellation` wrapper, embedded Claim, Ticket `formatVersion`, or Ticket `schemaVersion`.
 - Omit absent `context`, `parentId`, and `blockedBy` values from typed encodings and JSON rather than encoding `null`; require present `blockedBy` to be non-empty, unique, and sorted by ascending Ticket ID, and omit it after the final dependency is removed.
@@ -143,7 +130,7 @@ Lean V1 does not require:
 - At least one Claim race proves only one process acquires an unclaimed Ticket.
 - At least one rollback/reopen smoke test proves a failed mutation leaves no partial active Ticket, Trash, or Activity state.
 - Every state-changing Ticket or Claim command proves Actor attribution and Claim fencing when applicable. Every effective mutation proves atomic Activity emission, while failures and no-ops emit none. Store initialization requires no Actor and emits no Activity.
-- No command accepts `--force`, and no typed core operation accepts a generic force or unsafe-bypass boolean. Actor Identity mismatch against an active Claim is never waivable.
+- No typed core operation accepts a generic unsafe-bypass capability. Actor Identity mismatch against an active Claim is never waivable.
 - Every direct mutation of a Ticket protected by an active Claim requires both matching Actor Identity and the exact current Claim ID; prove Actor Identity alone cannot let a stale same-Actor process mutate after renewal or replacement. For soft deletion, prove every selected active Claim blocks categorically and only a surviving direct parent's Claim may be exactly fenced.
 - Fence direct mutation targets rather than the transitive graph of derived observers: do not require a claimed dependent's fence when a prerequisite becomes terminal, a claimed parent's fence when a child becomes terminal, or a claimed dependency's fence for a derived reverse `Blocks` relationship.
 - Retain child creation beneath an actively claimed parent as the one explicit structural exception, requiring matching Actor Identity and exact parent Claim ID because the operation changes the parent's decomposition.
@@ -151,7 +138,7 @@ Lean V1 does not require:
 - Require every completion to be performed by the matching active Claim holder with the exact Claim ID; permit no unclaimed completion path. Permit the matching holder to cancel a claimed target directly and permit cancellation of an unclaimed target without a Claim fence. Require every softly deleted target and descendant to be unclaimed. Atomically remove any permitted terminal target Claim on success, emit only the operation-specific terminal Activity, and require no preliminary release transaction.
 - Include `ClaimConsumption` as `Unclaimed | Consumed { claimId }` in completion and cancellation Activity, constrain every `TicketCompleted` event to `Consumed`, and prove the exact removed Claim incarnation is recorded without embedding the complete Claim or emitting a release event. For cancellation cascades, permit only the explicit target to record `Consumed` and require every changed descendant to record `Unclaimed`. Require `TicketTrashed` to contain no `ClaimConsumption`.
 - Keep completion non-cascading and reject every open descendant whether claimed or unclaimed. Permit cancellation across open descendants and soft deletion across all-lifecycle descendants only when every selected descendant is unclaimed; reject the entire operation when any descendant has an active Claim, including one held by the command Actor, and accept no descendant Claim-fence collection.
-- Model cancellation scope as `TargetOnly | CascadeOpenDescendants`: map omitted CLI `--cascade` to `TargetOnly` and reject transaction-current open descendants; map supplied `--cascade` to `CascadeOpenDescendants` and atomically include every transaction-current open descendant. Remove generic `--yes`, do not bind scope to any caller-observed Ticket set, and never treat scope as a Claim bypass.
+- Model cancellation scope as `TargetOnly | CascadeOpenDescendants`: map omitted CLI `--cascade` to `TargetOnly` and reject transaction-current open descendants; map supplied `--cascade` to `CascadeOpenDescendants` and atomically include every transaction-current open descendant. Do not bind scope to any caller-observed Ticket set or treat scope as a Claim bypass.
 - Model cancellation Executor scope as `AgentOnly | AnyExecutor`: map omitted CLI `--allow-human` to `AgentOnly` and supplied `--allow-human` to `AnyExecutor`; enforce it against every transaction-current Ticket the invocation would cancel, not unchanged terminal descendants or graph observers, without passing a raw approval boolean or treating Executor scope as authorization.
 - Return typed `ClaimedDescendants` with the target ID and a canonically ordered non-empty collection containing every blocking descendant's Ticket ID, Subject, Executor, and complete active Claim; render holder, Claim ID, and expiry in human output, preserve structured entries in JSON, and prove failure is atomic.
 - Claims persist as separate coordination records rather than Ticket fields; Claim acquisition, renewal, release, and logical expiry never modify the Ticket Snapshot or `updatedAt`, while composed reads expose only the effective active Claim alongside the Ticket.
@@ -184,10 +171,10 @@ Lean V1 does not require:
 - Declare every singular flag with Effect occurrence bounds such as `Flag.atMost(1)` and mechanically project an excess-occurrence `InvalidValue` to public `DuplicateOption` before environment fallback. Keep cross-parameter source conflicts as small post-parse checks.
 - Expose exact `CliParseError { reason }` with `UnknownCommand | UnknownOption | UnexpectedArgument | MissingArgument | MissingOption | MissingOptionValue | DuplicateOption | InvalidOptionValue | ConflictingOptions`. Keep missing required option distinct from a present option without a value.
 - When Effect accumulates lexical failures, expose only the first in argv order. Report only the first unexpected positional argument. Preserve command-declaration order for expected values and conflicting-option collections; omit parser suggestions from structured JSON.
-- Use Effect CLI parameter schemas/filters and Effect Schema decoding wherever they preserve approved source and precedence. Expose exact opaque schema-backed `PublicPathIndex` as a non-negative safe integer, `PublicStructuralPath = ReadonlyArray<string | PublicPathIndex>`, `InputRejected { input: { source, name }, issues }`, and `PublicSchemaIssue { path: PublicStructuralPath, code, expected }`; structurally map schema issues without raw rejected values, complete records, formatter internals, or schema objects, preserving traversal order.
+- Use Effect CLI parameter schemas/filters and Effect Schema decoding wherever they preserve defined source and precedence. Expose exact opaque schema-backed `PublicPathIndex` as a non-negative safe integer, `PublicStructuralPath = ReadonlyArray<string | PublicPathIndex>`, `InputRejected { input: { source, name }, issues }`, and `PublicSchemaIssue { path: PublicStructuralPath, code, expected }`; structurally map schema issues without raw rejected values, complete records, formatter internals, or schema objects, preserving traversal order.
 - Render every public structural path in human output with canonical bracket notation: `$` for the empty path; append `[<canonical-JSON-string>]` for each string segment and `[<canonical-non-negative-decimal>]` for each index; never use dot shorthand. Prove `["blockedBy", 1]` renders `$["blockedBy"][1]`, unusual string segments remain unambiguous, and JSON preserves the original segment array rather than the display string.
 - Use Effect FileSystem and Path services for OS access. Expose exact `FileInputError { option, path, reason }` with `FileNotFound | NotRegularFile | InvalidUtf8 | FileReadFailed`, and exact `PathResolutionError { setting, path?, reason }` with `PathNotFound | NotDirectory | HomeDirectoryUnavailable | CanonicalizationFailed`.
-- Add custom path code only for the approved canonical missing-tail Store resolution and stable error projection. Require file errors to identify selecting option and canonical path; require path errors before Layer construction; expose no parser-library, `SchemaIssue`, or raw OS values.
+- Add custom path code only for the defined canonical missing-tail Store resolution and stable error projection. Require file errors to identify selecting option and canonical path; require path errors before Layer construction; expose no parser-library, `SchemaIssue`, or raw OS values.
 - Mechanically map outer and nested tags to JSON `type`, preserve fields, and add no generic `message`. Begin human output with `Error:`; permit the pinned no-color Effect formatter for the underlying parse fact without adopting its automatic error envelope. Keep help, version, and shell completions owned by Effect CLI.
 
 ## Global CLI process and JSON contract
@@ -197,18 +184,16 @@ Lean V1 does not require:
 - Without `--json`, write success only to stdout and expected failure only to stderr, with every human failure beginning `Error:`. End every Task Manager-owned human success or expected-failure output with exactly one newline and no additional trailing blank line; leave help, version, and shell-completion byte formatting to Effect CLI.
 - With `--json`, write exactly one compact JSON object and one trailing newline to stdout for success or expected failure, and leave stderr empty.
 - Require `ok: true` on every JSON success and exact `{ ok: false, error: StructuredCliError }` on every JSON failure.
-- Mechanically encode typed adapter/core failures without a generic duplicate human `message`; permit bounded diagnostic prose only when an approved typed reason defines it as evidence, and require consumers to identify failures by `type`.
+- Mechanically encode typed adapter/core failures without a generic duplicate human `message`; permit bounded diagnostic prose only when a defined typed reason defines it as evidence, and require consumers to identify failures by `type`.
 - Exercise representative success, no-op, no-work, parse, confirmation, lookup, Store, and domain-rejection processes through the real CLI entrypoint and assert status, stdout, stderr, one-object framing, and newline behavior.
 
-## Global no-force command coverage
+## Claim-fence coverage
 
-- Reject `--force` as an unknown flag on `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `renew`, `release`, `complete`, `cancel`, `delete`, `block`, and `unblock`; expose no renamed actor-override flag.
 - Prove `init`, `validate`, `show`, `list`, and `next` have no Claim-fence capability or force Activity.
 - Prove `create` fences only an active parent through `--parent-claim-id`; dependency Claims do not participate.
 - Prove `update`, `cancel`, `block`, and `unblock` map optional target `--claim-id` to `TargetClaimFence`; prove `complete` requires an exact Claim ID and has no `RequireUnclaimed` variant; prove deletion accepts no target or descendant Claim ID and maps only optional `--parent-claim-id` to `ParentClaimFence`; require no descendant or graph-observer fence collection.
 - Prove `claim` remains acquisition-only, while `renew` and `release` require exact Claim IDs and matching Actors without takeover, transfer, or non-holder release.
-- Prove lifecycle, hierarchy, dependency readiness, human gates, destructive confirmation, Result/Cancellation/input validation, missing Claim IDs, stale Claim IDs, and Actor mismatch have no override path.
-- Prove redundant `--force` is rejected rather than accepted or specially recorded; no command accepts a force reason, and no Activity contains force, override, displacement, or forced-release metadata.
+- Prove lifecycle, hierarchy, dependency readiness, human gates, destructive confirmation, Result/Cancellation/input validation, missing Claim IDs, stale Claim IDs, and Actor mismatch have no override path or Activity metadata representing a bypass.
 - Prove release emits only ordinary `TicketClaimReleased`, while completion and cancellation emit only their ordinary event with `ClaimConsumption`; constrain completion to `Consumed` and never pair any terminal path with an extra release event. Prove deletion emits minimal `TicketTrashed` without Claim consumption or release Activity.
 
 Representative global scenarios:
@@ -223,12 +208,12 @@ Representative global scenarios:
 - Release each blocking descendant cooperatively or let Claims expire, then retry the parent operation and prove only unclaimed descendants cascade.
 - Exercise orchestrator-held sequential work and cooperative holder release followed by acquisition; prove there is no unilateral Claim transfer and another claimant may win the handoff race.
 
-## Reviewed command scenarios
+## Command scenarios
 
 ### `tm init`
 
-- Expose schema-backed `StoreInitializationRejected { databasePath, reason }` with exact `LegacyStoreDetected { legacyPath } | InvalidDatabase { diagnostic } | ApplicationIdentityMismatch { expectedApplicationId, actualApplicationId? } | IncompatibleFormat { expectedFormatVersion, actualFormatVersion? } | InvalidStoreStructure { component, issues }` reasons.
-- Treat an absent Store as initialization success, never `StoreNotInitialized`. Never import, migrate, replace, or silently ignore detected legacy `tasks.jsonl`; distinguish corrupt/non-database content, unrelated application, incompatible format, and partial schema or malformed metadata.
+- Expose schema-backed `StoreInitializationRejected { databasePath, reason }` with exact `InvalidDatabase { diagnostic } | ApplicationIdentityMismatch { expectedApplicationId, actualApplicationId? } | IncompatibleFormat { expectedFormatVersion, actualFormatVersion? } | InvalidStoreStructure { component, issues }` reasons.
+- Treat an absent Store as initialization success, never `StoreNotInitialized`; distinguish corrupt or non-database content, unrelated application, incompatible format, and partial schema or malformed metadata.
 - Expose opaque schema-backed `ObservedApplicationId` only for persisted observations already invariant under ECMAScript trim, non-blank, single-line, free of Unicode control characters, and at most 128 UTF-8 bytes; preserve accepted case, Unicode, punctuation, and internal spacing without Unicode normalization. Expose opaque schema-backed `ObservedFormatVersion` only for non-negative safe integers.
 - Use `ObservedApplicationId` and `ObservedFormatVersion` for optional initialization and validation `actual*` fields. Omit an unsafe or undecodable observation rather than encoding `null`, sanitizing, truncating, or coercing it; still classify the mismatch without public disclosure. Use shared bounded diagnostics and public schema issues without raw persistence data.
 - Expose exact `initializeStore(): Effect.Effect<InitializeStoreResult, StoreInitializationRejected | StoreMutationError, TaskManager>`. Permit generic Store mutation reasons except make `StoreNotInitialized` impossible for initialization.
@@ -238,7 +223,7 @@ Representative global scenarios:
 - Repeating initialization returns `Existing { metadata }` with the authoritative existing Store Identity and current Activity high-water, without changing state or emitting Activity.
 - Expose exactly `InitializeStoreResult = Created { metadata } | Existing { metadata }`; return no Store Location, libSQL client, persistence handle, or engine details from the core operation.
 - Concurrent initialization yields one Store and no partial schema.
-- A legacy `tasks.jsonl`, unrelated database, partial Task Manager database, corrupt database, or incompatible format fails without replacement.
+- An unrelated database, partial Task Manager database, corrupt database, or incompatible format fails without replacement.
 - Render human `Created` exactly as `Initialized Task Manager Store <store-id> at <database-path>.` and `Existing` exactly as `Task Manager Store <store-id> already exists at <database-path>.`; never describe the existing outcome as created, initialized, or opened.
 - Render JSON as exactly `{ ok: true, outcome: "created" | "existing", storeLocation, databasePath, metadata }`, using canonical absolute paths and the complete transaction-current metadata with no Activity or persistence handle.
 
@@ -248,7 +233,7 @@ Representative global scenarios:
 - Require `tickets === openTickets + doneTickets + cancelledTickets`, exclude Trash from `tickets`, count persisted Claim records including logically expired records, and require `activityItems === metadata.activityHighWater` under contiguous cursor validation.
 - Prove empty Activity reports both Activity values as zero and validation performs no logical-expiry cleanup or other write.
 - Render JSON exactly as `{ ok: true, storeLocation, databasePath, report }` with canonical absolute paths and complete metadata/counts.
-- Render human success as exactly five lines: the Store Identity/format/path heading; lifecycle Ticket counts; Claim-record count; Trash-entry count; and Activity-item/high-water count using the approved punctuation and labels.
+- Render human success as exactly five lines: the Store Identity/format/path heading; lifecycle Ticket counts; Claim-record count; Trash-entry count; and Activity-item/high-water count using the defined punctuation and labels.
 - Return no active/expired Claim classification, readiness, actionability, Activity payload, Trash Snapshot, or partial success report.
 - Enforce exact fail-fast gate precedence after canonical Store resolution: absent database as `StoreNotInitialized`; inability to open or query enough state for classification as `StoreValidationReadError`; non-database or corrupt content as `InvalidDatabase`; safely inspectable non-Task-Manager identity as `ApplicationIdentityMismatch`; recognized non-1 Task Manager format as `IncompatibleFormat`; expected application/format structure as `InvalidStoreStructure` with `schema` before `metadata`; then engine `quick_check`, foreign keys, persisted-record decoding, and cross-record domain integrity.
 - When an earlier gate fails, return only its typed gate failure and do not claim or attempt later checks whose results would be unsafe or meaningless.
@@ -261,7 +246,7 @@ Representative global scenarios:
 - Give every issue only its exact structured public fields; expose no complete malformed record, SQL identifier, query, table name or layout detail, generic detail string, or persisted human message. Omit an undecodable optional observed Cursor rather than encoding `null`, keep boundary-shape detail in `PublicSchemaIssue`, and keep semantic variants purpose-specific.
 - Expose exact `PersistedRecordLocator { ordinal }`; assign its positive one-based value from the collection's public-evidence validation scan. Sort records with a safely decoded public collection identity before records without one; order present Ticket, Claim, and Trash identities by ascending ECMAScript string order and Activity identities numerically; then compare tied or identity-undecodable records by their complete safely derived public diagnostic projection of ordered schema issues and public foreign-key evidence, excluding the locator being constructed.
 - Treat records with identical public diagnostic projections as diagnostically equivalent and assign their consecutive ordinal range without a private tie-breaker. Prove physical retrieval or insertion order cannot affect output, and use no SQL row ID, table layout, raw-record encoding, hash, hidden durable sequence, Store identity, or stable repair handle as the public ordering basis.
-- Seed valid, malformed-with-decodable-identity, and multiple identity-undecodable records in different physical orders and require identical locators and diagnostics. Require physically reordered Activity records with decoded Cursors `3, 1, 2` to scan as `1, 2, 3`, while decoded/undecodable observations `1, 3, undecodable` produce the approved expected/observed sequence issues.
+- Seed valid, malformed-with-decodable-identity, and multiple identity-undecodable records in different physical orders and require identical locators and diagnostics. Require physically reordered Activity records with decoded Cursors `3, 1, 2` to scan as `1, 2, 3`, while decoded/undecodable observations `1, 3, undecodable` produce the defined expected/observed sequence issues.
 - Expose exact `RecordSchemaInvalid { collection, locator, issues }`, with collection restricted to `tickets | claims | trash | activity` and schema-enforced non-empty `PublicSchemaIssue` values.
 - Give every persisted record that fails its complete collection schema one `RecordSchemaInvalid`. Permit only completely schema-valid Tickets, Claims, Trash entries, and Activities to own or satisfy domain-semantic checks; never salvage fields from a malformed record to manufacture a partial domain object, cycle participant, Trash-attribution event, or active/Trash-overlap participant.
 - Continue every eligible semantic check over the complete projection of schema-valid records despite unrelated malformed records. When a schema-valid record references an identity whose only persisted record is schema-invalid, require the applicable `ParentNotFound`, `DependencyNotFound`, `ClaimTicketNotFound`, or `MissingTicketTrashed` issue because no canonical counterpart exists.
@@ -288,9 +273,9 @@ Representative global scenarios:
 - When every structured field is equal, compare the issues equal and retain duplicate multiplicity without a SQL, insertion-order, or hidden private tie-breaker. Prove representative Claim-ID/Ticket-ID crossings, multiple reasons for one owner, Activity sequence positions, payload ties, and exact duplicate issues produce one implementation-independent ordered result.
 - Mechanically map every outer, reason, issue, and nested-reason `_tag` to JSON `type`, preserve the complete nested structure and ordering, and omit duplicate `message` fields.
 - Render human diagnostics entirely from typed reasons and issues without rereading the Store or parsing free-form details; begin aggregated integrity issues exactly `Error: Task Manager Store validation failed:` and preserve canonical issue order.
-- Render `RecordSchemaInvalid` as `- <collection> record <ordinal> has invalid schema:` followed by every schema issue in preserved order as `  - <path>: <code>; expected <expected>`. Render every other aggregated issue as exactly one top-level `- ` line using the architecture's approved reason-specific hierarchy, dependency, Claim, Activity, Trash, or identity-overlap template.
+- Render `RecordSchemaInvalid` as `- <collection> record <ordinal> has invalid schema:` followed by every schema issue in preserved order as `  - <path>: <code>; expected <expected>`. Render every other aggregated issue as exactly one top-level `- ` line using the architecture's defined reason-specific hierarchy, dependency, Claim, Activity, Trash, or identity-overlap template.
 - Join canonical closed cycle IDs with ` -> `; render `ActivityCursorSequenceInvalid` exactly as `- Activity cursor sequence at position <expected-cursor>: observed <observed-cursor-or-undecodable>.`; render an omitted observed Activity Cursor as exact `undecodable`; and prove every aggregated line is derived only from the typed issue without a Store reread.
-- Render gate failures exactly from `StoreValidationRejected.databasePath` and the typed reason: reuse the approved absent-Store, invalid-database, application-mismatch, incompatible-format, and invalid-structure lines; render each invalid-structure schema issue as `- <path>: <code>; expected <expected>`; head engine failure with `Error: Task Manager Store at <database-path> failed engine integrity validation:` and render each ordered diagnostic as `- <diagnostic>`; head foreign-key failure with `Error: Task Manager Store at <database-path> failed foreign-key integrity validation:` and render each ordered violation as `- <source-collection> record <ordinal> (<source-identity>) field <field-path> references <reference-collection> (<reference-identity>).`
+- Render gate failures exactly from `StoreValidationRejected.databasePath` and the typed reason: reuse the defined absent-Store, invalid-database, application-mismatch, incompatible-format, and invalid-structure lines; render each invalid-structure schema issue as `- <path>: <code>; expected <expected>`; head engine failure with `Error: Task Manager Store at <database-path> failed engine integrity validation:` and render each ordered diagnostic as `- <diagnostic>`; head foreign-key failure with `Error: Task Manager Store at <database-path> failed foreign-key integrity validation:` and render each ordered violation as `- <source-collection> record <ordinal> (<source-identity>) field <field-path> references <reference-collection> (<reference-identity>).`
 - Render safely decoded persisted identities exactly as `Ticket <ticket-id>`, `Claim <claim-id>`, `Trash Ticket <ticket-id>`, or `Activity <cursor>`; render an omitted identity as exact `undecodable`, use literal `unknown` for an omitted observed application identity or format version, and use canonical bracket notation for schema and foreign-key paths.
 - Give `StoreNotInitialized` no payload; give `ApplicationIdentityMismatch` explicit expected identity plus optional exact `ObservedApplicationId`; and give `IncompatibleFormat` explicit expected version plus optional exact `ObservedFormatVersion`. Accept application observations at exactly 128 UTF-8 bytes and reject disclosure one byte over; accept format zero and the greatest safe integer and omit negative, fractional, non-finite, string, or larger numeric observations. Omit unavailable observations rather than encoding `null`, sanitizing, truncating, or coercing them, and render omitted human observations as literal `unknown`.
 - Give `InvalidDatabase` only a normalized bounded diagnostic with no vendor stack, SQL, raw error object, or path alias.
@@ -351,7 +336,7 @@ Representative global scenarios:
 - Under `PreserveHumanExecutor`, reject an effective transaction-current unclaimed `human` to `agent` transition with `HumanExecutorTransitionExcluded`; permit it under `AnyExecutorTransition` subject to every other invariant. Do not restrict `agent` to `human`, text or Context edits on a human Ticket, or an Executor no-op.
 - Enforce Executor transition scope after lifecycle, effective no-op detection, and Claim/active-Claim Executor-freeze checks. Preserve `Unchanged` before scope checks and reject mixed edits atomically.
 - Race the CLI observation against an unclaimed Executor update that establishes a human gate before the writer transaction; require `PreserveHumanExecutor` to reject rather than remove the new gate without acknowledgment.
-- Require CLI confirmation for an intentionally empty Description, reject blank Context input, and remove combined message and empty-Context compatibility flags.
+- Require CLI confirmation for an intentionally empty Description and reject blank Context input.
 - Require `--actor` or `TM_ACTOR` and accept `--claim-id` for active Claim fencing.
 - Return exact core `UpdateTicketResult = Updated { ticket: OpenTicket } | Unchanged { ticket: OpenTicket }`, with the authoritative transaction-current complete Snapshot in both variants and no duplicated effective-change or Activity payload. Expose exact `updateTicket(input): Effect.Effect<UpdateTicketResult, TicketUpdateRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>`.
 - Mechanically render JSON as `{ ok: true, outcome: "updated" | "unchanged", ticket: <complete OpenTicket> }` without inferring outcome from timestamps or pre-read state.
@@ -361,20 +346,15 @@ Representative global scenarios:
 - Include current Executor, requested Executor, and complete active Claim on `ExecutorChangeWhileClaimed`; produce it only after exact `MatchClaim` passes, while `RequireUnclaimed` against the same Claim fails earlier as `ActiveClaimRequiresFence`.
 - Give `HumanExecutorTransitionExcluded` exactly current `human` and requested `agent`; produce it only for an effective unclaimed transition under `PreserveHumanExecutor` after Claim/Executor-freeze checks.
 - Reject every mixed edit atomically through the same Executor-freeze reason; keep invalid edits/schemas, shared Store failures, `TicketNotFound`, and `TicketInTrash` distinct, and preserve `Unchanged` before Claim and Executor-freeze checks.
-- Render exact reason-specific human lines for terminal target, active Claim requiring a fence, absent Claim, stale Claim ID, Actor mismatch, active-Claim Executor freeze, and `Error: Updating Ticket <ticket-id> from human to agent requires --allow-human.`; include the approved current/requested Executor and Claim ID in the freeze line.
+- Render exact reason-specific human lines for terminal target, active Claim requiring a fence, absent Claim, stale Claim ID, Actor mismatch, active-Claim Executor freeze, and `Error: Updating Ticket <ticket-id> from human to agent requires --allow-human.`; include the defined current/requested Executor and Claim ID in the freeze line.
 - Mechanically map outer and nested `_tag` fields to JSON `type`, preserve reason payloads, omit duplicate human `message`, and prove rendering performs no Store reread or effective-edit recomputation.
-
-### Removed `tm set-executor`
-
-- Omit `set-executor` from CLI help and reject it as an unknown subcommand.
-- Change Executor only through `tm update --executor` while the Ticket is unclaimed; retain atomic multi-field updates, but reject the whole update if a Claim becomes active before an effective Executor transition commits.
 
 ### `tm show`
 
 - Return the complete open, done, or cancelled Ticket for an exact live ID without writing or emitting Activity.
 - Reject an unknown ID with `TicketNotFound`.
 - Reject a Trash-reserved ID with typed `TicketInTrash { ticketId, deletedAt, deletedBy }`, without returning the preserved Snapshot as an active Ticket.
-- Begin human output with the exact lifecycle-valid primary detail block. Reuse the approved `tm next` open block exactly; for done and cancelled Tickets retain the same heading, common field order, absence rules, canonical timestamps, complete Subject, Description, and Context, replacing Claim with `Completed: <completed-at> by <completed-by>` or `Cancelled: <cancelled-at> by <cancelled-by>` respectively.
+- Begin human output with the exact lifecycle-valid primary detail block. Reuse the defined `tm next` open block exactly; for done and cancelled Tickets retain the same heading, common field order, absence rules, canonical timestamps, complete Subject, Description, and Context, replacing Claim with `Completed: <completed-at> by <completed-by>` or `Cancelled: <cancelled-at> by <cancelled-by>` respectively.
 - For done Tickets, append exactly `Result:`, `Summary: <summary>`, `Details:` plus complete details or `-`, and `Data:` plus canonical compact JSON or `-`. For cancelled Tickets, append exactly `Cancellation reason:` plus the complete reason. Preserve multiline Details and Cancellation reason.
 - Omit impossible Claim, Result, and Cancellation sections rather than rendering empty placeholders, and place relationship sections only after the complete primary lifecycle block.
 - Load an optional direct parent summary for a Task or Subtask with a parent.
@@ -393,7 +373,7 @@ Representative global scenarios:
 ### `tm list`
 
 - With no command-specific filters, include open, done, and cancelled Tickets across both agent and human Executors.
-- Omit `--all` and `--all-executors` from help and reject them as unknown flags; use `--status` and `--executor` only to narrow the default view.
+- Use `--status` and `--executor` to narrow the default view.
 - Preserve non-matching ancestors as structural context when a descendant matches status and Executor filters; distinguish matches from contextual nodes in the typed/JSON tree without adding a human `(context)` annotation.
 - Render an open Ticket with its own active Claim as `[>]`, ahead of the progressed-descendant marker; return its complete active Claim in JSON and hide expired Claims in both formats.
 - Render an unclaimed open Ticket as `[/]` when any descendant at any depth is done or effectively actively claimed, including when filters hide that descendant; ignore expired Claims.
@@ -426,7 +406,7 @@ Representative global scenarios:
 - Scope `--root` to an exact six-character open Ticket and its subtree; reject done or cancelled roots with typed `TicketNotOpen` rather than returning no actionable work.
 - Expose exact required selection unions `NextExecutorSelection = AgentExecutor | HumanExecutor | AllExecutors` and `ClaimedTicketSelection = ExcludeClaimed | IncludeClaimed`, plus `SelectNextTicketInput { rootTicketId?, executorSelection, claimedTicketSelection }`. Omit rather than null an all-roots ID and carry no implicit core defaults through optional scalars or booleans.
 - Return exact core `SelectNextTicketResult = Selected { ticket: OpenTicket, activeClaim? } | NoActionableWork`; permit the optional Claim only beside a selected Ticket and make it necessarily absent when the input excludes claimed Tickets.
-- Return the complete selected open Ticket, including Description and optional Context, as `{ ok: true, ticket, activeClaim? }` in JSON. Render human selection as the exact complete open-Ticket block headed by uppercase `EPIC | TASK | SUBTASK`, followed by Status, Executor, complete Subject, Parent, ascending comma-separated `Blocked by` IDs, Created, Updated, Claim, Description, and Context in the approved order and punctuation.
+- Return the complete selected open Ticket, including Description and optional Context, as `{ ok: true, ticket, activeClaim? }` in JSON. Render human selection as the exact complete open-Ticket block headed by uppercase `EPIC | TASK | SUBTASK`, followed by Status, Executor, complete Subject, Parent, ascending comma-separated `Blocked by` IDs, Created, Updated, Claim, Description, and Context in the defined order and punctuation.
 - In selected-Ticket human output, render absent Parent, dependencies, Claim, and Context as `-`; render intentional empty Description as `(empty)`; render an effective Claim exactly as `active until <expires-at> (<claim-id>)`; and use canonical timestamps without further Subject truncation.
 - Derive selected-Ticket human output only from `Selected { ticket, activeClaim? }`; include no reverse `Blocks`, parent summary, Result, Cancellation, or other `tm show` relationship data, and perform no follow-up Store read.
 - Return no eligible Ticket as successful typed `NoActionableWork` with no nullable Ticket or optional Claim fields, rendering exactly `No actionable Tickets.` in human output and `{ "ok": true, "reason": "no-actionable-work" }` in JSON; do not use `null` or an error.
@@ -457,7 +437,7 @@ Representative global scenarios:
 
 ### `tm renew`
 
-- Expose dedicated `tm renew <ticket-id> --actor <identity> --claim-id <uuid>` with no `--allow-human`; omit renewal flags from `tm claim`.
+- Expose `tm renew <ticket-id> --actor <identity> --claim-id <uuid>`.
 - Require the matching active Actor Identity and Claim ID, atomically create a new Claim ID and one-hour lease, and invalidate the prior Claim ID.
 - Emit one `TicketClaimRenewed` item containing the previous Claim ID and complete new Claim; emit no separate release item.
 - Return exact `RenewClaimResult { ticket: OpenTicket, claim: Claim }` with the unchanged complete open Ticket and complete new separate Claim; expose no outcome tag or duplicate previous Claim ID. Expose exact `renewClaim(input): Effect.Effect<RenewClaimResult, TicketNotFound | TicketInTrash | TicketNotOpen | ClaimRenewalFenceError | StoreMutationError, TaskManager>`.
@@ -489,11 +469,11 @@ Representative global scenarios:
 - Expose core `ReleaseClaimInput { ticketId, actor, claimId }`, exact `ReleaseClaimResult = Released { ticketId, claimId } | AlreadyInactive { ticketId }`, the exact reason-tagged `ClaimReleaseFenceError`, and exact `releaseClaim(input): Effect.Effect<ReleaseClaimResult, TicketNotFound | TicketInTrash | TicketNotOpen | ClaimReleaseFenceError | StoreMutationError, TaskManager>` without exposing persistence handles or Ticket mutation.
 - Expose CLI `tm release <ticket-id> --actor <identity> --claim-id <uuid>` with `TM_ACTOR` fallback and shared Store/JSON flags; decode exact IDs, make one core call, and map typed outcomes and failures without duplicating domain rules.
 
-### `tm complete` (reviewed)
+### `tm complete`
 
 - Keep completion non-cascading; require every descendant to be done or cancelled, reject any open descendant whether claimed or unclaimed, and never manufacture descendant Results.
 - Permit completion only when every direct dependency is terminal; treat both done and cancelled dependencies as satisfied and reject any open dependency with typed `OpenDependencies`.
-- Expose no `--force` flag and prove completion cannot produce a done Ticket that remains blocked by an open prerequisite.
+- Prove completion cannot produce a done Ticket that remains blocked by an open prerequisite.
 - On `OpenDependencies`, leave the Ticket, separate Claim record, timestamps, and Activity unchanged; require callers to remove an obsolete relation with `tm unblock` or intentionally abandon prerequisite work with `tm cancel`.
 - Share the same terminal-dependency invariant with `tm next` so selection and completion cannot disagree about cancelled or open dependencies.
 - Require an active Claim for every completion, with matching Actor Identity and exact current Claim ID; expose required CLI `--claim-id` and required core `claimId` with no `RequireUnclaimed` completion variant.
@@ -509,7 +489,7 @@ Representative global scenarios:
 - Require common Activity `occurredAt`, `actor`, and `ticketId` to equal the done Ticket's `completedAt`, `completedBy`, and `id`, and require the event Result to equal the done Ticket Result in the same atomic transaction.
 - Model Result as completion evidence only; store core-owned `completedAt` and caller-supplied `completedBy` as sibling fields of the done-Ticket lifecycle variant rather than nesting them inside Result.
 - Return a done Snapshot whose completion occurrence and attribution remain explicit without consulting Activity or inferring completion time from generic `updatedAt`; retain the same occurrence time and Actor Identity in common `TicketCompleted` Activity attribution.
-- Require Result to contain a human-readable `summary`, permit optional human-readable `details`, and permit optional application-owned `data` containing any valid `JsonValue`; remove first-class core `decisions` and `verification` fields.
+- Require Result to contain a human-readable `summary`, permit optional human-readable `details`, and permit optional application-owned `data` containing any valid `JsonValue`; expose no additional fields.
 - Round-trip present Result `data` through the public core interface and persisted Snapshot as a generic JSON value without interpreting an application schema, discriminator, version, workflow outcome, verification meaning, or consistency with `summary` and `details`.
 - Permit a wrapping application to validate and decode Result `data` into its own versioned discriminated contract, while permitting callers without a structured completion protocol to omit `data`.
 - Reject non-JSON Result data at the core boundary without changing Ticket, Claim, timestamps, or Activity.
@@ -519,8 +499,7 @@ Representative global scenarios:
 - Add only the guarantees absent from Effect's native `JSON.parse`/`JSON.stringify`-backed string transformation: duplicate-member detection in CLI JSON parsing plus iterative canonical encoding and byte measurement in the core.
 - Impose no JSON nesting-depth limit; accept and round-trip deeply nested valid acyclic `JsonValue` inputs within the aggregate byte bound through stack-safe boundary, canonical measurement, persistence, Activity, and output paths without a raw stack overflow.
 - Reject duplicate member names in inline and file JSON rather than accepting native last-value-wins behavior. Reject cyclic, sparse, or otherwise non-JSON runtime values as invalid Result input without coercion, confirmation, or bypass.
-- Omit `--verification` and `--allow-no-verification` from base CLI help and reject both as unknown flags; do not impose an adapter-owned verification envelope or inspect application-owned Result data for verification meaning.
-- Permit a wrapping application to require and validate verification through its own typed Result data before invoking the core; prove the base CLI's lack of verification policy cannot waive Claim fencing, lifecycle, hierarchy, dependency readiness, the human gate, or Result boundary validation.
+- Do not impose an adapter-owned interpretation on application-owned Result data. Prove wrapping-application validation cannot waive Claim fencing, lifecycle, hierarchy, dependency readiness, the human gate, or Result boundary validation.
 - Trim Result summary surrounding whitespace, then require non-blank single-line text; reject empty, whitespace-only, and multiline summaries without changing Ticket, Claim, timestamps, or Activity.
 - Represent Result details as absent or trimmed non-blank text while preserving internal whitespace and line breaks; reject explicitly supplied empty or whitespace-only details rather than silently omitting them or persisting a present-empty state.
 - Accept structurally valid summaries such as `"done"` without a subjective vague-word blacklist; leave stronger writing-quality policy to wrapping applications.
@@ -528,7 +507,6 @@ Representative global scenarios:
 - Require singular inline `--summary`; accept optional `--details <text>` or `--details-file <path>` and optional `--data <json>` or `--data-file <path>`, with each inline/file pair mutually exclusive.
 - Parse `--data` and one complete UTF-8 `--data-file` as exactly one generic JSON value, including primitives; reject malformed JSON, unreadable files, and source conflicts before a well-formed core completion request.
 - Reject duplicate Result flags rather than merging values; represent application-specific collections inside the single Result data value.
-- Omit `--decision`, `--result-message`, `--result-message-file`, whole-Result `--result` and `--result-file`, and `--summary-file` from help and reject them as unknown flags.
 - Prove inline and file modes construct the same typed Result and enforce identical text and aggregate-size invariants without changing Ticket, Claim, timestamps, or Activity on adapter failure.
 - Require CLI `--allow-human` only when directly completing a human-executor target; keep the acknowledgment out of Result and prevent it from waiving lifecycle, hierarchy, dependency, Claim-fence, or Result invariants.
 - Require no completion confirmation for human-executor ancestors, descendants, dependencies, dependents, or other graph observers whose readiness or presentation changes derivatively without direct mutation.
@@ -564,18 +542,11 @@ Representative global scenarios:
 - Through public CLI tests, reject invalid or conflicting Result inputs before a core mutation request and prove no Ticket, Claim, timestamp, or Activity change; through the public core interface, prove Store/Ticket resolution and every lifecycle, Claim, hierarchy, and dependency reason also writes nothing.
 - In one real file-backed rollback/reopen smoke test, inject a deterministic private failure after the done Snapshot, Claim removal, lifecycle timestamps, and `TicketCompleted` insertion have executed in the transaction but before the `COMMIT` attempt; close and reopen the Store and prove the original open Snapshot and exact active Claim are unchanged, Result and completion timestamps remain absent, Activity high-water is unchanged, no completion or release Activity exists, and retry with the same Claim succeeds.
 - Do not require completion fault injection after every SQL statement or commit phase. When a failure is known to precede the `COMMIT` attempt, require complete rollback; when physical commit outcome is unknown, require reread and reconciliation rather than claiming a proven rollback.
-- Replace the current help surface with required singular `--summary` and `--claim-id`, optional singular inline/file details and data, narrowly scoped `--allow-human`, and shared flags; prove removed decision, verification, result-message, whole-Result, vague-summary-policy, no-verification, and force paths are absent and rejected as unknown.
-- Replace current unclaimed, same-Actor-without-ID, and forced non-holder completion tests with required separate-Claim acquisition and exact Claim-ID fencing tests; include released, expired, renewed, replaced, same-Actor stale-ID, and other-Actor cases.
-- Replace embedded Claim-clearing assertions with separate Claim consumption and prove completion never modifies Claim fields inside the Ticket, never emits `TicketClaimReleased`, and records the exact consumed Claim ID only in `TicketCompleted`.
-- Replace direct-child and force-through-dependency tests with complete open-descendant collection, terminal cancelled-dependency readiness, categorical open-dependency rejection, typed blockers, and transaction-current race tests.
-- Replace old Result fixtures and assertions in complete, validation, command, test-support, shared-output, and CLI documentation surfaces: details become optional, decisions and verification are removed, data is generic JSON, and `completedAt`/`completedBy` move beside Result in the done lifecycle variant.
-- Replace generic `CommandFailure` and `{ type, message }` complete assertions with the typed core operation, `CompletionRejected` reason handling, exact human rendering, and mechanically mapped structured JSON errors.
-- Replace multiline human success assertions with the exact one-line receipt and retain complete canonical done-Ticket JSON; update show rendering without reintroducing removed verification semantics.
-- Add migration coverage not represented by current tests: details/data inline-file equivalence and conflicts, duplicate flags, JSON primitives and malformed input, exact Result byte boundary, stack-safe deep JSON, Activity equality and payload, all precedence combinations, the approved race matrix, and bounded rollback/reopen failure atomicity.
+- Cover details/data inline-file equivalence and conflicts, duplicate flags, JSON primitives and malformed input, exact Result byte boundaries, stack-safe deep JSON, Activity equality and payload, precedence combinations, the race matrix, and bounded rollback/reopen failure atomicity.
 
-### `tm cancel` (reviewed)
+### `tm cancel`
 
-- Remove `--yes` from help and reject it as unknown; expose `--cascade` as the only cascading-scope flag.
+- Expose `--cascade` as the cascading-scope flag.
 - Map omitted `--cascade` to core `TargetOnly` and supplied `--cascade` to `CascadeOpenDescendants`; expose no raw `yes` field and no descendant Claim-fence collection in the core input.
 - With `TargetOnly`, reject when any open descendant exists transaction-current and prove the target, descendants, Claims, timestamps, and Activity remain unchanged.
 - With `CascadeOpenDescendants`, atomically cancel the target and every transaction-current open descendant while leaving done and already-cancelled descendants byte-for-byte/domain-equal and emitting no Activity for them.
@@ -619,9 +590,9 @@ Representative global scenarios:
 - Support Effect's reason-error handling pattern through parent catch, nested reason catch, and reason unwrapping; delegate parent cause to the selected reason and expose no generic retryability field.
 - Keep invalid cancellation input, shared Store mutation failures, `TicketNotFound`, and `TicketInTrash` distinct from `CancellationRejected` and machine-readable.
 - Include terminal status on `TicketNotOpen`; no active Claim data on `ActiveClaimRequiresFence`; only provided Claim ID on `NoActiveClaim` and `ClaimIdMismatch`; and provided Actor plus complete exactly matched active Claim on `ActorMismatch`.
-- Expose exact `CancellationTicketSummary { ticketId, subject, executor }` and `CancellationClaimedTicketSummary = CancellationTicketSummary & { activeClaim }`. Return every open descendant summary without Claim inspection for `CancellationOpenDescendants`, every complete active Claim with its claimed descendant summary for `CancellationClaimedDescendants`, and every affected human Ticket summary for `CancellationHumanTicketsExcluded`; enforce non-empty collections and approved canonical ordering.
+- Expose exact `CancellationTicketSummary { ticketId, subject, executor }` and `CancellationClaimedTicketSummary = CancellationTicketSummary & { activeClaim }`. Return every open descendant summary without Claim inspection for `CancellationOpenDescendants`, every complete active Claim with its claimed descendant summary for `CancellationClaimedDescendants`, and every affected human Ticket summary for `CancellationHumanTicketsExcluded`; enforce non-empty collections and defined canonical ordering.
 - Never reveal a current Claim ID through `ActiveClaimRequiresFence` or `ClaimIdMismatch`; require an explicit reread before retrying.
-- Render the exact approved human lines for all eight reasons, ordinary summary bullets, and claimed-descendant bullets containing Claim ID, holder, and expiry.
+- Render the exact defined human lines for all eight reasons, ordinary summary bullets, and claimed-descendant bullets containing Claim ID, holder, and expiry.
 - Map outer and nested `_tag` fields mechanically to JSON `type`, preserve every reason payload and ordering, omit duplicate human messages, and prove rendering performs no Store reread or rejection recomputation.
 - At the expiry boundary, acquire the `BEGIN IMMEDIATE` writer position and sample one core-owned occurrence time for every target and descendant Claim decision, changed Snapshot `cancelledAt`/`updatedAt`, and Activity `occurredAt`.
 - Permit consumption of a target Claim active at that instant even if physical commit finishes after expiry; require `ActiveClaimRequiresFence` for `RequireUnclaimed` and reject a cascade for any descendant Claim active then, without a second pre-commit expiry check.
@@ -637,25 +608,16 @@ Representative global scenarios:
 - After reopen, prove every formerly open Snapshot remains unchanged and open, the exact target Claim remains active and unchanged, terminal descendants remain unchanged, no Cancellation reason or timestamp persists, Activity high-water is unchanged, no cancellation or release Activity exists, and retry with the same Claim succeeds across the eligible subtree.
 - Do not require failure injection after every Ticket, Claim, Activity, or commit phase. Require complete rollback for failures known to precede the `COMMIT` attempt and reread/reconciliation for unknown physical commit outcomes.
 - Prove adapter syntax, reason source, decoding, and acknowledgment failures occur before a core mutation and leave every Ticket, Claim, timestamp, and Activity item unchanged.
-- Replace current help with retained reason/Actor/`--allow-human`, optional target `--claim-id`, and semantic `--cascade`; reject removed `--force` and `--yes` as unknown.
-- Replace stale JSONL preview and `firstHumanExecutorTicket` decisions with transaction-current Cancellation and Executor scopes in the typed core input.
-- Replace unclaimed/same-Actor/forced Claim behavior with `RequireUnclaimed | MatchClaim`, exact target fencing, `ActiveClaimRequiresFence`, and categorical claimed-descendant rejection regardless of Actor.
-- Replace embedded Claim clearing, caller-owned mutation time, and nested Cancellation with separate Claim consumption/cleanup, one core-owned occurrence time, flat cancellation lifecycle fields, and target-first Activity.
-- Replace duplicated JSON `cancelledTickets`, reason-echoing human output, force guidance, and generic `CommandFailure` assertions with `CancelTicketResult`, exact concise output, and structured `CancellationRejected` rendering.
-- Rewrite current reason-file, Actor, human-target, lifecycle-filter, terminal-descendant, expired-Claim, and invalid-input tests against public core/CLI boundaries; remove forced-descendant, same-Actor-without-ID, and generic `--yes` compatibility expectations.
-- Add missing coverage for exact reason byte limits, semantic-scope races, all optional target fences, same-Actor stale IDs, all claimed descendants, Activity/ClaimConsumption equality, precedence combinations, writer races, and mid-cascade rollback/reopen proof.
+- Cover exact reason byte limits, semantic-scope races, all optional target fences, same-Actor stale IDs, all claimed descendants, Activity/ClaimConsumption equality, precedence combinations, writer races, and mid-cascade rollback/reopen proof.
 
-The `tm cancel` scenarios are approved.
+### `tm delete`
 
-### `tm delete` (reviewed)
-
-- Reject hard deletion. Move every successfully deleted Ticket Snapshot into durable Trash, preserve it indefinitely for future recovery, never purge it, and exclude it from ordinary active Ticket reads.
-- Expose no Lean V1 `tm restore` command or equivalent core recovery operation, while retaining enough authoritative Trash data for a future separately reviewed recovery contract.
+- Move every successfully deleted Ticket Snapshot into permanent Trash and exclude it from ordinary active Ticket reads. Lean V1 exposes no Trash recovery or purge operation.
 - Store each deletion as exact `TrashEntry { ticket: Ticket, deletedAt: DateTime.Utc, deletedBy: ActorIdentity }`, where `ticket` is the complete final pre-deletion `open | done | cancelled` Snapshot and deletion attribution is core-owned time plus the command Actor Identity.
 - Keep active Ticket IDs and Trash-entry IDs disjoint, permanently reserve every ID in Trash, and reject any fourth `trashed` Ticket lifecycle variant or Activity-only dependency for reconstructing the Trash entry.
 - Preserve each selected Ticket's original lifecycle state and Result or Cancellation plus all ordinary Snapshot fields, including parent ID and stored `blockedBy` dependency IDs; preserve no Claim because every selected Ticket must be unclaimed.
 - Expose final command flags `--yes`, `--cascade`, `--allow-human`, `--parent-claim-id <uuid>`, and `--actor <identity>` plus shared Store/JSON flags; require exact IDs and reject duplicate singular flags.
-- Omit and reject `--claim-id` and `--force`; accept redundant `--cascade` on a transaction-current leaf as an ordinary one-Ticket move.
+- Accept no target Claim fence and accept redundant `--cascade` on a transaction-current leaf as an ordinary one-Ticket move.
 - Describe the command as moving accidental Tickets and descendants to Trash, state that Trash is permanent in Lean V1 and recovery is unavailable, and expose no recovery or purge command.
 - Permit preview-only invocation without Actor Identity because it is read-only; require `--actor` or `TM_ACTOR` for every invocation with `--yes`, and prove every core deletion, Trash entry, and Activity item is attributed.
 - Require `--yes` for every deletion. When it is omitted, call public `listTickets` exactly once with the exact target root, `AllStatuses`, and `AllExecutors`; flatten its transaction-consistent tree in canonical tree order and project only shared neutral `TicketSummary` values. Add no dedicated deletion-preview core query or duplicate hierarchy traversal.
@@ -672,8 +634,8 @@ The `tm cancel` scenarios are approved.
 - Permit retry only after every blocking Claim is released or logically expires; prove neither `--yes`, `--cascade`, Actor Identity, nor human-executor acknowledgment can bypass an active Claim.
 - Reject the complete deletion when any active-store Ticket outside the selected set references a selected Ticket through `blockedBy`, regardless of the external dependent's open, done, or cancelled lifecycle state.
 - Preserve internal dependency relationships when both endpoints move to Trash together; never automatically remove an external dependency edge or mutate an external dependent as a side effect of deletion.
-- Permit a selected Ticket's preserved `blockedBy` IDs to reference an active-store prerequisite outside the selected set; exclude the trashed dependent from ordinary active reverse `Blocks` views and leave transaction-current relationship revalidation to a future recovery contract.
-- Permit the explicit target to retain an active-store parent outside the selected set; preserve its `parentId` in Trash, exclude it from the surviving parent's ordinary active child view, and leave parent existence and level revalidation to a future recovery contract.
+- Permit a selected Ticket's preserved `blockedBy` IDs to reference an active-store prerequisite outside the selected set; exclude the trashed dependent from ordinary active reverse `Blocks` views.
+- Permit the explicit target to retain an active-store parent outside the selected set; preserve its `parentId` in Trash and exclude it from the surviving parent's ordinary active child view.
 - Preserve internal hierarchy when a complete subtree moves together; never clear the trashed target's parent ID or require deletion of the complete root hierarchy.
 - Treat removal of the explicit target from a surviving direct parent as a direct structural parent mutation: map omitted `--parent-claim-id` to `ParentClaimFence.RequireUnclaimed` and a supplied ID to `ParentClaimFence.MatchClaim { claimId }` without a CLI Claim-state pre-read.
 - Reject a supplied parent Claim ID for a root with `TargetHasNoParent`; against a surviving parent, reject released or expired state with `NoActiveParentClaim`, renewal or replacement with `ParentClaimIdMismatch`, and an exact ID held by another Actor with `ParentActorMismatch`.
@@ -709,7 +671,7 @@ The `tm cancel` scenarios are approved.
 - Serialize deletion races by writer-position order with complete transaction-current revalidation; perform no automatic retry or preview reservation and require explicit caller reread/retry after rejection.
 - Race deletion against target, descendant, and surviving-parent acquisition; parent renewal; child creation; external dependency addition; selected Executor update; and another deletion, proving the first commit determines the typed outcome described by the contract.
 - When deletion commits first, require later direct target/descendant mutations to resolve `TicketInTrash` while leaving later surviving-parent Claim mutations valid; retain reread/reconciliation for unknown physical commit outcomes.
-- In one real file-backed mid-cascade rollback/reopen test, inject a private deterministic failure after target and at least one descendant active removals, Trash insertions, and Activity effects execute but before finishing the selected set or attempting `COMMIT`.
+- In one real file-backed mid-cascade rollback/reopen test, inject a private deterministic failure after active removals, Trash insertions, and Activity effects for the target and at least one descendant execute but before finishing the selected set or attempting `COMMIT`.
 - After reopen, prove every selected Snapshot remains unchanged and active, no partial Trash entry exists, any surviving parent and exact Claim remain unchanged, Activity high-water is unchanged, and retry succeeds.
 - Do not require exhaustive per-statement fault injection; require complete rollback for known pre-commit failures and reread/reconciliation for unknown physical commit outcomes.
 - Emit one minimal `TicketTrashed` item per moved Ticket with no payload beyond its tag; require common Activity Ticket ID, Actor, and occurrence time to equal the corresponding `TrashEntry.ticket.id`, `deletedBy`, and `deletedAt`.
@@ -717,9 +679,7 @@ The `tm cancel` scenarios are approved.
 - Do not duplicate complete Snapshots or Trash entries in Activity and do not include `ClaimConsumption`, because successful deletion is categorically unclaimed.
 - On every rejection, emit no Activity and create no partial Trash entry.
 
-The `tm delete` scenarios are approved.
-
-### `tm block` (reviewed)
+### `tm block`
 
 - Require the directly modified target to be open; reject done and cancelled targets with `TicketNotOpen` without changing terminal history, timestamps, dependencies, or Activity.
 - Permit an active-store prerequisite in any open, done, or cancelled lifecycle state; treat done and cancelled prerequisites as immediately satisfied under the shared readiness invariant while retaining the relationship.
@@ -763,12 +723,9 @@ The `tm delete` scenarios are approved.
 - Do not require exhaustive dependency-addition fault injection; require complete rollback for known pre-commit failure and reread/reconciliation for unknown physical commit outcomes.
 - Expose shared `ChangeDependencyInput { ticketId, dependencyId, actor, claimFence }`, addition-specific `AddTicketDependencyResult`, and exact `addTicketDependency(input): Effect.Effect<AddTicketDependencyResult, DependencyAdditionRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>`; keep later dependency removal separate even though its endpoint and fence fields align.
 - Expose CLI `tm block <ticket-id> --by <dependency-id> --actor <identity> [--claim-id <uuid>]` with `TM_ACTOR` fallback and shared Store/JSON flags; map the optional Claim ID mechanically and make one core call.
-- Omit and reject `--allow-human`, `--force`, prefix IDs, and graph-policy flags; keep lifecycle, no-op, Claim, and cycle rules out of the CLI adapter.
-- Replace current prefix, duplicate-failure, generic-message, whole-Store cycle-validation, JSONL mutation, and target-only output assertions with the approved exact-ID typed core, outcomes, endpoint data, errors, Activity, transaction, and rendering contract.
+- Keep lifecycle, no-op, Claim, and cycle rules out of the CLI adapter.
 
-The `tm block` scenarios are approved.
-
-### `tm unblock` (reviewed)
+### `tm unblock`
 
 - Require exact transaction-current resolution of both active endpoints and distinguish unknown IDs from `TicketInTrash` before relation-state no-op detection.
 - Require the directly modified target to be open; reject done and cancelled targets with `TicketNotOpen` before no-op detection without changing terminal history, timestamps, dependencies, Claims, Trash, or Activity.
@@ -810,19 +767,14 @@ The `tm block` scenarios are approved.
 - Do not require exhaustive dependency-removal fault injection; require complete rollback for known pre-commit failure and reread/reconciliation for unknown physical commit outcomes.
 - Expose exact `RemoveTicketDependencyInput { ticketId, dependencyId, actor, claimFence, gateScope }`, `RemoveTicketDependencyResult`, and exact `removeTicketDependency(input): Effect.Effect<RemoveTicketDependencyResult, DependencyRemovalRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>`; share endpoint/fence shapes with addition without making removal-only gate scope optional or valid for addition.
 - Expose CLI `tm unblock <ticket-id> --by <dependency-id> --actor <identity> [--claim-id <uuid>] [--allow-human]` with `TM_ACTOR` fallback and shared Store/JSON flags; map the optional Claim fence and gate scope mechanically and make one core call.
-- Omit and reject prefix IDs, `--force`, and graph-policy flags; keep lifecycle, no-op, Claim, and human-gate rules out of the CLI adapter.
-- Replace current prefix, absent-relation failure, broad either-endpoint human guard, generic-message, JSONL mutation, and target-only output assertions with the approved exact-ID typed core, outcomes, open-human gate scope, endpoint data, errors, Activity, transaction, and rendering contract.
+- Keep lifecycle, no-op, Claim, and human-gate rules out of the CLI adapter.
 
-The `tm unblock` scenarios are approved.
+## Documentation and skills
 
-## Implementation documentation and skill migration
-
-- Treat `specs/lean-v1.md`, this checklist, `CONTEXT.md`, and `AGENTS.md` as the complete implementation-document authority; prove no retained project guide or historical specification presents conflicting behavior as current.
+- Treat `specs/lean-v1.md`, this checklist, `CONTEXT.md`, and `AGENTS.md` as the complete implementation-document authority.
 - Rebuild `skills/task-manager/SKILL.md`, creating only necessary supporting references, against the generated Lean V1 help and public JSON output.
-- Prove the Task Manager skill uses exact Ticket and Claim IDs, current Actor and Claim-fence requirements, separate Claim receipts, `tm update --executor`, semantic cancellation/deletion scope, permanent Trash terminology, and the reviewed Result inputs.
-- Prove the Task Manager skill contains no JSONL editing or recovery guidance, prefix-ID behavior, `tm set-executor`, `--force`, takeover or forced release, cancellation `--yes`, hard deletion, `--verification`, `--allow-no-verification`, removed message inputs, or other removed flags.
+- Prove the Task Manager skill uses exact Ticket and Claim IDs, Actor and Claim-fence requirements, separate Claim receipts, `tm update --executor`, semantic cancellation/deletion scope, permanent Trash terminology, and the Result inputs defined by the architecture.
 - Rebuild `skills/to-tickets/SKILL.md` against the generated Lean V1 help and public JSON output.
-- Prove the ticket-planning skill uses exact IDs, explicit Executor selection, required Actor Identity for state-changing mutations, `tm update --executor`, current list/next filters, real dependency edges, and exact parent fencing when creating under an actively claimed parent.
-- Prove the ticket-planning skill contains no JSONL recovery instructions, prefix-ID behavior, `tm set-executor`, generic force guidance, removed list filters, removed message inputs, empty-Context compatibility, or other pre-Lean command assumptions.
+- Prove the ticket-planning skill uses exact IDs, explicit Executor selection, required Actor Identity for state-changing mutations, `tm update --executor`, list/next filters, real dependency edges, and exact parent fencing when creating under an actively claimed parent.
 - Exercise representative skill command examples against the completed CLI in temporary Stores; require examples either to succeed with the documented JSON shape or to produce the documented typed failure.
-- Regenerate end-user documentation only after core, CLI, and skill conformance. Search regenerated documentation for removed commands, flags, storage models, terminology, and bypass behavior before publication.
+- Regenerate end-user documentation only after core, CLI, and skill conformance. Verify that it describes only the command surface, storage model, terminology, and behavior defined by the architecture.

@@ -9,9 +9,54 @@
 - Do not restore removed historical specifications, decision logs, deferred-hardening documents, or current-implementation guides as implementation authority.
 - When an implementation detail conflicts with the Lean V1 architecture, implement the architecture and migrate or replace the conflicting detail.
 
+## Self-hosting boundary
+
+Lean V1 is developed using the stable pre-Lean Task Manager as an external
+coordination tool. Keep the control plane and the product under development
+strictly separate.
+
+### Stable coordination control plane
+
+- The `tm` executable used for real Ticket coordination must resolve to
+  `/Volumes/Code/personal/task-manager/packages/cli/src/bin.ts`.
+- Before performing Ticket work, verify the executable with
+  `realpath "$(command -v tm)"`. Stop if it resolves inside this worktree.
+- Use the registered `task-manager` and `to-tickets` skills from
+  `/Volumes/Code/personal/task-manager/skills/`.
+- Those stable skills govern Ticket planning, selection, claiming, completion,
+  cancellation, and other coordination operations only. They are not authority
+  for Lean V1 product behavior.
+- The shared stable coordination store is
+  `/Volumes/Code/personal/task-manager-next/.tasks`.
+- When working outside the `next` integration worktree, pass
+  `--storage-path /Volumes/Code/personal/task-manager-next/.tasks` to every
+  stable `tm` invocation.
+- Do not run `bun link` from this worktree or otherwise replace the globally
+  linked stable `tm`.
+- Do not run this worktree's CLI implementation against the real coordination
+  store.
+
+### Product under development
+
+- Everything in this worktree, including `packages/`, `skills/`, specifications,
+  tests, and documentation, belongs to the Lean V1 product under development.
+- Files under `skills/task-manager/` and `skills/to-tickets/` are implementation
+  artifacts. Do not treat them as active instructions while developing them.
+- Exercise the Lean V1 CLI only through automated tests or disposable stores.
+- Evaluate rebuilt Lean V1 skills in fresh, isolated agent sessions with
+  disposable stores. Do not install them over the stable operational skills
+  until the explicit cutover.
+- Tickets coordinate implementation work but do not override
+  `specs/lean-v1.md`, `specs/lean-v1-verification-checklist.md`, or `CONTEXT.md`.
+  If a Ticket conflicts with those authorities, stop and correct the Ticket
+  rather than implementing the conflict.
+
 ## Development workflow
 
-- The git base branch is `main`.
+- The git base branch for Lean V1 development is `next`.
+- Do not develop Lean V1 on `main`; `main` hosts the stable coordination tool.
+- Create implementation branches and worktrees from `next`, and merge completed
+  work back into `next`.
 - Use `bun` as the package manager.
 - Implement through the public core and CLI boundaries described by the architecture.
 - After implementation changes, run `bun run check` to check linting, formatting, types, and tests.
@@ -57,4 +102,18 @@ When writing Effect code, inspect `.dotai/repos/effect/` for idiomatic usage, te
 
 ## Skill migration
 
-`skills/task-manager/` and `skills/to-tickets/` are migration placeholders for removed pre-Lean content. Do not use them to infer Lean V1 behavior. Rebuild both only as part of the explicit skill-migration obligations in the Lean V1 architecture and checklist.
+The two sets of skills have distinct roles:
+
+- The registered skills under
+  `/Volumes/Code/personal/task-manager/skills/` are the stable operational
+  instructions used with the current `tm`.
+- `skills/task-manager/` and `skills/to-tickets/` in this worktree are Lean V1
+  product artifacts under development.
+
+Do not activate or follow the skills from this worktree during ordinary Lean V1
+implementation. Rebuild them only as part of the explicit skill-migration
+obligations in the Lean V1 architecture and verification checklist.
+
+Test rebuilt skills in fresh sessions using disposable stores. Installing the
+Lean V1 skills and switching the globally linked CLI are explicit cutover
+actions and must not happen implicitly during implementation.
