@@ -85,6 +85,15 @@ Keep runtime imports as ordinary imports, and declare the type alias separately.
 - Never compromise type safety: no `any`, no non-null assertion operator (`!`), and no type assertions (`as Type`).
 - Make illegal states unrepresentable with discriminated unions, schemas at boundaries, and domain types that exclude invalid states.
 
+## Reference implementations
+
+When executing coding tasks, use repos within `.dotai/repos/` as read-only reference implementations for architecture and coding standards.
+
+- Before implementing a Ticket, inspect the relevant source, tests, configuration, and repository guidance in both references.
+- Follow their established patterns for module boundaries, project structure, Effect usage, TypeScript style, and testing where those patterns apply.
+- Do not copy repository-specific product behavior, package-manager choices, or release workflow. This repository's specifications and instructions remain authoritative whenever they differ.
+- Do not edit the reference repositories or import application code from them.
+
 ## External libraries
 
 This project vendors external repositories under `.dotai/repos/`.
