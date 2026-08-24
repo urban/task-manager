@@ -1,0 +1,526 @@
+---
+name: lean-v1-requirements
+created_at: 2026-08-19T14:53:23Z
+updated_at: 2026-08-19T15:10:37Z
+generated_by:
+  root_skill: specification-authoring
+  producing_skill: requirements
+  skills_used:
+    - specification-authoring
+    - requirements
+    - write-requirements
+  skill_graph:
+    specification-authoring:
+      - requirements
+    requirements:
+      - write-requirements
+    write-requirements: []
+source_artifacts:
+  charter: /Volumes/Code/personal/task-manager-next/specs/lean-v1/charter.md
+  user_stories: /Volumes/Code/personal/task-manager-next/specs/lean-v1/user-stories.md
+---
+
+# Requirements
+
+## Functional Requirements
+
+- FR1.1: Lean V1 shall expose one closed public typed Task Manager capability containing exactly `initializeStore`, `validateStore`, `createTicket`, `updateTicket`, `getTicketDetails`, `listTickets`, `selectNextTicket`, `claimTicket`, `renewClaim`, `releaseClaim`, `completeTicket`, `cancelTicket`, `deleteTicket`, `addTicketDependency`, and `removeTicketDependency`. Every operation shall return its canonical success value and closed typed failure channel, require the Task Manager capability through its public access function, and expose no SQL, database row, libSQL client, platform handle, repository service, connection lifecycle, or hidden Store configuration.
+  - Story traceability: US1.1 — Use the typed Task Manager capability.
+
+- FR1.2: The CLI shall resolve one canonical Store Location before constructing the Task Manager capability. Working-directory precedence shall be `--cwd`, then `TM_CWD`, then process cwd; explicit Store precedence shall be `--storage-path`, then `TM_STORAGE_PATH`, then derived project Store. A relative selected cwd shall resolve against process cwd and must be an existing directory; a relative Store Location shall resolve against the selected canonical cwd; an absolute Store Location shall remain independent of cwd. Canonicalization shall resolve symlink aliases, normalize `.` and `..`, resolve the deepest existing ancestor, and append a normalized absent tail. Explicit path strings shall not expand `~`.
+  - Story traceability: US1.2 — Resolve one canonical Store; US1.3 — Reject an unsafe Store path.
+
+- FR1.3: When no explicit Store Location is selected, the CLI shall derive it outside the repository under the user registry `~/.task-manager/stores/<project-key>/`. Inside Git, project scope shall be the canonical Git common root so linked worktrees share one Store; outside Git, scope shall be the canonical cwd. The project key shall be `<slug>--<sha256>`, where the slug is the lowercased final path component with runs outside ASCII `a-z0-9` replaced by `-`, trimmed, limited to 48 characters, and replaced by `project` when empty, and where the digest is all 64 lowercase hexadecimal SHA-256 characters over the UTF-8 canonical scope path. Equal basenames at different paths shall not collide, canonical aliases shall agree, and moving a project shall not trigger automatic Store discovery, relocation, or merging.
+  - Story traceability: US1.2 — Resolve one canonical Store.
+
+- FR1.4: Store initialization shall create one fresh compatible Store when the canonical database is absent and shall return the authoritative existing Store unchanged when it is already compatible. The outcomes shall be `Created { metadata }` and `Existing { metadata }`; initialization shall require no Actor Identity and emit no Semantic Activity. Concurrent initialization shall yield one created Store plus compatible existing outcomes. Corrupt, unrelated, partial, or incompatible databases shall be rejected as `InvalidDatabase`, `ApplicationIdentityMismatch`, `IncompatibleFormat`, or `InvalidStoreStructure` without replacement or partial modification.
+  - Story traceability: US1.4 — Initialize a fresh Store; US1.5 — Reuse an existing Store; US1.6 — Protect incompatible Store data.
+
+- FR1.5: Initialization human success shall be exactly `Initialized Task Manager Store <store-id> at <database-path>.` for creation and `Task Manager Store <store-id> already exists at <database-path>.` for reuse. JSON success shall contain exactly `ok: true`, outcome `created | existing`, canonical `storeLocation`, canonical `databasePath`, and complete transaction-current metadata. Existing output shall never describe the Store as newly created, initialized, or opened. Initialization rejection JSON shall preserve the typed parent and reason fields without a prose `message`; unsafe observed application identity or format values shall be omitted and render as `unknown` in human output.
+  - Story traceability: US1.4 — Initialize a fresh Store; US1.5 — Reuse an existing Store; US1.6 — Protect incompatible Store data; US1.58 — Use machine-readable JSON.
+
+- FR1.6: Store validation shall be read-only, emit no Semantic Activity, and return one consistent `ValidateStoreReport` containing Store metadata plus non-negative counts for active Tickets, open Tickets, done Tickets, cancelled Tickets, persisted Claim records, Trash entries, and Activity items. Active Ticket totals shall equal the three lifecycle counts; Trash shall be excluded; logically expired persisted Claim records shall remain counted; and valid Activity count shall equal Activity high-water. Human success shall be exactly five lines covering Store identity/format/path, lifecycle counts, Claim-record count, Trash-entry count, and Activity count/high-water; JSON shall contain `ok: true`, canonical paths, and the complete report.
+  - Story traceability: US1.7 — Validate a healthy Store.
+
+- FR1.7: Validation shall apply fail-fast gates in this order: Store absence; inability to open or query enough state; invalid database; application mismatch; incompatible format; invalid Store structure with schema before metadata; engine integrity; foreign-key integrity; then persisted-record decoding and cross-record domain integrity. A failed gate shall not claim later checks. After safe inspection is established, validation shall aggregate every safely discoverable record, hierarchy, Dependency, Claim, Activity, Trash, and active/Trash overlap issue into one canonically ordered non-empty collection and shall never return issues with a success report.
+  - Story traceability: US1.8 — Diagnose Store integrity problems; US1.9 — Distinguish an absent Store; US1.10 — Distinguish Store open failure; US1.11 — Distinguish Store query failure.
+
+- FR1.8: Validation evidence shall remain public and storage-independent. Malformed records shall be identified by deterministic positive one-based collection ordinals derived from public diagnostic projections rather than row IDs or physical order. Only completely schema-valid records may satisfy domain references; an invalid referenced record shall remain absent to semantic checks. Activity Cursor sequence shall be checked independently by deterministic scan position, high-water mismatch shall be reported only when safely derivable, and no synthetic tail item shall be invented. Hierarchy and Dependency cycles shall produce one canonical shortest closed witness per maximal cyclic component. Engine diagnostics, foreign-key evidence, schema paths, nested reasons, and issue collections shall use their closed public structures and canonical ordering without SQL names, raw records, private layout, or malformed values.
+  - Story traceability: US1.8 — Diagnose Store integrity problems.
+
+- FR1.9: CLI parsing, source-conflict checks, file loading, JSON parsing, and public boundary decoding shall precede Store access and core mutation. Parse failures shall distinguish unknown command, unknown option, unexpected argument, missing argument, missing option, missing option value, duplicate option, invalid option value, and conflicting options; only the first applicable public parse failure in argv order shall be returned. Valid syntax with invalid domain input shall return `InputRejected` with source `argument | option | environment | file`, input name, and ordered public structural issues. Human structural paths shall use bracket notation rooted at `$`; JSON shall retain segment arrays.
+  - Story traceability: US1.12 — Correct a malformed invocation; US1.15 — Reject a malformed exact identity.
+
+- FR1.10: Supported file inputs shall resolve relative to the selected canonical cwd, require an existing regular file, resolve symlinks, read complete UTF-8 text, and produce the same canonical value as inline input. File failures shall distinguish not found, not a regular file, invalid UTF-8, and read failure, identify the selecting option and canonical path, and occur before mutation. Inline/file alternatives and explicit set/clear alternatives shall be mutually exclusive where defined.
+  - Story traceability: US1.13 — Use file-backed input safely.
+
+- FR1.11: Every state-changing Ticket or Claim CLI command shall require Actor Identity from `--actor`, then `TM_ACTOR`; absence shall return fieldless `ActorIdentityRequired` before any Store read or core request. Read commands, initialization, validation, and deletion preview without `--yes` shall not require Actor Identity. A supplied invalid Actor shall be an input rejection rather than absence. Human output shall be exactly `Error: Actor Identity is required; pass --actor or set TM_ACTOR.` and JSON failure shall contain only `ok: false` and error type `ActorIdentityRequired`.
+  - Story traceability: US1.14 — Require mutation attribution.
+
+- FR1.12: Exact Ticket lookup shall distinguish malformed identity, `TicketNotFound`, `TicketInTrash { ticketId, deletedAt, deletedBy }`, and terminal `TicketNotOpen`. Ticket IDs shall never use prefix matching. `TicketNotFound` shall mean absence from active coordination and Trash; `TicketInTrash` shall disclose deletion attribution but not the preserved Snapshot; top-level `TicketNotOpen` shall contain only ID and terminal status. Human output shall use the exact shared not-found, in-Trash, and expected-open sentences, and JSON shall map tags mechanically without a prose message or Store reread.
+  - Story traceability: US1.15 — Reject a malformed exact identity; US1.16 — Report an unknown Ticket; US1.17 — Report a Ticket in Trash.
+
+- FR1.13: Ticket creation shall accept Actor, level, Executor, Subject, Description, optional Context, optional parent plus parent fence, and an always-present list of prerequisite IDs. It shall support root Epics and Tasks, Epic-to-Task and Task-to-Subtask hierarchy, default Task level, and default agent Executor; enforce required/forbidden parent shape, active parent identity and lifecycle, level compatibility, exact parent Claim fencing, unique active prerequisite identities, and permanent ID reservation; and validate failures in that order without aggregation. Creation shall atomically commit one complete canonical open Ticket and one attributed `TicketCreated` item or neither.
+  - Story traceability: US1.18 — Create durable work; US1.19 — Create hierarchical work.
+
+- FR1.14: Creation shall return the complete committed open Ticket directly. Human success shall be exactly `Created <subject> (<ticket-id>).`; JSON shall be exactly `ok: true` plus the complete Ticket. Creation rejection shall distinguish parent required, parent forbidden, terminal parent, invalid parent level, active parent requiring a fence, no active parent Claim, parent Claim ID mismatch, parent Actor mismatch, and exhausted Ticket ID space, with reason-specific recovery fields and no current Claim disclosure from stale-ID reasons.
+  - Story traceability: US1.18 — Create durable work; US1.19 — Create hierarchical work; US1.57 — Use deterministic human output; US1.58 — Use machine-readable JSON.
+
+- FR1.15: Ticket update shall accept a non-empty collection containing at most one edit each for Subject, Description, Context set, Context clear, and Executor. It shall operate only on open Tickets, apply every effective edit atomically, and return `Updated` with the complete current Ticket. Any effective text or Context mutation of an actively claimed Ticket shall require matching Actor and exact Claim ID. Every effective Executor transition shall require an unclaimed Ticket, including for the exact holder; a mixed update containing an invalid Executor transition shall apply nothing. Effective updates shall advance `updatedAt` once and emit one `TicketUpdated` item containing only effective before/after fields.
+  - Story traceability: US1.20 — Update open work atomically.
+
+- FR1.16: An update whose canonical requested values all equal current values on an open Ticket shall return `Unchanged` before Claim fencing or human Executor scope, preserve all timestamps, and emit no Activity. Terminal lifecycle shall still fail before no-op detection. Human success shall be exactly `Updated (<ticket-id>).` or `No changes to (<ticket-id>).`; JSON shall contain `ok: true`, outcome `updated | unchanged`, and the complete authoritative open Ticket. Rejections shall distinguish terminal lifecycle, active Claim requiring a fence, no active Claim, Claim ID mismatch, Actor mismatch, Executor change while claimed, and excluded human-to-agent transition.
+  - Story traceability: US1.21 — Recognize an unchanged update; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.17: Ticket inspection shall return one transaction-consistent `TicketDetails` containing the complete open, done, or cancelled Snapshot; optional effective active Claim; optional direct parent summary; direct prerequisite summaries; and direct dependent summaries. It shall expose derived progressed-descendant state only in read summaries, omit expired Claims, and order relationship arrays by Ticket ID. Human output shall use the lifecycle-valid complete detail block, preserve Result or Cancellation content, append always-present Parent/Blocked-by/Blocks relationship headings, and use marker precedence done, cancelled, actively claimed open, progressed open, then other open. JSON shall expose the same structure without follow-up reads.
+  - Story traceability: US1.23 — Inspect one active Ticket.
+
+- FR1.18: Ticket listing shall return a deterministic recursive tree of compact Ticket summaries with separate optional active Claim, derived progressed-descendant flag, filter-match flag, and children. Default listing shall include all lifecycle states and Executors; optional exact root, status, and Executor filters shall intersect while retaining required non-matching ancestors as context. Roots shall order by level, creation time, then ID; children by creation time then ID. Human trees shall use the specified connectors, complete Subjects, lifecycle/Claim/progress marker precedence, and `(H) ` only when both Executors may appear. An empty read shall succeed with `No [<status> ][<executor> ]Tickets.` and JSON `tickets: []`.
+  - Story traceability: US1.24 — Browse the Ticket hierarchy; US1.57 — Use deterministic human output; US1.58 — Use machine-readable JSON.
+
+- FR1.19: Next-work selection shall default to agent Executor, optionally select human or all Executors, optionally include claimed Tickets, and optionally scope to an exact open root. A Ticket shall be ineligible while it has an open direct child, an open direct prerequisite, or an excluded active Claim; done and cancelled prerequisites shall satisfy readiness. Selection shall traverse the canonical hierarchy depth-first and leaf-first using list ordering. `Selected` shall return the complete open Ticket and only an explicitly included effective Claim; `NoActionableWork` shall be successful and render exactly `No actionable Tickets.` or JSON reason `no-actionable-work`. Selection shall perform no write, cleanup, reservation, timestamp change, or Activity.
+  - Story traceability: US1.25 — Select the next actionable Ticket; US1.26 — Observe that no work is actionable; US1.27 — Treat selection as non-reserving.
+
+- FR1.20: Claim acquisition shall be acquisition-only and may target any open Ticket regardless of hierarchy or readiness. It shall enforce transaction-current human Executor scope and the absence of any effective active Claim, including a Claim held by the same Actor. Success shall atomically create one separate fixed one-hour Claim, leave the Ticket Snapshot and `updatedAt` unchanged, emit one `TicketClaimed`, and return the unchanged open Ticket plus complete Claim as siblings. Conflict shall return `ActiveClaimConflict` with the complete active Claim; an unacknowledged human Ticket shall return `HumanExecutorClaimExcluded`. Human success shall identify Subject, Ticket ID, Actor, expiry, and Claim ID; JSON shall contain `ok: true`, Ticket, and Claim.
+  - Story traceability: US1.28 — Acquire the one active Claim; US1.29 — Observe an active Claim conflict; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.21: Claim renewal shall require an open Ticket, effective active Claim, exact current Claim ID, and matching Actor in that precedence. Success shall atomically replace the Claim with a fresh Claim ID and one-hour lease, preserve the Ticket Snapshot and timestamp, emit one `TicketClaimRenewed` containing prior Claim ID and complete new Claim, and return unchanged Ticket plus new Claim. It shall never fall back to acquisition. Failures shall distinguish no active Claim, stale Claim ID, and wrong Actor; absent and stale reasons shall not reveal a current Claim ID.
+  - Story traceability: US1.30 — Renew the exact Claim incarnation; US1.33 — Reject a stale Claim ID; US1.34 — Reject an inactive supplied Claim; US1.35 — Reject the wrong Actor.
+
+- FR1.22: Claim release shall always accept a syntactically valid supplied Claim ID and operate only on an open Ticket. An effective active Claim shall require matching Claim ID before matching Actor; success shall remove it, preserve the Ticket Snapshot and timestamp, emit one `TicketClaimReleased`, and return `Released { ticketId, claimId }`. An open Ticket with no effective active Claim shall return `AlreadyInactive { ticketId }` before comparing the supplied ID, perform no write, and emit no Activity. Terminal lifecycle shall precede no-op detection. Human and JSON receipts shall distinguish `released` and `already-inactive` exactly.
+  - Story traceability: US1.31 — Release a Claim cooperatively; US1.34 — Reject an inactive supplied Claim; US1.35 — Reject the wrong Actor; US1.36 — Hand off without Claim transfer.
+
+- FR1.23: Claim expiry shall be logical and require no background cleanup, read-side mutation, timestamp change, or Activity. An expired persisted Claim shall be omitted from normal reads and treated as inactive by fencing. Acquisition after expiry shall be a fresh Claim with no transfer, takeover, release, renewal, or predecessor linkage. Claim handoff shall consist only of cooperative release followed by ordinary acquisition, or waiting for logical expiry; no caller may transfer, reassign, or release another Actor's active Claim, and another claimant may win between release and acquisition.
+  - Story traceability: US1.32 — Acquire after logical expiry; US1.36 — Hand off without Claim transfer.
+
+- FR1.24: Operations permitting an unclaimed target shall represent intent as `RequireUnclaimed` or `MatchClaim { claimId }`. Omitted optional CLI `--claim-id` shall map to `RequireUnclaimed`; supplied ID to `MatchClaim`, without a Claim-state pre-read. `RequireUnclaimed` encountering an active Claim shall return `ActiveClaimRequiresFence`. `MatchClaim` shall check active presence, exact Claim ID, then Actor and return `NoActiveClaim`, `ClaimIdMismatch`, or `ActorMismatch` at the first failed check. A supplied released or expired Claim shall never degrade to unclaimed intent; stale same-Actor IDs shall fail; and only Actor mismatch may disclose the exactly matched complete active Claim.
+  - Story traceability: US1.27 — Treat selection as non-reserving; US1.33 — Reject a stale Claim ID; US1.34 — Reject an inactive supplied Claim; US1.35 — Reject the wrong Actor; US1.55 — Lose a mutation race explicitly.
+
+- FR1.25: Completion shall require an open Ticket, exact effective active Claim held by the command Actor, every descendant terminal, and every direct prerequisite terminal, in that precedence. It shall have no unclaimed or cascading path. Success shall atomically convert the Ticket to done, set completion and update time to one core-owned occurrence instant, attach Result and Actor attribution, consume the exact Claim, and emit only one `TicketCompleted` with `Consumed { claimId }`. It shall return the complete done Ticket directly; human success shall be exactly `Completed <subject> (<ticket-id>).`; JSON shall contain `ok: true` and the complete done Ticket without active Claim, duplicate outcome, Claim receipt, Activity, or Cursor.
+  - Story traceability: US1.37 — Complete eligible claimed work.
+
+- FR1.26: Completion rejection shall distinguish terminal lifecycle, no active Claim, stale Claim ID, wrong Actor, all open descendants, and all open direct prerequisites. Open descendants shall be returned before open prerequisites and both collections shall include Ticket ID, complete Subject, Executor, and optional effective active Claim for recovery. Rejection shall preserve Ticket, Claim, timestamps, and Activity. Human blocker output shall include every blocker; JSON shall retain the nested typed structure. A repeated completion shall fail lifecycle rather than replay success.
+  - Story traceability: US1.38 — Understand open descendant blockers; US1.39 — Understand open prerequisite blockers.
+
+- FR1.27: Result shall contain required normalized non-blank single-line summary, optional normalized non-blank multiline details, and optional application-owned generic JSON data. Completion time and Actor shall remain lifecycle fields outside Result. Data shall accept only the JSON domain, preserve arrays, use object-key canonical ordering, reject duplicate CLI object members, sparse arrays, cycles, unsupported or non-finite values, and impose no nesting-depth limit. The complete canonical compact Result encoding shall be stack-safe and limited to 262,144 UTF-8 bytes inclusive. CLI shall accept required `--summary`, optional inline/file details, and optional inline/file complete JSON data with singular mutually exclusive sources; application-specific interpretation shall remain outside Task Manager.
+  - Story traceability: US1.37 — Complete eligible claimed work; US1.13 — Use file-backed input safely.
+
+- FR1.28: Cancellation shall operate only on an open explicit target and require a canonical non-blank reason of at most 16,384 UTF-8 bytes. Target-only scope shall reject every transaction-current open descendant without inspecting descendant Claims or Executors. Cascade scope shall atomically cancel the target and every transaction-current open descendant while preserving done and already-cancelled descendants unchanged. The target may be unclaimed or exactly fenced; every cascaded descendant must be unclaimed. Success shall use one occurrence time, Actor, and reason; consume only a permitted target Claim; emit target-first `TicketCancelled` items with `Consumed` only for the explicit claimed target and `Unclaimed` otherwise; and emit no separate release Activity.
+  - Story traceability: US1.41 — Cancel one open Ticket; US1.42 — Cancel an open subtree.
+
+- FR1.29: Cancellation shall enforce transaction-current Executor scope over every Ticket it would change. Omitted `--allow-human` shall select agent-only scope; supplied acknowledgment shall permit human Tickets subject to all other invariants. Cascade shall report every actively claimed descendant, with complete Claim details, before human-scope rejection and shall change nothing. Success shall return complete target cancelled Snapshot plus exactly changed descendants; human leaf and singular/plural cascade receipts shall identify the committed set without echoing the reason; JSON shall include target and always-present descendant array. Rejections shall distinguish lifecycle, target fence, open-descendant scope, claimed descendants, and excluded human Tickets without aggregation.
+  - Story traceability: US1.42 — Cancel an open subtree; US1.43 — Resolve claimed cancellation descendants; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.30: Deletion without `--yes` shall be a read-only confirmation-required outcome requiring no Actor Identity. It shall inspect the exact target subtree across all lifecycle states, return target and descendant neutral summaries, set required flags to `--yes` for an observed leaf or `--yes --cascade` when descendants are observed, state `nonBinding: true`, evaluate no mutation-only Claim, parent-fence, Dependency, or human blockers, and reserve or fix nothing. Human output shall state that moving the Ticket to Trash requires confirmation, that the preview is informational, list the observed set, and state the rerun flags; JSON shall preserve the typed preview without prose message.
+  - Story traceability: US1.44 — Preview a Trash move safely.
+
+- FR1.31: Confirmed deletion shall require Actor Identity and select transaction-current scope: target-only only for a leaf, or cascade across target and every descendant in open, done, or cancelled state. Every selected Ticket must be unclaimed; no target or descendant Claim fence shall exist. A surviving direct parent shall require unclaimed state or an exact matching parent Claim and Actor; higher ancestors shall be irrelevant. The operation shall reject external active-store dependents of selected Tickets and enforce transaction-current human Executor scope across the complete selected set. Preview, `--yes`, `--cascade`, and `--allow-human` shall bypass none of these invariants.
+  - Story traceability: US1.45 — Revalidate confirmed Trash scope; US1.46 — Move one accidental Ticket to Trash; US1.47 — Move a subtree to Trash; US1.48 — Resolve Claim blockers before Trash; US1.49 — Preserve external dependency integrity; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.32: Successful deletion shall atomically remove selected Snapshots from active coordination, create one self-contained permanent Trash entry per Ticket with complete final Snapshot plus shared deletion time and Actor, preserve internal hierarchy and Dependency IDs, permanently reserve every ID, and emit one minimal target-first `TicketTrashed` item per moved Ticket with no Claim consumption. The result shall contain complete target Trash entry and complete descendant entries; human output shall say `Moved ... to Trash` with singular/plural committed-set receipts; JSON shall contain `trashEntry` and always-present `trashedDescendants`. Repeated deletion shall return `TicketInTrash`, not success. Lean V1 shall expose no recovery or purge.
+  - Story traceability: US1.46 — Move one accidental Ticket to Trash; US1.47 — Move a subtree to Trash.
+
+- FR1.33: Dependency addition shall resolve exact active target and prerequisite identities, require the target open, and permit a prerequisite in any lifecycle state. An existing relation shall return `AlreadyBlocked` before target fencing and emit no write or Activity. Effective addition shall fence only the directly modified target, ignore the prerequisite Claim, reject self-dependency before longer cycles, and return `Blocked` with complete updated target plus prerequisite summary. It shall emit one `TicketDependencyAdded`. Human and JSON output shall distinguish blocked and already-blocked outcomes; no human acknowledgment shall apply to addition.
+  - Story traceability: US1.50 — Add a direct prerequisite; US1.52 — Recognize unchanged Dependency requests.
+
+- FR1.34: Dependency removal shall resolve both active endpoints, require the target open, and return `AlreadyUnblocked` for an absent relation before target fencing or human gate scope, with no write or Activity. Effective removal shall fence only the target and protect only an open human-executor prerequisite when acknowledgment is absent; target Executor and terminal prerequisite Executor shall not trigger that gate. Success shall return `Unblocked` with complete updated target plus prerequisite summary, omit `blockedBy` after the last relation, and emit one `TicketDependencyRemoved`. Human and JSON output shall distinguish unblocked and already-unblocked outcomes.
+  - Story traceability: US1.51 — Remove a direct prerequisite; US1.52 — Recognize unchanged Dependency requests; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.35: No-op exceptions shall remain narrow: open-Ticket update no-op shall follow lifecycle but precede Claim and human scope; `AlreadyBlocked` and `AlreadyUnblocked` shall follow endpoint identity and open target lifecycle but precede target fence; `AlreadyInactive` release shall follow open lifecycle but precede supplied Claim comparison. Every no-op shall preserve all Snapshots, Claims, relationships, timestamps, Trash, Activity, and high-water. No other terminal replay, deletion replay, or stale-fence bypass shall be inferred from these exceptions.
+  - Story traceability: US1.21 — Recognize an unchanged update; US1.31 — Release a Claim cooperatively; US1.52 — Recognize unchanged Dependency requests.
+
+- FR1.36: Human-work and empty-Description acknowledgments shall be purpose-specific adapter choices. Missing `--allow-empty-description` shall reject canonical empty Description before Store access. Missing `--allow-human` shall reject the defined direct human completion, human Claim acquisition, human-to-agent update, affected cancellation set, selected deletion set, or removal of an open human prerequisite at the defined transaction-current boundary. Supplying either acknowledgment shall not waive input, Store, lifecycle, hierarchy, Dependency, Claim, Result, cancellation, Trash, or atomicity rules and shall never act as authentication, authorization, or generic force.
+  - Story traceability: US1.22 — Confirm an intentionally empty Description; US1.40 — Acknowledge direct human completion; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.37: Ordinary Store reads shall distinguish `StoreNotInitialized`, `StoreOpenFailed`, and `StoreQueryFailed`; ordinary mutations shall distinguish `StoreNotInitialized`, `StoreOpenFailed`, `StoreTransactionFailed`, and `StoreCommitOutcomeUnknown`. Every failure shall include the canonical database path and only reason-appropriate bounded diagnostics. Known transaction failure shall mean non-commit is proven and complete rollback occurred; unknown commit outcome shall never claim rollback or safe blind retry. Human lines shall direct absence to initialization, query failure to validation, and unknown outcome to reread; JSON shall preserve parent/reason types without generic retryability or prose message.
+  - Story traceability: US1.9 — Distinguish an absent Store; US1.10 — Distinguish Store open failure; US1.11 — Distinguish Store query failure; US1.53 — Retry a known pre-commit failure safely; US1.54 — Reconcile an unknown commit outcome.
+
+- FR1.38: Every well-formed effective mutation shall decide against transaction-current state under one serialized writer position and shall not automatically retry a domain race rejection. CLI selection, preview, relationship observation, and human-gate pre-reads shall create no reservation or precedence. If competing work commits first, the later operation shall return the typed outcome selected by current identity, lifecycle, Claim, hierarchy, Dependency, Executor scope, or relation state; callers shall reread and deliberately retry where appropriate.
+  - Story traceability: US1.27 — Treat selection as non-reserving; US1.45 — Revalidate confirmed Trash scope; US1.55 — Lose a mutation race explicitly.
+
+- FR1.39: Every successful state-changing transaction shall emit exactly one ordered Semantic Activity item per changed Ticket, with contiguous Store-global Cursor, one core-owned occurrence time, Actor Identity, Ticket ID, and operation-specific event. Reads, initialization, failures, and no-ops shall emit none. Activity, active Snapshots, separate Claims, Trash entries, timestamps, and metadata high-water shall commit atomically. Multi-Ticket mutations shall emit explicit target first and changed descendants in canonical tree order. Semantic Activity shall remain audit and observation history rather than authoritative current state, and Lean V1 shall expose no public Activity-read operation.
+  - Story traceability: US1.53 — Retry a known pre-commit failure safely; US1.56 — Observe all-or-nothing multi-Ticket change.
+
+- FR1.40: Human CLI mode shall write success only to stdout and expected failure only to stderr beginning with `Error:`. JSON mode shall write exactly one compact object to stdout and leave stderr empty. Every product success, including no-op, empty read, no-actionable-work, and existing initialization, shall exit zero; every expected parse, input, confirmation, Store, lookup, or domain failure shall exit one. JSON success shall contain `ok: true`; JSON failure shall be exactly `ok: false` plus the structured typed error, with no duplicate generic human message. Task Manager-owned output shall have one trailing newline and no trailing blank line; help, version, and shell completion remain parser-framework output and exit zero.
+  - Story traceability: US1.57 — Use deterministic human output; US1.58 — Use machine-readable JSON.
+
+- FR1.41: Every human surface that includes a Ticket Subject shall render the complete canonical Subject without adapter truncation, including receipts, detail blocks, trees, previews, relationships, blockers, and typed recovery summaries. Human and JSON rendering shall derive from authoritative typed core results or typed errors without Store rereads or recomputation of mutation rules.
+  - Story traceability: US1.23 — Inspect one active Ticket; US1.24 — Browse the Ticket hierarchy; US1.57 — Use deterministic human output; US1.58 — Use machine-readable JSON.
+
+- FR1.42: Lean V1 Task Manager and Ticket-authoring skills shall be rebuilt against generated command help and public JSON behavior. They shall use exact Ticket and Claim IDs, explicit Executor, Actor requirements, exact Claim-fence flags, `update --executor`, list/next filters, real Dependency edges, semantic cancellation/deletion scope, permanent Trash terminology, Result inputs, and parent fencing. Representative examples shall run against disposable Stores and either succeed with the documented shape or produce the documented typed failure. End-user documentation shall be regenerated only after core, CLI, and skill conformance and shall not become a behavioral authority.
+  - Story traceability: US1.60 — Follow accurate Lean V1 guidance.
+
+- FR1.43: Task Manager shall remain a coordination kernel only. It shall persist and expose coordination facts and atomic transitions but shall not decide assignment, execution, review, progress, retry, or agent-orchestration policy; shall not authenticate Actor Identity; and shall not interpret application-owned Result data as a universal workflow outcome.
+  - Story traceability: US1.1 — Use the typed Task Manager capability; US1.36 — Hand off without Claim transfer; US1.60 — Follow accurate Lean V1 guidance.
+
+- FR1.44: The initialization and validation access functions shall have exact public contracts: `initializeStore(): Effect<InitializeStoreResult, StoreInitializationRejected | StoreMutationError, TaskManager>` and `validateStore(): Effect<ValidateStoreReport, StoreValidationRejected | StoreValidationReadError, TaskManager>`. `InitializeStoreResult` shall be exactly `Created { metadata } | Existing { metadata }`; validation success shall be exactly the report in FR1.6; neither result shall contain Store Location, a database handle, engine details, Activity payloads, or persistence context.
+  - Story traceability: US1.4 — Initialize a fresh Store; US1.5 — Reuse an existing Store; US1.7 — Validate a healthy Store; US1.8 — Diagnose Store integrity problems.
+
+- FR1.45: Ticket authoring access functions shall have exact public contracts: `createTicket(CreateTicketInput): Effect<OpenTicket, TicketCreationRejected | TicketNotFound | TicketInTrash | TicketIdSpaceExhausted | StoreMutationError, TaskManager>` and `updateTicket(UpdateTicketInput): Effect<UpdateTicketResult, TicketUpdateRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>`. `CreateTicketInput` shall contain actor, level, executor, subject, description, optional context, optional `CreateParent { ticketId, claimFence }`, and always-present dependency array. `UpdateTicketInput` shall contain ticketId, actor, target Claim fence, Executor transition scope, and opaque non-empty unique Ticket edits. Success values shall be exactly those in FR1.13-FR1.16 with no extra wrapper, Activity, Cursor, or Store metadata.
+  - Story traceability: US1.18 — Create durable work; US1.19 — Create hierarchical work; US1.20 — Update open work atomically; US1.21 — Recognize an unchanged update.
+
+- FR1.46: Read access functions shall have exact public contracts: `getTicketDetails(TicketId): Effect<TicketDetails, TicketNotFound | TicketInTrash | StoreReadError, TaskManager>`; `listTickets(ListTicketsInput): Effect<ReadonlyArray<ListTicketNode>, TicketNotFound | TicketInTrash | StoreReadError, TaskManager>`; and `selectNextTicket(SelectNextTicketInput): Effect<SelectNextTicketResult, TicketNotFound | TicketInTrash | TicketNotOpen | StoreReadError, TaskManager>`. Inputs, read models, filters, optional-field omission, and direct result shapes shall be exactly those in FR1.17-FR1.19; root-specific lookup failures shall occur only when a root is supplied.
+  - Story traceability: US1.23 — Inspect one active Ticket; US1.24 — Browse the Ticket hierarchy; US1.25 — Select the next actionable Ticket; US1.26 — Observe that no work is actionable.
+
+- FR1.47: Claim access functions shall have exact public contracts: `claimTicket(ClaimTicketInput): Effect<ClaimTicketResult, TicketNotFound | TicketInTrash | TicketNotOpen | ActiveClaimConflict | HumanExecutorClaimExcluded | StoreMutationError, TaskManager>`; `renewClaim(RenewClaimInput): Effect<RenewClaimResult, TicketNotFound | TicketInTrash | TicketNotOpen | ClaimRenewalFenceError | StoreMutationError, TaskManager>`; and `releaseClaim(ReleaseClaimInput): Effect<ReleaseClaimResult, TicketNotFound | TicketInTrash | TicketNotOpen | ClaimReleaseFenceError | StoreMutationError, TaskManager>`. Claim input shall contain ticketId, actor, and semantic Executor scope; renew/release input shall contain ticketId, actor, and required Claim ID. Claim and renew success shall contain unchanged complete open Ticket plus complete separate Claim; release success shall be exactly `Released { ticketId, claimId } | AlreadyInactive { ticketId }`.
+  - Story traceability: US1.28 — Acquire the one active Claim; US1.29 — Observe an active Claim conflict; US1.30 — Renew the exact Claim incarnation; US1.31 — Release a Claim cooperatively.
+
+- FR1.48: Completion shall have exact public contract `completeTicket(CompleteTicketInput): Effect<DoneTicket, CompletionRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>`, where input contains exactly ticketId, actor, required claimId, and Result. `CompletionRejected` shall contain target ticketId and exactly one reason from terminal status, no active Claim with provided ID, Claim ID mismatch with provided ID, Actor mismatch with provided Actor and exact active Claim, non-empty open-descendant blockers, or non-empty open-prerequisite blockers. It shall expose no target-fence union, confirmation boolean, expected Executor, caller time, generic bypass, retryability, or current Claim ID in a mismatch reason.
+  - Story traceability: US1.37 — Complete eligible claimed work; US1.38 — Understand open descendant blockers; US1.39 — Understand open prerequisite blockers.
+
+- FR1.49: Cancellation shall have exact public contract `cancelTicket(CancelTicketInput): Effect<CancelTicketResult, CancellationRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>`. Input shall contain exactly ticketId, actor, target Claim fence, `TargetOnly | CascadeOpenDescendants`, `AgentOnly | AnyExecutor`, and reason. Result shall contain complete target cancelled Ticket plus always-present changed-descendant array. `CancellationRejected` shall contain target ID and exactly one reason from terminal status, active Claim requiring fence, no active Claim, Claim ID mismatch, Actor mismatch, open descendants, claimed descendants, or human Tickets excluded, with the payloads and collections in FR1.29 and DR4.20.
+  - Story traceability: US1.41 — Cancel one open Ticket; US1.42 — Cancel an open subtree; US1.43 — Resolve claimed cancellation descendants.
+
+- FR1.50: Deletion shall have exact public contract `deleteTicket(DeleteTicketInput): Effect<DeleteTicketResult, DeletionRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>`. Input shall contain exactly ticketId, actor, surviving-parent fence, `TargetOnly | CascadeDescendants`, and `AgentOnly | AnyExecutor`, with no target/descendant Claim IDs, preview set/token, caller time, raw confirmation, purge, or recovery field. Result shall contain complete target Trash entry and always-present complete descendant-entry array. `DeletionRejected` shall contain target ID and exactly one reason from active target Claim, target has no parent with provided ID, active parent Claim requiring fence, no active parent Claim, parent Claim ID mismatch, parent Actor mismatch, descendants requiring cascade, claimed descendants, external dependents, or human Tickets excluded, with exact reason payloads defined in DR4.25.
+  - Story traceability: US1.44 — Preview a Trash move safely; US1.45 — Revalidate confirmed Trash scope; US1.46 — Move one accidental Ticket to Trash; US1.47 — Move a subtree to Trash; US1.48 — Resolve Claim blockers before Trash; US1.49 — Preserve external dependency integrity.
+
+- FR1.51: Dependency access functions shall have exact public contracts: `addTicketDependency(ChangeDependencyInput): Effect<AddTicketDependencyResult, DependencyAdditionRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>` and `removeTicketDependency(RemoveTicketDependencyInput): Effect<RemoveTicketDependencyResult, DependencyRemovalRejected | TicketNotFound | TicketInTrash | StoreMutationError, TaskManager>`. Shared addition input shall contain ticketId, dependencyId, actor, and target Claim fence; removal shall additionally require `PreserveOpenHumanPrerequisites | AnyPrerequisite`. Each result shall be exactly its changed/no-op union containing complete open target and neutral prerequisite summary. Addition rejection reasons shall be terminal target, four target-fence outcomes, self-dependency, or canonical Dependency cycle; removal reasons shall be terminal target, four target-fence outcomes, or excluded open human prerequisite.
+  - Story traceability: US1.50 — Add a direct prerequisite; US1.51 — Remove a direct prerequisite; US1.52 — Recognize unchanged Dependency requests.
+
+- FR1.52: Human Ticket detail rendering shall be exact. An open block shall contain, in order: uppercase level and ID; `Status: open`; Executor; complete Subject; Parent or `-`; ascending `Blocked by` IDs or `-`; Created; Updated; effective `Claim: active until <expires-at> (<claim-id>)` or `Claim: -`; blank line; `Description:` and complete Description or `(empty)`; blank line; `Context:` and complete Context or `-`. Done and cancelled blocks shall preserve the same common order, replace Claim with exact `Completed: <time> by <actor>` or `Cancelled: <time> by <actor>`, and append respectively Result summary/details/data or complete cancellation reason. Impossible lifecycle sections shall be omitted.
+  - Story traceability: US1.23 — Inspect one active Ticket; US1.25 — Select the next actionable Ticket.
+
+- FR1.53: Human relationship and list grammar shall be exact. Inspection shall append `Relationships:`, then always-present `Parent:`, `Blocked by:`, and `Blocks:` subsections; empty subsections shall render `-`; one parent shall use `└──`; arrays shall use `├──` except final `└──`. List roots shall have no connector; descendants shall use `├──`/`└──`, `│   ` continuation, and four-space indentation. Node text shall be `<marker> <ticket-id>: <executor-notation><complete-subject>`, with marker precedence `[x]`, `[-]`, `[>]`, `[/]`, `[ ]`; `(H) ` shall appear only when human and agent may both appear.
+  - Story traceability: US1.23 — Inspect one active Ticket; US1.24 — Browse the Ticket hierarchy.
+
+- FR1.54: Human command success receipts shall be exact: create `Created <subject> (<id>).`; update `Updated (<id>).` or `No changes to (<id>).`; no next work `No actionable Tickets.`; claim `Claimed <subject> (<id>) for <actor> until <expires-at> (Claim <claim-id>).`; renew `Renewed Claim on <subject> (<id>) for <actor> until <expires-at> (Claim <claim-id>).`; release `Released Claim <claim-id> from Ticket <id>.` or `Claim on Ticket <id> is already inactive.`; complete `Completed <subject> (<id>).`; cancellation leaf `Cancelled <subject> (<id>).`; Trash leaf `Moved <subject> (<id>) to Trash.`; add `Blocked <target-subject> (<target-id>) by <dependency-subject> (<dependency-id>).` or `Ticket <target-subject> (<target-id>) is already blocked by <dependency-subject> (<dependency-id>).`; remove `Unblocked <target-subject> (<target-id>) from <dependency-subject> (<dependency-id>).` or `Ticket <target-subject> (<target-id>) is already unblocked from <dependency-subject> (<dependency-id>).`. Cascade receipts shall use exact singular/plural `descendant Ticket`/`descendant Tickets` headings and one complete-Subject line per changed descendant.
+  - Story traceability: US1.18 — Create durable work; US1.20 — Update open work atomically; US1.26 — Observe that no work is actionable; US1.28 — Acquire the one active Claim; US1.30 — Renew the exact Claim incarnation; US1.31 — Release a Claim cooperatively; US1.37 — Complete eligible claimed work; US1.41 — Cancel one open Ticket; US1.46 — Move one accidental Ticket to Trash; US1.50 — Add a direct prerequisite; US1.51 — Remove a direct prerequisite; US1.57 — Use deterministic human output.
+
+- FR1.55: Shared and Claim-fence human failures shall be exact: not found `Error: Ticket <id> was not found.`; in Trash `Error: Ticket <id> is in Trash; moved at <deleted-at> by <deleted-by>.`; expected open `Error: Ticket <id> is <status>; expected an open Ticket.`; missing Actor as FR1.11; active target requiring fence shall name the command action and direct reread plus `--claim-id`; no active Claim shall identify only the provided ID and direct reread or fresh acquisition as appropriate; Claim ID mismatch shall identify only the provided ID and direct reread; Actor mismatch shall identify exact Claim ID, Ticket, holder, and provided Actor. Acquisition conflict shall be `Error: Ticket <id> already has active Claim <claim-id> held by <actor> until <expires-at>.`; unacknowledged human Claim shall be `Error: Claiming human-executor Ticket <id> requires --allow-human.`.
+  - Story traceability: US1.14 — Require mutation attribution; US1.16 — Report an unknown Ticket; US1.17 — Report a Ticket in Trash; US1.29 — Observe an active Claim conflict; US1.33 — Reject a stale Claim ID; US1.34 — Reject an inactive supplied Claim; US1.35 — Reject the wrong Actor; US1.57 — Use deterministic human output.
+
+- FR1.56: Operation-specific rejection rendering shall be complete and typed. Creation shall render exact recovery for parent required/forbidden/not-open/invalid-level, active parent fence, absent/stale parent Claim, parent Actor mismatch, and ID exhaustion. Update shall render exact terminal, target-fence, Executor-change-while-claimed, and `Error: Updating Ticket <id> from human to agent requires --allow-human.` lines. Completion shall render exact terminal/fence lines plus headings `Error: Ticket <id> has open descendants:` or `... has open dependencies:` and every blocker. Cancellation shall render exact terminal/fence lines plus open-descendant, claimed-descendant, and human-excluded headings. Deletion shall render exact target/parent fence lines plus descendants-require-cascade, claimed-descendant, external-dependent, and human-excluded headings. Dependency operations shall render exact terminal/fence lines, self/cycle lines, and `Error: Removing dependency <dependency-id> from Ticket <target-id> would remove an open human-executor gate; pass --allow-human to continue.`. Every collection failure shall render every typed item, including Claim holder/ID/expiry or selected Dependency IDs where defined, without reread.
+  - Story traceability: US1.19 — Create hierarchical work; US1.20 — Update open work atomically; US1.38 — Understand open descendant blockers; US1.39 — Understand open prerequisite blockers; US1.43 — Resolve claimed cancellation descendants; US1.48 — Resolve Claim blockers before Trash; US1.49 — Preserve external dependency integrity; US1.50 — Add a direct prerequisite; US1.51 — Remove a direct prerequisite; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.57: JSON success shapes shall be exact and command-specific: initialization as FR1.5; validation as FR1.6; create/complete as `ok: true` plus complete Ticket; update as `ok: true`, outcome, Ticket; show as `ok: true`, Ticket, optional sibling active Claim, relationships; list as `ok: true`, tickets tree; selected next as `ok: true`, complete Ticket, optional sibling active Claim; no next work as `ok: true`, reason `no-actionable-work`; claim/renew as `ok: true`, Ticket, sibling Claim; release as flat `ok: true`, outcome, Ticket ID, and Claim ID only for released; cancellation as `ok: true`, target Ticket, always-present cancelled-descendant array; deletion as `ok: true`, target Trash entry, always-present trashed-descendant array; Dependency change as `ok: true`, outcome, target Ticket, prerequisite summary. No success shall add core tags, Activity, Cursors, handles, or redundant fields.
+  - Story traceability: US1.4 — Initialize a fresh Store; US1.7 — Validate a healthy Store; US1.18 — Create durable work; US1.20 — Update open work atomically; US1.23 — Inspect one active Ticket; US1.24 — Browse the Ticket hierarchy; US1.25 — Select the next actionable Ticket; US1.28 — Acquire the one active Claim; US1.30 — Renew the exact Claim incarnation; US1.31 — Release a Claim cooperatively; US1.37 — Complete eligible claimed work; US1.42 — Cancel an open subtree; US1.47 — Move a subtree to Trash; US1.50 — Add a direct prerequisite; US1.51 — Remove a direct prerequisite; US1.58 — Use machine-readable JSON.
+
+- FR1.58: Creation rejection human lines shall be exact: `Error: A Subtask requires a parent Task.`; `Error: An Epic cannot have parent Ticket <parent-id>.`; `Error: Parent Ticket <parent-id> is <status> and cannot accept a child.`; `Error: <child-level> Ticket cannot have <parent-level> parent Ticket <parent-id>.`; `Error: Parent Ticket <parent-id> has an active Claim; reread it and pass --parent-claim-id.`; `Error: Claim <provided-claim-id> is not active on parent Ticket <parent-id>; reread it before retrying.`; `Error: Claim <provided-claim-id> does not match the active Claim on parent Ticket <parent-id>; reread it before retrying.`; `Error: Claim <claim-id> on parent Ticket <parent-id> is held by <holder>, not <provided-actor>.`; and `Error: No unused Ticket IDs remain.`.
+  - Story traceability: US1.18 — Create durable work; US1.19 — Create hierarchical work; US1.57 — Use deterministic human output.
+
+- FR1.59: Update rejection human lines shall be exact: `Error: Ticket <id> is <status> and cannot be updated.`; `Error: Ticket <id> has an active Claim; reread the Ticket and pass --claim-id to update it.`; the shared no-active, stale-ID, and Actor-mismatch forms from FR1.55; `Error: Ticket <id> cannot change Executor from <current-executor> to <requested-executor> while Claim <claim-id> is active; release the Claim before retrying.`; and `Error: Updating Ticket <id> from human to agent requires --allow-human.`. Empty Description confirmation shall be exactly `Error: An empty Description requires --allow-empty-description.`.
+  - Story traceability: US1.20 — Update open work atomically; US1.22 — Confirm an intentionally empty Description; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.60: Claim renewal and release rejection lines shall be exact. Renewal no-active shall be `Error: Claim <provided-claim-id> is not active on Ticket <id>; acquire a new Claim before retrying.`; renewal stale ID shall direct rereading; release stale ID shall use the same reread form; and exact-ID wrong Actor shall be `Error: Claim <claim-id> on Ticket <id> is held by <holder>, not <provided-actor>.`. Neither command shall reveal a current Claim ID through no-active or mismatch output.
+  - Story traceability: US1.30 — Renew the exact Claim incarnation; US1.31 — Release a Claim cooperatively; US1.33 — Reject a stale Claim ID; US1.34 — Reject an inactive supplied Claim; US1.35 — Reject the wrong Actor.
+
+- FR1.61: Completion rejection human lines shall be exact: terminal `Error: Ticket <id> is <status> and cannot be completed.`; no-active `Error: Claim <provided-claim-id> is not active on Ticket <id>; acquire a Claim before completing it.`; stale-ID and Actor forms from FR1.55; `Error: Ticket <id> has open descendants:`; and `Error: Ticket <id> has open dependencies:`. Each blocker line shall be `- <blocker-id>: <subject> (executor: <executor>)` or, when effectively claimed, the same text with `; Claim <claim-id> held by <actor> until <expires-at>` inside the parentheses. Human completion acknowledgment shall be exactly `Error: Completing human-executor Ticket <id> requires --allow-human.`.
+  - Story traceability: US1.37 — Complete eligible claimed work; US1.38 — Understand open descendant blockers; US1.39 — Understand open prerequisite blockers; US1.40 — Acknowledge direct human completion.
+
+- FR1.62: Cancellation rejection human lines shall be exact: terminal `Error: Ticket <id> is <status> and cannot be cancelled.`; active unclaimed assertion `Error: Ticket <id> has an active Claim; reread the Ticket and pass --claim-id to cancel it.`; shared no-active, stale-ID, and Actor forms; `Error: Ticket <id> has open descendants; pass --cascade to cancel them:`; `Error: Ticket <id> has actively claimed descendants:`; and `Error: Cancellation would include human-executor Tickets; pass --allow-human to continue:`. Ordinary descendant lines shall be `- <id>: <subject> (executor: <executor>)`; claimed lines shall additionally include exact Claim ID, holder, and expiry.
+  - Story traceability: US1.41 — Cancel one open Ticket; US1.42 — Cancel an open subtree; US1.43 — Resolve claimed cancellation descendants; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.63: Deletion confirmation and rejection lines shall be exact. Preview shall begin `Error: Moving Ticket <id> to Trash requires confirmation.` then `This preview is informational and reserves or fixes nothing:`, render every `- <id>: <subject> (status: <status>; executor: <executor>)`, and end `Re-run with --yes.` or `Re-run with --yes --cascade.`. Confirmed rejection shall use: active target Claim release instruction; root `Error: Ticket <id> has no parent; do not pass --parent-claim-id.`; active/absent/stale/wrong-Actor parent fence forms; `Error: Ticket <id> has descendants; pass --cascade to move them to Trash:`; `Error: Ticket <id> has actively claimed descendants:`; `Error: Moving Ticket <id> to Trash would leave external dependents:`; and `Error: Deletion would include human-executor Tickets; pass --allow-human to continue:`. Collection lines shall include every ordinary summary, complete Claim, or selected Dependency-ID detail defined by the typed reason.
+  - Story traceability: US1.44 — Preview a Trash move safely; US1.45 — Revalidate confirmed Trash scope; US1.48 — Resolve Claim blockers before Trash; US1.49 — Preserve external dependency integrity; US1.59 — Acknowledge direct human-work impact.
+
+- FR1.64: Dependency-addition rejection lines shall be exact: terminal `Error: Ticket <target-id> is <status> and cannot have a dependency added.`; active target fence with reread and `--claim-id`; shared no-active, stale-ID, and Actor forms; `Error: Ticket <target-id> cannot depend on itself.`; and `Error: Adding dependency <dependency-id> to Ticket <target-id> would create a dependency cycle: <closed-path>.`. Removal shall substitute `cannot have a dependency removed` and `remove the dependency` in terminal/fence forms and shall render the open-human gate exactly as specified in FR1.56. Closed cycle IDs shall join with ` -> `.
+  - Story traceability: US1.50 — Add a direct prerequisite; US1.51 — Remove a direct prerequisite.
+
+- FR1.65: Initialization and validation rejection lines shall be exact. Invalid database shall be `Error: Existing database at <database-path> is invalid: <diagnostic>`; application mismatch `Error: Database at <database-path> belongs to application <actual-or-unknown>; expected task-manager.`; incompatible format `Error: Task Manager Store at <database-path> uses format <actual-or-unknown>; expected format 1.`; invalid structure shall identify database path and `schema | metadata` followed by every public schema issue. Engine failure shall begin `Error: Task Manager Store at <database-path> failed engine integrity validation:`; foreign-key failure shall begin `Error: Task Manager Store at <database-path> failed foreign-key integrity validation:`; aggregate issues shall begin `Error: Task Manager Store validation failed:`. Every following line shall use its typed issue template, canonical path, safe identity or `undecodable`, cycle witness, and canonical order.
+  - Story traceability: US1.6 — Protect incompatible Store data; US1.8 — Diagnose Store integrity problems.
+
+- FR1.66: `TaskManagerService` shall be the closed service shape containing exactly the 15 methods named in FR1.1. Each service method shall accept the same input and return the same success and typed error channel as its corresponding access function in FR1.44-FR1.51, but without a `TaskManager` requirement because it is the provided capability. Every exported access function shall delegate through that service and explicitly require `TaskManager`; no additional public operation or persistence capability shall exist.
+  - Story traceability: US1.1 — Use the typed Task Manager capability.
+
+- FR1.67: Ordinary Store failure human lines shall be exact: absent `Error: Task Manager Store is not initialized at <database-path>; run tm init.`; open failure `Error: Could not open Task Manager Store at <database-path>: <diagnostic>`; read-query failure `Error: Could not read Task Manager Store at <database-path>: <diagnostic>; run tm validate.`; known pre-commit mutation failure `Error: Task Manager Store mutation failed before commit at <database-path>: <diagnostic>`; and unknown commit outcome `Error: Task Manager Store commit outcome is unknown at <database-path>; reread current state before retrying: <diagnostic>`.
+  - Story traceability: US1.9 — Distinguish an absent Store; US1.10 — Distinguish Store open failure; US1.11 — Distinguish Store query failure; US1.53 — Retry a known pre-commit failure safely; US1.54 — Reconcile an unknown commit outcome.
+
+- FR1.68: Validation success human output shall be exactly these five lines in order: `Validated Task Manager Store <store-id> (format <format-version>) at <database-path>.`; `Tickets: <tickets> total; <open-tickets> open; <done-tickets> done; <cancelled-tickets> cancelled.`; `Claim records: <claim-records>.`; `Trash entries: <trash-entries>.`; `Activity items: <activity-items>; high-water: <activity-high-water>.`.
+  - Story traceability: US1.7 — Validate a healthy Store.
+
+- FR1.69: Renewal and release exact stale-fence sentences shall be preserved. Renewal/release Claim ID mismatch shall be `Error: Claim <provided-claim-id> does not match the active Claim on Ticket <ticket-id>; reread the Ticket before retrying.`. Renewal no-active shall be `Error: Claim <provided-claim-id> is not active on Ticket <ticket-id>; acquire a new Claim before retrying.`. Both Actor mismatch forms shall be `Error: Claim <claim-id> on Ticket <ticket-id> is held by <holder>, not <provided-actor>.`.
+  - Story traceability: US1.30 — Renew the exact Claim incarnation; US1.31 — Release a Claim cooperatively; US1.33 — Reject a stale Claim ID; US1.34 — Reject an inactive supplied Claim; US1.35 — Reject the wrong Actor.
+
+- FR1.70: Confirmed deletion single-state failure lines shall be exact: active target `Error: Ticket <id> has active Claim <claim-id> held by <actor> until <expires-at>; release it before moving the Ticket to Trash.`; root parent fence `Error: Ticket <id> has no parent; do not pass --parent-claim-id.`; active parent `Error: Parent Ticket <parent-id> has an active Claim; reread it and pass --parent-claim-id.`; no active parent `Error: Claim <provided-id> is not active on parent Ticket <parent-id>; reread it before retrying.`; stale parent `Error: Claim <provided-id> does not match the active Claim on parent Ticket <parent-id>; reread it before retrying.`; wrong parent Actor `Error: Claim <claim-id> on parent Ticket <parent-id> is held by <holder>, not <provided-actor>.`. Ordinary collection bullets shall be `- <id>: <subject> (status: <status>; executor: <executor>)`; claimed bullets shall add `; Claim <claim-id> held by <actor> until <expires-at>`; external-dependent bullets shall add `; selected dependencies: <ascending-comma-separated-ids>`.
+  - Story traceability: US1.45 — Revalidate confirmed Trash scope; US1.48 — Resolve Claim blockers before Trash; US1.49 — Preserve external dependency integrity.
+
+- FR1.71: Aggregate validation issue lines shall be exact: record schema `- <collection> record <ordinal> has invalid schema:` followed by `  - <path>: <code>; expected <expected>`; `- Ticket <id> requires a parent.`; `- Ticket <id> forbids parent <parent-id>.`; `- Ticket <id> references missing parent <parent-id>.`; `- <child-level> Ticket <id> has invalid <parent-level> parent <parent-id>.`; `- Hierarchy cycle: <ids joined by -> >.`; `- Ticket <id> references missing dependency <dependency-id>.`; `- Ticket <id> contains duplicate dependency <dependency-id>.`; `- Ticket <id> depends on itself.`; `- Dependency cycle: <ids joined by -> >.`; `- Claim <claim-id> references missing Ticket <ticket-id>.`; `- Claim <claim-id> references <status> Ticket <ticket-id>.`; `- Claim <claim-id> for Ticket <ticket-id> has invalid lease <claimed-at> to <expires-at>.`; `- Activity cursor sequence at position <expected-cursor>: observed <observed-or-undecodable>.`; `- Activity high-water mismatch: metadata <metadata>; observed <observed>.`; `- Trash Ticket <id> has no matching TicketTrashed Activity.`; `- Trash Ticket <id> attribution differs from TicketTrashed Activity <cursor>: expected <expected-deleted-at> by <expected-deleted-by>; observed <observed-occurred-at> by <observed-actor>.`; and `- Ticket <id> exists in both active coordination and Trash.`. Foreign-key lines shall be `- <source-collection> record <ordinal> (<source-identity>) field <field-path> references <reference-collection> (<reference-identity>).`; safe identities shall render `Ticket <id>`, `Claim <id>`, `Trash Ticket <id>`, or `Activity <cursor>`, and omitted identity exactly `undecodable`.
+  - Story traceability: US1.8 — Diagnose Store integrity problems.
+
+## Non-Functional Requirements
+
+- NFR2.1: All effective mutations shall be atomic across every affected Ticket Snapshot, separate Claim, Trash entry, timestamp, Semantic Activity item, and Activity high-water. Rejection and known pre-commit failure shall expose no partial state after Store close and reopen.
+
+- NFR2.2: Multiple local processes sharing one Store shall serialize writers without lost updates, duplicate active Claims, duplicate Activity Cursors, split cascades, or corruption. At least one bounded multi-process write test and one Claim-acquisition race shall prove this behavior.
+
+- NFR2.3: Claim activity and every mutation occurrence shall be linearized at one core-owned millisecond occurrence instant sampled after the mutation owns its writer position. A Claim active at that instant may remain valid through physical commit; a Claim expired at or before it shall be inactive. No mutation shall perform a second expiry check before commit.
+
+- NFR2.4: Public results, failures, trees, blocker lists, validation issues, cycles, descendant sets, and multi-Ticket Activity shall be deterministic under the canonical comparators defined by the data contract and independent of SQL retrieval order, insertion order, process scheduling after serialization, or private identifiers.
+
+- NFR2.5: Every vendor-originated diagnostic shall be mapped before crossing the public boundary, stripped of SQL, parameters, stacks, path aliases, and raw serialization, normalized to one line, defaulted when empty, and limited to 1,024 UTF-8 bytes without splitting a code point; the reason type, never diagnostic prose, shall drive recovery.
+
+- NFR2.6: Canonical Result JSON validation and encoding shall be stack-safe for every accepted depth and shall not rely on native recursion that can overflow. The implementation shall preserve deterministic key ordering, escaping, number encoding, and aggregate byte measurement.
+
+- NFR2.7: All public typed core behavior shall be tested through exported access functions with the Task Manager capability supplied by a Layer backed by a real temporary file-based Store. Tests may replace the whole capability but shall not bypass production domain or persistence logic.
+
+- NFR2.8: CLI qualification shall execute the real process entrypoint and assert parsing, environment fallback, file input, path resolution, output bytes, stream selection, exit status, human rendering, JSON framing, and representative typed failures without duplicating core-only assertions.
+
+- NFR2.9: Representative completion, cancellation cascade, Trash cascade, Dependency addition, and Dependency removal tests shall inject deterministic known pre-commit failure after material in-transaction effects, close and reopen the Store, and prove complete rollback plus successful retry. Exhaustive per-statement or physical power-loss fault injection is not required.
+
+- NFR2.10: Unknown physical commit outcomes shall be represented explicitly and require reread and reconciliation; the product shall not expose a generic retryability boolean, durable retry receipt, or automatic retry that could duplicate a committed mutation.
+
+- NFR2.11: Lean V1 shall advertise support only for the exact runtime, native libSQL artifact, operating-system/architecture, local filesystem, and connection profile exercised by the complete qualification suite.
+
+- NFR2.12: Validation, parsing, rendering, and mutation failures shall fail closed. Unsafe or undecodable optional observations shall be omitted rather than coerced, sanitized into canonical domain values, encoded as `null`, or used to satisfy references.
+
+- NFR2.13: The mandatory evidence suite shall include bounded concurrency, exact Claim fencing and same-Actor staleness, logical expiry boundaries, all no-op exceptions, human acknowledgments, failure precedence combinations, rollback/reopen, Activity equality and ordering, Trash integrity, Store-validation gates, and every real CLI process contract.
+
+- NFR2.14: The exact global fence evidence shall prove: acquisition racing an unclaimed-target mutation yields `ActiveClaimRequiresFence` when acquisition commits first; renewing C1 to C2 makes C1 fail `ClaimIdMismatch` even for the same Actor; releasing or expiring C1 makes `MatchClaim(C1)` fail `NoActiveClaim`; a human acknowledgment changes only its semantic scope; terminal lifecycle precedes stale fence input; completion with a valid fence and open prerequisite yields `OpenDependencies`; every claimed descendant is reported for parent cancellation/deletion; only unclaimed descendants cascade after release/expiry; and cooperative handoff has no unilateral transfer.
+
+- NFR2.15: Completion evidence shall independently cover: invalid Result before missing Store; human completion acknowledgment before stale Claim; terminal lifecycle before Claim; no active Claim before descendants; wrong Claim ID before wrong Actor; exact ID plus wrong Actor; open descendants before open prerequisites; release versus completion; renewal/replacement versus completion including same Actor; Claim-expiry occurrence boundary; Executor update versus acquisition; child creation; Dependency addition/removal; descendant/prerequisite terminal transitions; and stale acknowledgment pre-read. Every losing race shall return the specified typed reason without wait or automatic retry. A real rollback/reopen test shall fail after done Snapshot, Claim removal, timestamps, and Activity effects but before commit and prove all were rolled back and the same Claim can retry.
+
+- NFR2.16: Cancellation evidence shall independently cover: target-only versus cascade with a child created after request construction; agent-only versus transaction-current human target/descendant; target `RequireUnclaimed` versus acquisition; exact target Claim versus release/renew/replacement; descendant acquisition; child creation; Executor update; irrelevant Dependency relationship changes; occurrence-time Claim expiry; claimed descendants before human scope; and target fence before descendant scope. A real mid-cascade rollback/reopen test shall fail after target and at least one descendant effect, then prove every open/terminal Snapshot, exact target Claim, timestamp, Activity, and high-water remained unchanged and retry succeeds.
+
+- NFR2.17: Deletion evidence shall independently cover: preview requiring no Actor and reserving nothing; child creation after leaf preview; target-only descendants before descendant Claim/Executor/Dependency checks; active target Claim; every claimed descendant; surviving-parent acquisition/renewal/stale ID; external Dependency addition; selected Executor update; concurrent deletion; target/descendant mutation after Trash; occurrence-time Claim expiry; and exact fail-fast order target identity, target Claim, parent fence, scope, descendant Claims, external dependents, human scope. A real mid-cascade rollback/reopen test shall fail after active removals, Trash insertions, and Activity effects for target plus a descendant, then prove no partial Trash, Snapshot, Claim, timestamp, Activity, or high-water change and retry succeeds.
+
+- NFR2.18: Dependency evidence shall independently cover both add and remove endpoint lookup before terminal target, relation no-op before target fence, target fence before self/cycle or human gate, self before longer cycle, concurrent identical operations, acquisition/release/renewal races, target terminal transition, prerequisite deletion, competing graph cycles, open-human prerequisite Executor/lifecycle races, and no observer Claim fencing. Separate real rollback/reopen tests shall fail after relationship plus Activity effects but before commit and prove relationship, target timestamp, endpoint Claims, Activity, and high-water unchanged before successful retry.
+
+- NFR2.19: Validation evidence shall independently cover every gate and every aggregate issue family; malformed records with valid references and unrelated cycles; deterministic locators under physical reorder; Activity Cursor and high-water combinations; canonical cycle witnesses; exact duplicate public issues; safe/unsafe observed application and format boundaries; bounded diagnostics; foreign-key identity omission; human templates; and JSON nested-tag projection. CLI evidence shall independently cover success, no-op, no-work, parse, confirmation, lookup, Store, and domain rejection with exact status, stdout, stderr, compact one-object framing, and newline behavior.
+
+## Technical Constraints
+
+- TC3.1: Lean V1 shall consist of one typed core package and one thin CLI package. The core owns domain schemas, operations, persistence, transactions, Claims, Trash, and Semantic Activity; the CLI owns parsing, setting precedence, file convenience, confirmations, and rendering and shall contain no SQL or duplicate domain mutation policy.
+
+- TC3.2: The public capability shall use pinned Effect service and Layer semantics with identifier `@urban/task-manager/TaskManager`. The live Layer shall accept exactly canonical Store Location as configuration; operation inputs shall not accept Store Location, and access functions shall not provide the live Layer internally or consult hidden global state.
+
+- TC3.3: One complete CLI command shall use one explicitly configured Task Manager capability. Core access functions shall never construct their live dependencies internally, and multi-call CLI flows shall not expose persistence resources. Technical design shall decide the composition structure that satisfies this public seam.
+
+- TC3.4: The CLI shall use the pinned `effect/unstable/cli` command, flag, argument, parameter, structured parse-error, formatting, help, version, and completion APIs rather than a second parser or help system. Singular argv flags shall use occurrence bounds, and structured parser facts shall be projected without reparsing argv or parser prose.
+
+- TC3.5: The durable Store shall use embedded libSQL in one local file and shall satisfy the serialized transaction-current and atomicity requirements. Exact transaction choreography, SQL schema, tables, indexes, codecs, repositories, and helpers belong to technical design.
+
+- TC3.6: The only active Lean V1 database filename shall be `task-manager.db` inside the resolved Store Location. `--storage-path` shall select its containing directory, not an arbitrary database file; engine-owned sidecars shall remain with that Store outside Git by default.
+
+- TC3.7: Public packages shall expose no clock, writer barrier, UUID override, or fault-injection control. Technical design may define private deterministic test seams only when they schedule or fail production logic without manufacturing domain outcomes or bypassing public schemas.
+
+- TC3.8: Public schemas and typed failures shall be closed, reject excess fields, support Effect parent/reason handling where an operation wrapper owns nested reasons, and mechanically project every `_tag` to JSON `type` while omitting implementation objects.
+
+- TC3.9: The technical design shall define module ownership, dependency direction, composition, persistence ownership, public exports, and test architecture without changing any requirement in this artifact or exposing internal persistence through public seams.
+
+## Data Requirements
+
+- DR4.1: Store metadata shall contain exactly application identity `task-manager`, format version `1`, one canonical UUIDv4 Store Identity generated at fresh initialization, and Activity high-water `0 | positive Activity Cursor`. Store Identity shall remain stable and independent of Store Location; high-water shall equal the greatest contiguous committed Cursor.
+
+- DR4.2: Every persisted and public domain timestamp shall be UTC with exact millisecond RFC 3339 form `YYYY-MM-DDTHH:mm:ss.SSSZ`. Offsets, missing or extra fractional precision, impossible dates, and non-canonical spellings shall be rejected. Human output shall use the same canonical form, while ordering and equality compare instants.
+
+- DR4.3: A Ticket ID shall be exactly six lowercase ASCII alphanumeric characters. Creation shall choose from the complete `36^6` space and shall never reuse an ID present in active coordination or permanent Trash. A Claim ID and Store Identity shall each be canonical UUIDv4.
+
+- DR4.4: Ticket Snapshot shall be a closed union of open, done, and cancelled variants sharing ID, level, Executor, Subject, Description, optional Context, optional parent ID, optional non-empty sorted unique `blockedBy`, creation time, and update time. Open shall contain no terminal fields; done shall additionally contain required Result, completion time, and completion Actor; cancelled shall additionally contain flat reason, cancellation time, and cancellation Actor. Claims, schema version, Store format, and a fourth trashed lifecycle shall never be Ticket fields.
+
+- DR4.5: Ticket level shall be `epic | task | subtask`; Executor shall be `agent | human`; lifecycle status shall be `open | done | cancelled`. Epic shall be root-only; Task may be root or child of an Epic; Subtask shall require a Task parent. Terminal Tickets shall not reopen or be edited in Lean V1.
+
+- DR4.6: Subject, Description, and Context shall replace CRLF and remaining CR with LF, then apply ECMAScript trim while preserving remaining case, Unicode, punctuation, Markdown, spacing, tabs, and line breaks without Unicode normalization. Subject shall be non-blank, single-line, control-free, and at most 50 Unicode code points. Description shall always exist, allow LF/tab but no other controls, and may be canonical empty. Context shall be absent or non-blank and use the same multiline control policy. Description and Context shall have no additional Lean V1 size limit.
+
+- DR4.7: Actor Identity shall be an opaque caller-asserted label, not a credential. It shall apply ECMAScript trim, remain non-empty and single-line, reject control characters, and be at most 128 UTF-8 bytes inclusive. Case, Unicode, punctuation, and internal spaces shall be preserved without normalization or folding, and equality shall compare canonical strings exactly.
+
+- DR4.8: Claim shall be a separate closed record containing Claim ID, Ticket ID, Actor Identity, claimed time, and expiry exactly one hour later. At most one current Claim record may exist per Ticket and Claim ID shall be globally unique. Claim acquisition, renewal, release, and logical expiry shall never modify the Ticket Snapshot or `updatedAt`.
+
+- DR4.9: Derived In Progress state shall mean an open Ticket with an effective active Claim. It shall not be persisted as Ticket lifecycle status. Derived progressed-descendant state shall mean at least one descendant is done or effectively claimed and shall likewise remain read-model data.
+
+- DR4.10: Dependency shall be a directed prerequisite relation stored on the blocked Ticket. `blockedBy` shall be omitted when empty and otherwise be ascending, unique, and non-empty. Self-relations, duplicate stored IDs, missing active endpoints, and cycles shall be invalid. Done and cancelled prerequisites shall satisfy readiness while retaining the relation.
+
+- DR4.11: Result shall store required summary, optional details, and optional generic JSON data only. Summary shall normalize to non-blank single-line text; present details shall normalize to non-blank multiline text; optional fields shall be omitted rather than `null`. Task Manager shall round-trip but never interpret application-owned data.
+
+- DR4.12: Cancellation shall be represented directly on the cancelled Ticket by bounded non-blank reason, cancellation time, and Actor Identity. It shall not use a nested Cancellation wrapper and shall remain distinct from Result, deletion, and progress.
+
+- DR4.13: Trash entry shall contain the complete final open, done, or cancelled Snapshot plus deletion time and Actor Identity. Active Tickets and Trash shall remain disjoint by ID; Trash IDs shall be permanent; entries shall contain no Claim and shall not be purged or recovered in Lean V1.
+
+- DR4.14: Semantic Activity item shall contain positive contiguous Store-global Cursor, occurrence time, Actor Identity, changed Ticket ID, and one closed operation event. Event payloads shall be minimal: creation may contain the resulting Ticket; update only effective field deltas; Claim events only required Claim facts; completion Result plus consumed Claim ID; cancellation reason plus Claim Consumption; Trash only its tag; Dependency events only prerequisite ID. No event shall duplicate unchanged Snapshot data or become authoritative current state.
+
+- DR4.15: Claim Consumption shall be `Unclaimed | Consumed { claimId }`. Completion shall always record `Consumed`; cancellation may record either for the explicit target and only `Unclaimed` for descendants; Trash shall record no Claim Consumption. Completion and cancellation shall not emit a separate release event.
+
+- DR4.16: Bounded Diagnostic shall be canonical non-empty single-line text with a maximum of 1,024 UTF-8 bytes. Control/whitespace runs shall become one ASCII space, trimming shall follow ECMAScript semantics, empty output shall become `No diagnostic available.`, and overlong text shall retain the longest complete code-point prefix that leaves room for one Unicode ellipsis.
+
+- DR4.17: Public optional fields shall be omitted rather than encoded as `null`, including absent Ticket Context/parent/dependencies, absent Claim, optional Result fields, unsafe Store observations, undecodable validation identity, and absent observed Activity Cursor.
+
+- DR4.18: Public Store-validation structures shall use closed issue unions for record schema, hierarchy, Dependency, Claim, Activity, Trash, and active/Trash overlap. Public paths shall be arrays of string or non-negative safe-integer segments; persisted references shall couple collection to safely decoded identity; foreign-key evidence shall expose collection, deterministic ordinal, semantic field path, and optional safe identity without SQL details.
+
+- DR4.19: Canonical ordering shall use declared union rank first where applicable, then exact public fields in declaration order; strings by ascending ECMAScript string order; numbers numerically; present optional before absent; arrays positionally with shorter equal prefix first; paths with string segments before indexes; Ticket trees by the command-specific level/time/ID rules; descendants in canonical tree order; and direct prerequisite or relationship sets by ascending Ticket ID.
+
+- DR4.20: Public errors shall remain operation-specific closed data. Shared Store, lookup, Claim-fence, and lifecycle reasons shall retain one canonical shape; operation wrappers shall own target IDs and nested reason unions without duplicating fields; stale-ID reasons shall disclose only the provided ID; complete active Claim shall be disclosed only where conflict recovery or an already exact ID match requires it; and JSON shall contain no generic duplicate message.
+
+- DR4.21: Shared Store read reason shall be exactly `StoreNotInitialized | StoreOpenFailed { diagnostic } | StoreQueryFailed { diagnostic }`; shared mutation reason exactly `StoreNotInitialized | StoreOpenFailed { diagnostic } | StoreTransactionFailed { diagnostic } | StoreCommitOutcomeUnknown { diagnostic }`; both parents shall contain canonical databasePath. Shared lookup shall be exactly `TicketNotFound { ticketId } | TicketInTrash { ticketId, deletedAt, deletedBy }`; top-level `TicketNotOpen` shall contain ticketId and terminal status, while nested `TicketNotOpen` reason shall contain status only.
+
+- DR4.22: Initialization rejection shall be `StoreInitializationRejected { databasePath, reason }` with reason exactly invalid database diagnostic, application mismatch with expected `task-manager` and optional safe actual identity, incompatible format with expected `1` and optional safe actual version, or invalid Store structure with `schema | metadata` and non-empty schema issues. Validation rejection shall use the same reason-error parent with exact gate reasons plus engine diagnostics, foreign-key violations, or aggregate integrity issues; validation read error shall reuse `StoreReadError` with only open/query reasons. Aggregate issue union shall be exactly record schema, hierarchy integrity, Dependency integrity, Claim integrity, Activity integrity, Trash integrity, or active/Trash identity overlap with fields defined by DR4.18.
+
+- DR4.23: Creation rejection reason shall be exactly `ParentRequired | ParentForbidden { providedParentId } | ParentNotOpen { parentId, status } | InvalidParentLevel { parentId, parentLevel, childLevel } | ActiveParentClaimRequiresFence { parentId } | NoActiveParentClaim { parentId, providedClaimId } | ParentClaimIdMismatch { parentId, providedClaimId } | ParentActorMismatch { parentId, providedActor, activeClaim }`; ID exhaustion shall remain a separate fieldless top-level failure. Update rejection shall contain target ID and exactly `TicketNotOpen | ActiveClaimRequiresFence | NoActiveClaim { providedClaimId } | ClaimIdMismatch { providedClaimId } | ActorMismatch { providedActor, activeClaim } | ExecutorChangeWhileClaimed { currentExecutor, requestedExecutor, activeClaim } | HumanExecutorTransitionExcluded { currentExecutor: human, requestedExecutor: agent }`.
+
+- DR4.24: Claim conflict shall contain Ticket ID plus complete active Claim; human Claim exclusion shall contain Ticket ID. Renewal fence parent shall contain Ticket ID and reason exactly no active Claim with provided ID, Claim ID mismatch with provided ID, or Actor mismatch with provided Actor and exact active Claim. Release fence shall contain Ticket ID and reason exactly Claim ID mismatch with provided ID or Actor mismatch with provided Actor and exact active Claim; it shall have no no-active reason because that state is successful already-inactive. Completion rejection shall use the six reasons in FR1.48. Cancellation rejection shall use the eight reasons in FR1.49 and schema-enforced non-empty summary collections, with complete Claims only for claimed descendants or exact Actor mismatch.
+
+- DR4.25: Deletion rejection shall contain Ticket ID and reason exactly `ActiveTargetClaim { activeClaim } | TargetHasNoParent { providedClaimId } | ActiveParentClaimRequiresFence { parentId } | NoActiveParentClaim { parentId, providedClaimId } | ParentClaimIdMismatch { parentId, providedClaimId } | ParentActorMismatch { parentId, providedActor, activeClaim } | DescendantsRequireCascade { tickets } | ClaimedDescendants { tickets with activeClaim } | ExternalDependents { tickets with non-empty selected dependencyIds } | HumanTicketsExcluded { tickets }`. Dependency-addition rejection shall contain target ID, prerequisite ID, and reason exactly terminal target, four target-fence reasons, fieldless self-dependency, or canonical non-empty closed cycle. Dependency-removal rejection shall contain both IDs and reason exactly terminal target, four target-fence reasons, or fieldless excluded open human prerequisite.
+
+- DR4.26: `RelationshipTicketSummary` shall contain neutral Ticket summary fields plus optional complete active Claim and `hasProgressedDescendants`. `TicketDetails` shall contain complete Ticket, optional sibling active Claim, and relationships containing optional parent plus always-present prerequisite and dependent arrays of `RelationshipTicketSummary`. Neutral `TicketSummary` shall contain exactly ticketId, Subject, lifecycle status, and Executor. All relationship values shall come from one observation.
+
+- DR4.27: Listing types shall be exact. `TicketStatusFilter` shall be `AllStatuses | Status { status }`; `TicketExecutorFilter` shall be `AllExecutors | Executor { executor }`; `ListTicketsInput` shall contain optional rootTicketId plus both required filters. `ListTicketSummary` shall contain ticketId, level, status, Executor, and Subject. `ListTicketNode` shall contain `ticket: ListTicketSummary`, optional complete active Claim, `hasProgressedDescendants`, `matchesFilter`, and always-present recursive children array.
+
+- DR4.28: Selection types shall be exact. Executor selection shall be `AgentExecutor | HumanExecutor | AllExecutors`; Claim selection `ExcludeClaimed | IncludeClaimed`; input shall contain optional rootTicketId and both required selections. Result shall be `Selected { ticket: OpenTicket, activeClaim? } | NoActionableWork`; no-work shall contain no nullable Ticket or Claim, and selected active Claim shall be absent whenever input excludes claimed Tickets.
+
+- DR4.29: Cancellation summary payloads shall be exact. Ordinary cancellation summary shall contain ticketId, complete Subject, and Executor; claimed summary shall add complete active Claim. `OpenDescendants` shall contain a schema-enforced non-empty ordinary-summary array without Claim inspection; `ClaimedDescendants` a non-empty claimed-summary array; `HumanTicketsExcluded` a non-empty ordinary-summary array. Target shall be first where applicable and descendants shall retain canonical tree order. Completion blocker shall contain ticketId, complete Subject, Executor, and optional complete effective active Claim.
+
+- DR4.30: Public schema evidence shall be exact. `PublicPathIndex` shall be an opaque non-negative safe integer; public structural path an array of string or that index; public schema issue shall contain path, code exactly `required | invalid-type | invalid-value | constraint`, and bounded expected diagnostic. Persisted record locator shall contain positive ordinal. Record-schema issue shall contain collection exactly `tickets | claims | trash | activity`, locator, and non-empty schema issues.
+
+- DR4.31: Public persisted references shall be exact collection-coupled variants: Ticket reference with collection `tickets` and Ticket ID; Claim reference with `claims` and Claim ID; Trash reference with `trash` and Ticket ID; Activity reference with `activity` and Cursor. Foreign-key source shall contain collection, locator, and optional matching identity; reference shall contain collection and optional matching identity; violation shall contain source, non-empty semantic field path, and reference. Unsafe identities shall be omitted.
+
+- DR4.32: Hierarchy integrity issue shall contain Ticket ID and reason exactly parent required, parent forbidden with parentId, parent not found with parentId, invalid parent level with childLevel/parentId/parentLevel, or hierarchy cycle with closed non-empty IDs. Dependency integrity issue shall contain Ticket ID and reason exactly dependency not found, duplicate dependency, self-dependency, or Dependency cycle with required IDs. Claim integrity issue shall contain Claim ID, Ticket ID, and reason exactly target not found, target terminal with status, or invalid lease with claimedAt/expiresAt.
+
+- DR4.33: Activity integrity issue shall contain reason exactly Cursor sequence invalid with expected Cursor and optional observed Cursor, or high-water mismatch with metadata and observed `0 | Cursor`. Trash integrity issue shall contain Ticket ID and reason exactly missing `TicketTrashed`, or attribution mismatch with Cursor, expected/observed deletion/occurrence times, and expected/observed Actors. Active/Trash overlap shall contain Ticket ID only. Duplicate current Claims, Claim IDs, Activity Cursors, and per-Ticket `TicketTrashed` items shall be structural/engine failures rather than redundant aggregate variants.
+
+- DR4.34: Validation gate data shall be exact. Safe observed application identity shall be trim-invariant, non-blank, single-line, control-free, and at most 128 UTF-8 bytes; safe observed format version a non-negative safe integer. `EngineIntegrityFailed` shall contain a non-empty canonically sorted diagnostic array preserving duplicates. `ForeignKeyIntegrityFailed` shall contain a non-empty canonically ordered violation array. `StoreIntegrityIssues` shall contain a non-empty canonically ordered union of the seven issue families in DR4.18 and DR4.30-DR4.33, with no generic detail string, raw record, SQL identifier, or unrelated optional field.
+
+- DR4.35: Validation discriminants shall be exact and closed. Outer rejection reasons shall be `_tag` values `StoreNotInitialized`, `InvalidDatabase`, `ApplicationIdentityMismatch`, `IncompatibleFormat`, `InvalidStoreStructure`, `EngineIntegrityFailed`, `ForeignKeyIntegrityFailed`, and `StoreIntegrityIssues`. Aggregate issue `_tag` values shall be `RecordSchemaInvalid`, `HierarchyIntegrityInvalid`, `DependencyIntegrityInvalid`, `ClaimIntegrityInvalid`, `ActivityIntegrityInvalid`, `TrashIntegrityInvalid`, and `ActiveTrashIdentityOverlap`. Hierarchy nested reason tags shall be `ParentRequired`, `ParentForbidden`, `ParentNotFound`, `InvalidParentLevel`, and `HierarchyCycle`; Dependency tags `DependencyNotFound`, `DuplicateDependency`, `SelfDependency`, and `DependencyCycle`; Claim tags `ClaimTicketNotFound`, `ClaimTicketNotOpen`, and `InvalidLeaseWindow`; Activity tags `ActivityCursorSequenceInvalid` and `ActivityHighWaterMismatch`; Trash tags `MissingTicketTrashed` and `TicketTrashedAttributionMismatch`. JSON shall mechanically map every one of these tags to `type` without renaming or generic replacement.
+
+## Integration Requirements
+
+- IR5.1: Git integration shall determine only the canonical common-root project scope used for default Store resolution. Git discovery shall remain outside the core capability and shall not make Git a persistence or workflow authority.
+
+- IR5.2: Filesystem and path integration shall use platform capabilities for cwd, home, canonicalization, regular-file checks, UTF-8 reads, Store directory creation, database access, and temporary real file-backed test Stores. Raw OS errors shall be projected to typed bounded public failures.
+
+- IR5.3: Environment integration shall support only `TM_CWD`, `TM_STORAGE_PATH`, and `TM_ACTOR` as defined fallbacks. Command-specific confirmations, scope choices, Result sources, Claim IDs, and other semantic flags shall have no environment equivalent unless added by a later approved requirement.
+
+- IR5.4: CLI process integration shall expose the defined command tree, shared Store/JSON flags, help, version, and shell completions through the pinned parser framework and shall preserve global status and stream rules at the real executable entrypoint.
+
+- IR5.5: Core package integration shall export the Task Manager capability, Layer constructor, access functions, public schemas, canonical domain values, read models, operation inputs/results, and typed failures needed by direct consumers without exporting persistence implementation.
+
+- IR5.6: Skill and documentation integration shall validate examples against generated help and real public JSON from disposable Stores after implementation conformance; neither generated material nor skill prose may override this approved specification pack.
+
+- IR5.7: Wrapping applications may encode their own versioned Result data protocol and apply stronger Result-writing or workflow policy only after decoding the generic Task Manager Result. Such policy shall not alter core JSON validity, size, Claim, lifecycle, or atomicity requirements.
+
+## Dependencies
+
+- DEP6.1: Implementation and qualification depend on the repository-pinned Effect runtime, Effect Schema, Effect platform services, and `effect/unstable/cli` APIs whose exact supported signatures shall be verified against the vendored Effect source.
+
+- DEP6.2: Durable local coordination depends on the repository-pinned embedded libSQL client and native artifact for the declared runtime profile, including correct local file transactions and writer serialization.
+
+- DEP6.3: Default Store derivation depends on SHA-256, canonical local path resolution, user-home discovery, and Git common-root discovery when inside a Git worktree; explicit Store Location shall remain available when project-derived continuity is unsuitable.
+
+- DEP6.4: Development and verification depend on Bun and the repository's `bun run check` gate, real temporary file-backed Stores, and the exact CI runtime/OS/architecture/filesystem profile advertised as supported.
+
+- DEP6.5: Implementation execution depends on final approval of the four-artifact specification pack and subsequent recreation of self-contained Lean V1 Tickets through the retained Ticket-planning workflow; no legacy architecture or checklist may remain a parallel authority after cutover.
+
+## Canonical Domain Vocabulary
+
+**Activity Cursor:** The Store-global positive integer position of one Semantic Activity item. It provides stable item ordering and supports Activity integrity validation.
+
+_Avoid:_ Ticket progress
+_Status:_ Approved
+_Requirement consequences:_ FR1.39; DR4.1; DR4.14; DR4.18; DR4.19
+
+**Actor Identity:** An opaque caller-asserted label required for every state-changing Ticket or Claim operation and recorded in Semantic Activity. It is attribution, not a credential or authorization proof.
+
+_Avoid:_ Authenticated principal; credential; authorization
+_Status:_ Approved
+_Requirement consequences:_ FR1.11; FR1.24; FR1.36; FR1.39; DR4.7; DR4.14
+
+**Cancellation:** The terminal lifecycle transition represented directly on a cancelled Ticket by reason, cancellation time, and Actor Identity. It may target one Ticket or explicitly cascade across transaction-current open descendants while leaving terminal descendants unchanged.
+
+_Avoid:_ Deletion; Result; nested Cancellation record
+_Status:_ Approved
+_Requirement consequences:_ FR1.28; FR1.29; DR4.4; DR4.12
+
+**Claim:** A separate coordination record representing the one permitted active expiring lease by an Actor Identity on an open Ticket. It fences direct mutation but is not assignment, ownership, authorization, or Ticket lifecycle state.
+
+_Avoid:_ Assignment; authorization; ownership; participant; Ticket state
+_Status:_ Approved
+_Requirement consequences:_ FR1.20; FR1.21; FR1.22; FR1.23; FR1.24; FR1.43; DR4.8
+
+**Claim Consumption:** The completion- or cancellation-Activity fact that an operation changed an unclaimed target or atomically removed one exact Claim incarnation. It belongs to the terminal event and is not a separate release.
+
+_Avoid:_ Forced release; implicit Claim cleanup; unclaimed completion
+_Status:_ Approved
+_Requirement consequences:_ FR1.25; FR1.28; DR4.15
+
+**Claim ID:** The opaque UUIDv4 fencing identity of one Claim incarnation, distinct from the Actor Identity holding it. Supplying one is an exact state guard, not a credential.
+
+_Avoid:_ Actor ID; authentication token
+_Status:_ Approved
+_Requirement consequences:_ FR1.21; FR1.22; FR1.24; DR4.3; DR4.8
+
+**Dependency:** A directed prerequisite relation in which one Ticket prevents another from becoming ready or done while the prerequisite remains open. Done and cancelled prerequisites satisfy the relation.
+
+_Avoid:_ Priority; hierarchy; advisory link
+_Status:_ Approved
+_Requirement consequences:_ FR1.19; FR1.26; FR1.31; FR1.33; FR1.34; DR4.10
+
+**Executor:** The Ticket classification `agent | human` used by filtering, selection, and explicit human-work acknowledgments. It is stable while an active Claim exists and is not the Claim holder or an authorization principal.
+
+_Avoid:_ Claim holder; owner; authenticated principal
+_Status:_ Approved
+_Requirement consequences:_ FR1.15; FR1.18; FR1.19; FR1.20; FR1.29; FR1.31; FR1.34; FR1.36; FR1.43; DR4.5
+
+**In Progress:** A derived presentation state for an open Ticket with an effective active Claim. It is not a persisted lifecycle status.
+
+_Avoid:_ Ticket status; workflow stage
+_Status:_ Approved
+_Requirement consequences:_ FR1.17; FR1.18; DR4.9
+
+**Orchestrator:** An external caller that applies workflow, assignment, review, progress, and execution policy using Task Manager coordination facts.
+
+_Avoid:_ Task Manager
+_Status:_ Approved
+_Requirement consequences:_ FR1.19; FR1.38; FR1.43; IR5.7
+
+**Result:** The required completion account attached when a Ticket becomes done. It contains summary, optional details, and optional application-owned JSON data; completion time and Actor Identity remain sibling lifecycle facts.
+
+_Avoid:_ Progress; Semantic Activity; completion metadata; universal workflow outcome
+_Status:_ Approved
+_Requirement consequences:_ FR1.25; FR1.27; DR4.4; DR4.11; IR5.7
+
+**Semantic Activity:** A typed durable fact describing one changed Ticket in one successful state-changing transaction. It is audit and observation history, not authoritative current state, and has no public read command in Lean V1.
+
+_Avoid:_ Debug log; storage diff; event-sourced Snapshot; Ticket progress
+_Status:_ Approved
+_Requirement consequences:_ FR1.39; DR4.14
+
+**Snapshot:** The authoritative current state of a Ticket in active coordination, excluding its separate Claim. Moving it to Trash preserves it rather than adding a deleted lifecycle state.
+
+_Avoid:_ Event projection; Claim state; hard-deleted record
+_Status:_ Approved
+_Requirement consequences:_ FR1.17; FR1.32; DR4.4; DR4.13
+
+**Store:** One durable coordination domain containing authoritative active Tickets, Claims, permanent Trash, and Semantic Activity.
+
+_Avoid:_ Repository; backlog file
+_Status:_ Approved
+_Requirement consequences:_ FR1.2; FR1.4; FR1.6; DR4.1
+
+**Store Identity:** The UUIDv4 identity of one Store, generated at initialization and independent of Store Location.
+
+_Avoid:_ Store Location; repository path
+_Status:_ Approved
+_Requirement consequences:_ FR1.4; DR4.1; DR4.3
+
+**Store Location:** The resolved canonical local directory containing one Store and shared by every participating local process and worktree in that coordination domain.
+
+_Avoid:_ Current working directory; Store Identity
+_Status:_ Approved
+_Requirement consequences:_ FR1.2; FR1.3; TC3.2; TC3.6; IR5.1; IR5.2
+
+**Task Manager:** The coordination kernel that persists active Tickets, Claims, permanent Trash, and Semantic Activity without deciding assignment, execution, review, progress, or orchestration policy.
+
+_Avoid:_ Workflow engine; orchestrator
+_Status:_ Approved
+_Requirement consequences:_ FR1.1; FR1.43; TC3.1
+
+**Ticket:** A durable record of work and its current lifecycle facts within a Store. A Ticket is open, done with Result and completion metadata, or cancelled with reason and cancellation metadata.
+
+_Avoid:_ Work Item; job; run; deleted Ticket
+_Status:_ Approved
+_Requirement consequences:_ FR1.13; FR1.15; FR1.25; FR1.28; DR4.4; DR4.5
+
+**Ticket ID:** The exact six-character lowercase ASCII alphanumeric identity of one Ticket, permanently reserved by active coordination or Trash and never resolved by prefix.
+
+_Avoid:_ Ticket prefix; reusable identifier
+_Status:_ Approved
+_Requirement consequences:_ FR1.12; FR1.13; DR4.3
+
+**Trash:** The permanent durable collection of self-contained entries for Ticket Snapshots moved out of active coordination by soft deletion. Trash reserves IDs indefinitely and has no Lean V1 recovery or purge.
+
+_Avoid:_ Deletion tombstone; hard deletion; purge queue
+_Status:_ Approved
+_Requirement consequences:_ FR1.30; FR1.31; FR1.32; DR4.13
+
+## Further Notes
+
+- Assumptions: The approved runtime and filesystem profile will be named by technical design from the exact environment exercised in development and CI.
+- Open questions: None.
+- TODO: Confirm: None.
