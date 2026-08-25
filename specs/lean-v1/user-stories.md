@@ -1,7 +1,7 @@
 ---
 name: lean-v1-user-stories
 created_at: 2026-08-18T21:07:51Z
-updated_at: 2026-08-25T13:58:39Z
+updated_at: 2026-08-25T16:30:00Z
 generated_by:
   root_skill: specification-authoring
   producing_skill: user-story-authoring
@@ -38,14 +38,14 @@ source_artifacts:
 - Actor: External orchestrator, agent executor, or human executor
 - Goal: Author, inspect, select, claim, complete, cancel, move, and relate Tickets with transaction-current fencing and all-or-nothing outcomes.
 - Value: Multiple local processes can coordinate durable work without stale holders, partial cascades, duplicate mutations, or hidden workflow policy.
-- Detailed story coverage: US1.18, US1.19, US1.20, US1.21, US1.22, US1.23, US1.24, US1.25, US1.26, US1.27, US1.28, US1.29, US1.30, US1.31, US1.32, US1.33, US1.34, US1.35, US1.36, US1.37, US1.38, US1.39, US1.40, US1.41, US1.42, US1.43, US1.44, US1.45, US1.46, US1.47, US1.48, US1.49, US1.50, US1.51, US1.52, US1.53, US1.54, US1.55, US1.56
+- Detailed story coverage: US1.18, US1.19, US1.20, US1.21, US1.22, US1.23, US1.24, US1.25, US1.26, US1.27, US1.28, US1.29, US1.30, US1.31, US1.32, US1.33, US1.34, US1.35, US1.36, US1.37, US1.38, US1.39, US1.40, US1.41, US1.42, US1.43, US1.44, US1.45, US1.46, US1.47, US1.48, US1.49, US1.50, US1.51, US1.52, US1.53, US1.54, US1.55, US1.56, US1.61
 
 ### High-Level Story: Consume deterministic process contracts safely
 - Story ID: HLS1.3
 - Actor: CLI caller or external orchestrator
 - Goal: Use exact human or JSON process output while explicitly acknowledging defined human-work impact.
 - Value: People and automation can branch on stable public outcomes without parsing storage details or bypassing coordination invariants.
-- Detailed story coverage: US1.57, US1.58, US1.59
+- Detailed story coverage: US1.57, US1.58, US1.59, US1.62
 
 ### High-Level Story: Follow conformant Lean V1 guidance
 - Story ID: HLS1.4
@@ -561,3 +561,23 @@ source_artifacts:
 - Action: Follow the documented public core, CLI, Store, Claim, lifecycle, Dependency, Result, and Trash guidance.
 - Outcome: Work can proceed from public contracts without relying on superseded architecture or implementation-private storage details.
 - Observation: Skill examples and generated documentation match the implemented command help and public JSON behavior and do not redefine Lean V1 invariants.
+
+## Capability Area: Atomicity Finalization Reconciliation
+
+### Story: Reconcile a committed mutation whose client finalization failed
+- Story ID: US1.61
+- Actor: External orchestrator
+- Situation: Stock `withTransaction` has returned success, proving commit, but the isolated outer mutation-client close then fails.
+- Action: Treat the committed Store state as authoritative, reread it, and reconcile without automatically replaying the mutation.
+- Outcome: The caller avoids duplicating an already committed mutation while distinguishing this known-commit condition from unknown commit or rollback finalization.
+- Observation: `StoreMutationCommittedButFinalizationFailed` reports the known-commit outer-finalizer failure; a reopen shows the exactly-once committed state, and no automatic retry occurs.
+
+## Capability Area: Privileged Debug Observability
+
+### Story: Diagnose one selected CLI command without changing it
+- Story ID: US1.62
+- Actor: CLI caller or Store operator
+- Situation: A selected Task Manager command needs privileged local diagnostic observability while its product behavior must remain unchanged.
+- Action: Enable the inherited root `--debug` boolean, or use `TM_DEBUG` only when no explicit CLI boolean was supplied, and allow the CLI-private observer to export privacy-filtered traces and logs to the fixed local OTLP endpoints.
+- Outcome: The caller can inspect a sparse command-to-public-operation-to-Store topology and closed outcome classifications without exposing product or persistence payloads, introducing network activity during Store use, or changing the public core architecture.
+- Observation: Debug on and off produce byte-identical product output and the same status and original Effect `Exit`/`Cause`; enabled telemetry is bounded, local-only, best-effort, flushed only after product publication and all Store/client finalizers, while disabled debug constructs no telemetry or network resource.

@@ -1,7 +1,7 @@
 ---
 name: lean-v1-technical-design
 created_at: 2026-08-19T15:29:19Z
-updated_at: 2026-08-25T13:58:39Z
+updated_at: 2026-08-25T16:55:00Z
 generated_by:
   root_skill: specification-authoring
   producing_skill: technical-design
@@ -35,41 +35,39 @@ source_artifacts:
 ## Architecture Summary
 
 - Runtime profile: Bun-only local CLI targeting qualification on macOS arm64/APFS; no server, browser, worker, remote Store, or background process.
-- Service-first rule: every coherent, reusable effectful application capability with independent runtime identity or resource ownership is an Effect `Context.Service` constructed by a Layer. This includes the public façade, the four private feature capabilities, persistence and deterministic runtime boundaries, CLI preparation/execution, and process publication. The rule does **not** imply a service per operation, SQL table, transaction callback, or transaction-local value. Immutable domain values, Schemas, codec transformations, deterministic policies/comparators, operation-local intents, ordinary commit functions, and transaction-scoped read sessions, write sessions, semantic writers, and Activity appenders remain ordinary private values or functions rather than Layer nodes.
-- Composition root: `packages/cli/src/AppLive.ts` owns the complete Layer graph and `packages/cli/src/bin.ts` does only two things: provide `AppLive` to `CliApplication.run` and pass that one resulting Effect to `BunRuntime.runMain`. No entrypoint, access function, or command handler manually constructs a service object.
-- Two-stage CLI composition: static `AppLive` constructs the CLI services. After structured parsing and adapter preparation resolve one canonical Store Location, a `CommandInvocation` Layer uses `Layer.unwrap` to select the exported `layer({ storeLocation })` and construct the Store-specific `TaskManager` plus `CommandExecution` services. This sanctioned dynamic Layer boundary is owned by `CliApplication`, occurs once per selected command, and preserves the requirement that malformed adapter input fails before core construction.
-- Main execution model: parse and prepare through CLI services, resolve one canonical Store Location, invoke one or more public core access functions through one provided capability instance, route each operation once to its owning private feature service, execute it in one consistent read snapshot or serialized write transaction, then render the returned typed value or typed failure without rereading.
-- Summary: Lean V1 uses two packages with one-way dependency `CLI -> public core`. The core is a deep Effect service graph: its small public interface is exactly the approved 15-operation `TaskManager` capability, whose exported parameterized Layer composes and hides private `StoreAdministration`, `Tickets`, `Claims`, `Trash`, `StoreValidation`, `CoordinationStore`, `StoreSqlClient`, identity, clock, and mutation-control services. The CLI is likewise a private service graph for syntax, settings, files, Store resolution, command execution, confirmations, semantic scopes, process output, and exit status. Layers are the only construction and dependency-wiring mechanism; domain policy, Effect SQL and Bun SQLite details, transaction choreography, validation evidence, and Semantic Activity remain private. This design consumes the approved charter, user stories, and requirements while remaining consistency-checked against the legacy architecture and mandatory verification checklist until final four-artifact pack approval changes repository authority.
+- Service-first rule: every coherent, reusable effectful application capability with independent runtime identity or resource ownership is an Effect `Context.Service` constructed by a Layer. This includes the public façade, four private feature capabilities, persistence, process publication, and CLI runtime arbitration. One-shot preparation/execution, native Clock/Crypto access, immutable domain values, Schemas, codec transformations, deterministic policies/comparators, operation-local intents, ordinary commit functions, and transaction-scoped values remain ordinary private functions or values rather than Layer nodes.
+- Composition root: `packages/cli/src/AppLive.ts` owns static infrastructure and is the only assembly point for a private resource-free privileged-debug session factory. `packages/cli/src/bin.ts` provides that infrastructure to `CliApplication.run`, which conditionally acquires the command-scoped debug session only after parsing and activation, and passes the resulting Effect to `BunRuntime.runMain`; `bin.ts` does not own parser, product, output, or telemetry policy.
+- Prepared-command composition: after the sole structured parser and ordinary `prepareCommand` resolve one canonical Store Location, `CliApplication` constructs `layer({ storeLocation })` and directly applies `Effect.provide(executeCommand(prepared), taskManagerLayer)` exactly once. `Layer.unwrap` remains an approved RC 111 tool where an Effect genuinely produces a Layer, but is not used to transport `PreparedCommand`.
+- Main execution model: parse and prepare, resolve one canonical Store Location, invoke one or more public core access functions through one provided capability instance, route each operation once to its owning private feature service, execute it in one consistent read snapshot or serialized write transaction, then render the authoritative typed value or failure without rereading.
+- Summary: Lean V1 uses two packages with one-way dependency `CLI -> public core`. The core's small public interface is exactly the approved 15-operation `TaskManager`; its exported parameterized Layer hides private feature, validation, coordination, and scoped SQL-client services while native Effect Clock/Crypto and a private disabled-by-default mutation-checkpoint reference provide deterministic seams. The CLI keeps services only for coherent reusable capabilities such as input, Store resolution, process output, and runtime arbitration; prepared commands and execution are ordinary values/functions. Domain policy, SQL, transaction choreography, validation evidence, and Semantic Activity remain private.
 
-The required implementation baseline pins `effect` `4.0.0-rc.111`, `@effect/sql-sqlite-bun` `4.0.0-rc.111`, every participating Effect package in lockstep at RC 111, and Bun `1.3.13` with its embedded SQLite engine. Lean V1 adopts the stock published `effect/unstable/sql` `SqlClient`, stock `SqlClient.withTransaction`, statement compilation and parameter binding, `SqlError`, and `SqlSchema` where useful. It does not adopt `SqliteMigrator`, `SqlModel.makeRepository`, `SqlResolver`, reactive product behavior, or SQL streaming. It uses no local Effect fork, `node_modules` patch, monkey-patch, package-internal import, or underlying Bun handle access. Qualification targets Darwin 25 arm64 on a local APFS volume with one scoped stock client per ordinary Store operation, SQLite rollback-journal `DELETE` mode, safe-integer reads, a 30-second busy timeout, foreign keys enabled per connection, and full synchronous durability for writers. This is the only release-support profile unless another profile later passes the complete approved qualification suite. The suite records exact Effect and driver versions, the exact Bun version and executable digest, `sqlite_version()`, `sqlite_source_id()`, ordered compile options, patch-level OS/architecture/filesystem, configured pragmas and connection behavior, and resolved lockfile artifacts before support is advertised. (NFR2.11, DEP6.1-DEP6.4)
+The required implementation baseline pins `effect` `4.0.0-rc.111`, `@effect/sql-sqlite-bun` `4.0.0-rc.111`, every participating Effect package in lockstep at RC 111, and Bun `1.3.13` with its embedded SQLite engine. Lean V1 adopts stock `effect/unstable/sql` `SqlClient`, stock `SqlClient.withTransaction`, statement compilation and parameter binding, private `SqlError`, and `SqlSchema` as the normative ordinary fixed-shape request/result boundary. It does not adopt `SqliteMigrator`, `SqlModel.makeRepository`, `SqlResolver`, reactive product behavior, or SQL streaming. It uses no local Effect fork, `node_modules` patch, monkey-patch, package-internal import, or underlying Bun handle access. Qualification targets Darwin 25 arm64 on a local APFS volume with one scoped stock client per ordinary Store operation, SQLite rollback-journal `DELETE` mode, safe-integer reads, a 30-second busy timeout, foreign keys enabled per connection, and full synchronous durability for writers. This is the only release-support profile unless another profile later passes the complete approved qualification suite. The suite records exact Effect and driver versions, the exact Bun version and executable digest, `sqlite_version()`, `sqlite_source_id()`, ordered compile options, patch-level OS/architecture/filesystem, configured pragmas and connection behavior, and resolved lockfile artifacts before support is advertised. (NFR2.11, DEP6.1-DEP6.4)
 
 ### High-Level Service and Layer Composition
 
 ```mermaid
 flowchart TB
-  Entry["bin.ts: provide AppLive and run"] --> Main["CliApplication.run"]
-  AppLive[["AppLive Layer"]] -. provides .-> App["CliApplication Service"]
-  Main --> App
+  Entry["bin.ts: provide AppLive and run"] --> App["CliApplication.run"]
+  AppLive[["Static AppLive infrastructure"]] -. provides .-> App
 
-  subgraph CLI["Private CLI service Layers"]
+  subgraph CLI["Private CLI capabilities and ordinary functions"]
     Input["CommandInput Service"]
     Resolver["StoreLocationResolver Service"]
-    Invocation["CommandInvocation Service"]
-    Execution["CommandExecution Service"]
+    Prepare["prepareCommand: Effect.fn"]
+    Execute["executeCommand: Effect.fn"]
     Process["ProcessOutput Service"]
     Runtime["CliRuntime Service"]
   end
 
-  App --> Input
-  App --> Resolver
+  App --> Prepare
+  Prepare --> Input
+  Prepare --> Resolver
+  Prepare -->|"canonical Store Location"| Dynamic[["TaskManager layer(storeLocation)"]]
+  Dynamic -. provided exactly once .-> Execute
+  Execute --> Process
   App --> Runtime
-  Invocation --> Input
-  Invocation --> Resolver
-  Invocation -->|"canonical Store Location"| Dynamic[["Layer.unwrap: TaskManager Layer from Store Location"]]
-  Dynamic -. provides .-> Execution
-  Execution --> Process
 
-  subgraph Core["Core service Layers: private dependencies hidden by the public Layer"]
+  subgraph Core["Core service Layers: private dependencies hidden by public Layer"]
     Dynamic -. provides .-> TM["TaskManager Service: sole public capability"]
     TM --> Admin["StoreAdministration Service"]
     TM --> Tickets["Tickets Service"]
@@ -81,45 +79,41 @@ flowchart TB
     Tickets --> Store
     Claims --> Store
     Trash --> Store
-    Admin --> Identity["IdentitySource Service"]
-    Tickets --> Identity
-    Claims --> Identity
-    Store --> Occurrence["OccurrenceClock Service"]
-    Store --> Mutation["MutationControl Service"]
     Store --> SqlFactory["StoreSqlClient Service"]
     SqlFactory --> Sql["stock Effect SQL SqlClient.withTransaction"]
     Sql --> DB[("task-manager.db: Bun embedded SQLite")]
   end
 
-  subgraph Platform["Effect platform services"]
+  subgraph Platform["Effect capabilities"]
     FS["FileSystem / Path"]
     Crypto["Crypto"]
     Clock["Clock"]
+    Config["Config / preserving TM provider"]
+    Child["ChildProcessSpawner"]
     IO["Console / Stdio / CLI config"]
   end
 
   Resolver --> FS
+  Resolver --> Crypto
+  Resolver --> Child
   Input --> FS
+  Input --> Config
   Store --> FS
+  Store --> Crypto
+  Store --> Clock
   SqlFactory --> FS
-  Identity --> Crypto
-  Occurrence --> Clock
   Runtime --> IO
   Process --> IO
 
-  Pure["Ordinary private modules: Schemas, policies, mutation programs, operation-local intents, and commit functions"]
-  TxValues["Transaction-local ordinary values: read session, semantic writer, Activity appender"]
+  Pure["Ordinary private modules: Schemas, SqlSchema helpers, policies, allocators, mutation programs, intents, and commit functions"]
+  TxValues["Transaction-local values: read session, semantic writer, Activity appender, checkpoint reference"]
   Pure -. used by .-> TM
-  Pure -. used by .-> Admin
-  Pure -. used by .-> Tickets
-  Pure -. used by .-> Claims
-  Pure -. used by .-> Trash
   Pure -. used by .-> Store
   Store -. creates inside stock withTransaction .-> TxValues
   TxValues -. valid only inside owned transaction .-> Store
 ```
 
-Solid arrows mean “the calling service depends on this capability.” Dotted `provides` arrows show Layer output. The diagram does not expand the public package seam: only `TaskManager` is exported from the core, and every other product service remains package-private. Layer identity is shared deliberately so all feature services receive the same `CoordinationStore`, identity, clock, and control instances, while `StoreSqlClient` constructs one fresh scoped stock client for each ordinary Store operation and caches no `SqlClient`.
+Solid arrows mean dependency/call flow; dotted arrows show Layer provision or transaction-local construction. Only `TaskManager` is exported from core. Native Effect Clock and Crypto are captured by the public Layer, while the private mutation-checkpoint `Context.Reference` defaults disabled. `StoreSqlClient` constructs one fresh scoped stock client for each ordinary operation and caches none.
 
 ## System Context
 
@@ -128,7 +122,7 @@ Solid arrows mean “the calling service depends on this capability.” Dotted `
 - The local filesystem holds one Store directory whose active database is `task-manager.db` plus engine-owned sidecars.
 - The pinned Bun runtime's embedded SQLite engine supplies local storage and cross-process locking; stock Effect SQL owns client, statement, parameter-binding, connection, and transaction lifecycle; Effect also supplies Schema, capability, Layer, Clock, Crypto, platform, CLI, and test composition.
 - Task Manager records coordination facts and transitions. An external Orchestrator may interpret work and Result data but receives no assignment, review, progress, retry, authentication, or workflow policy from Task Manager.
-- Story or requirements traceability: US1.1-US1.14, US1.53-US1.60; FR1.1-FR1.11, FR1.37-FR1.43; TC3.1-TC3.9; IR5.1-IR5.7.
+- Story or requirements traceability: US1.1-US1.14, US1.53-US1.62; FR1.1-FR1.11, FR1.37-FR1.43, FR1.67, FR1.72-FR1.79; TC3.1-TC3.10; IR5.1-IR5.8.
 
 ### Process Flowchart
 
@@ -262,7 +256,7 @@ The public `TaskManager` is implemented by four package-private `Context.Service
 - Owned capability: exact allocation of all 15 public operations, transaction-current semantic view selection, exact rejection and no-op precedence, pure Claim/hierarchy/Dependency policy, deterministic graph traversal and canonical evidence, operation-local immutable intent construction, Activity event semantics and target-first order, public result/error construction, and operation-specific semantic persistence choreography.
 - Forbidden ownership: SQL, rows, native handles, connection lifecycle, commit, rollback, Activity Cursor allocation, metadata high-water, or transaction retry.
 - Inputs: the applicable private services captured by each feature Layer, canonical operation input, pure policies, and ordinary transaction-scoped values supplied only while `CoordinationStore` owns the transaction.
-- Outputs: exact approved public `Effect` channels; mutation programs decide once and return `Rejected`, `NoOp`, or `Commit` with an immutable operation-local `CommitIntent`.
+- Outputs: exact approved public `Effect` channels; mutation programs fail directly with operation-specific public domain errors or decide once between `NoOp` and `Commit` with an immutable operation-local `CommitIntent`.
 - Story impact: US1.4-US1.11, US1.18-US1.56; FR1.4-FR1.8, FR1.13-FR1.39; NFR2.14-NFR2.19.
 
 The exported `layer({ storeLocation })` remains the public recomposition boundary. It creates each private infrastructure Layer once, supplies shared values to the four feature Layers, then supplies only those four feature services to the `TaskManager` implementation Layer. `Layer.provide` hides every private output. Neither operation commit functions nor transaction read/write values are Layer nodes, and no caller can provide, replace, or invoke them through package exports.
@@ -312,7 +306,7 @@ The names are representative, but the ownership rule is normative: services exis
 
 #### Store Administration Service
 
-`StoreAdministration` owns `initializeStore` and `validateStore`. Its Layer requires the shared `CoordinationStore`, `StoreValidation`, and `IdentitySource` services and captures them once. `StoreAdministration` owns operation orchestration and projection to the approved initialization and validation values or failures; `CoordinationStore` owns native resources and sessions; `StoreValidation` owns malformed-storage inspection and issue derivation. Fresh publication remains a `StoreAdministration` use case executed through the Store's initialization runner.
+`StoreAdministration` owns `initializeStore` and `validateStore`. Its Layer captures the shared `CoordinationStore`, `StoreValidation`, and native `Crypto.Crypto` capabilities once. `StoreAdministration` owns operation orchestration and projection to the approved initialization and validation values or failures; `CoordinationStore` owns native resources and sessions; `StoreValidation` owns malformed-storage inspection and issue derivation. Fresh publication remains a `StoreAdministration` use case executed through the Store's initialization runner.
 
 #### Tickets Service
 
@@ -338,15 +332,15 @@ Neutral package-private policy modules own `RequireUnclaimed | MatchClaim`, effe
 
 Feature-service methods never invoke another feature service's top-level operation from inside an operation. Such calls would create nested observations, independent transactions, or partial-commit risk. Shared cross-feature rules remain neutral pure modules and canonical semantic views.
 
-Every feature mutation is one ordinary private mutation program submitted to `CoordinationStore`. `StoreSqlClient` first constructs one scoped create-disabled writable stock client and `CoordinationStore` configures and verifies it. The Store then enters stock `SqlClient.withTransaction`; RC 111's Bun driver acquires the writable transaction with `BEGIN IMMEDIATE`. Inside that transaction the Store samples the one occurrence instant and constructs transaction-scoped read and write values. Only then does the owning feature select the required transaction-current view and decide once. Rejection and no-op become private typed body failures so stock Effect SQL rolls back; only an effective decision constructs an immutable intent and reaches its ordinary operation-specific commit function. `CoordinationStore` runs that function through the semantic writer and invokes the shared Activity appender exactly once, while stock Effect SQL alone commits or rolls back.
+Every feature mutation is one ordinary private mutation program submitted to `CoordinationStore`. `StoreSqlClient` first constructs one scoped create-disabled writable stock client and `CoordinationStore` configures and verifies it. The Store then enters stock `SqlClient.withTransaction`; RC 111's Bun driver acquires the writable transaction with `BEGIN IMMEDIATE`. Inside that transaction the Store samples the one occurrence instant and constructs transaction-scoped read and write values. Only then does the owning feature select the required transaction-current view and decide once. A public domain rejection fails the transaction body directly, while only approved no-op success uses private `NoOpRollback { value }`; stock Effect SQL rolls both paths back. Only an effective decision constructs an immutable intent and reaches its ordinary operation-specific commit function. `CoordinationStore` runs that function through the semantic writer and invokes the shared Activity appender exactly once, while stock Effect SQL alone commits or rolls back.
 
 ```mermaid
 flowchart LR
   Feature["Owning feature service"] --> Program["Mutation program: ordinary private function"]
   Store["CoordinationStore service"] -->|inside stock withTransaction after writer acquisition and occurrence sampling| Read["Transaction read session"]
   Read --> Program
-  Program --> Decision{"MutationDecision"}
-  Decision -->|Rejected or NoOp| Cleanup["Private body failure; stock rollback; no semantic writer"]
+  Program --> Decision{"Domain Fail, NoOp, or Commit"}
+  Decision -->|Domain Fail or NoOpRollback| Cleanup["Typed body failure; stock rollback; no semantic writer"]
   Decision -->|Commit| Intent["Operation-local CommitIntent"]
   Intent --> Commit["Operation-specific commit function"]
   Store --> Writer["Transaction semantic writer"]
@@ -363,19 +357,19 @@ The diagram deliberately distinguishes service identities from ordinary transact
 `CoordinationStore` is the private persistence service that owns the complete transaction around one feature mutation program and exposes only transaction-scoped semantic values to that program.
 
 - Boundary type: private `Context.Service`-backed adapter with read, mutation, initialization, and raw-validation program runners.
-- Owned capability: stock `SqlClient.withTransaction`; one occurrence instant; transaction read-session, semantic-writer, and Activity-appender construction; SQL and persistence codecs; affected-row assertions; real production fault checkpoints; Activity Cursor allocation and high-water; private transaction-body phase evidence; targeted finalization-defect conversion; and release of the prepared public value only after stock transaction success.
+- Owned capability: stock `SqlClient.withTransaction`; one occurrence instant; transaction read-session, semantic-writer, and Activity-appender construction; SQL and persistence codecs; affected-row assertions; real production fault checkpoints; Activity Cursor allocation and high-water; private transaction-body phase evidence; targeted transaction/client-finalization conversion; and release of the prepared public value only after stock transaction success plus normal isolated outer client close.
 - Hidden depth: `SqlClient`, statements, compiled SQL, bound parameters, Effect SQL result rows and `SqlError`, Bun SQLite, pragmas, rollback journals, physical statement order, codecs, and affected-row checks.
 - Inputs: canonical Store Location plus one owning feature's private mutation program and ordinary operation-specific commit function. An intent is never constructed outside the transaction and then handed to the Store.
 - Outputs: decoded semantic observations, confirmed public values, typed feature rejections/no-ops after successful rollback, or mapped Store failures.
-- Story impact: US1.4-US1.11, US1.53-US1.56; FR1.4-FR1.8, FR1.37-FR1.39; NFR2.1-NFR2.5; TC3.5-TC3.7.
+- Story impact: US1.4-US1.11, US1.53-US1.56, US1.61; FR1.4-FR1.8, FR1.37-FR1.39, FR1.67; NFR2.1-NFR2.5; TC3.5-TC3.7.
 
 The public Task Manager Layer and the private `CoordinationStore` Layer are cheap and perform no database open. `StoreSqlClient` is a package-private capability that captures the canonical database path and owns `SqliteClient.make`, the exact read/write configuration, the narrow construction-defect classifier, private `Reactivity` provision, and the complete client scope. Each ordinary Store operation asks it to run one program with one fresh scoped stock client; no `SqlClient` or connection is cached, globally exposed, or allowed to escape. Initialization is the deliberate exception: it may run one scoped construction client followed by one independent scoped read-only verification client.
 
 Every actual SQL open passes `create: false`. Writable clients also pass `readonly: false`, `readwrite: true`, `disableWAL: true`, and `busyTimeout: 30 seconds`; read clients pass `readonly: true` and the same timeout. The Store provides `SqlClient.SafeIntegers` as `true`, configures and verifies connection-local pragmas before entering `withTransaction`, and relies exclusively on Effect SQL statement compilation and parameter binding. It does not add a parallel Bun strict-binding layer. Because RC 111 `SqliteClient.make` synchronously constructs Bun `Database` inside an Effect whose declared error channel is `never`, `StoreSqlClient` permits one narrow construction recovery boundary: a recognized Bun SQLite construction defect plus positively established path absence maps to `StoreNotInitialized`; a recognized construction defect with an existing or ambiguous path maps to `StoreOpenFailed`; an unrelated construction defect remains a defect. An existence precheck never authorizes creation and never replaces post-defect path classification.
 
-`CoordinationStore` alone invokes stock `SqlClient.withTransaction`. RC 111's Bun driver supplies `BEGIN IMMEDIATE` for writable transactions, while stock `withTransaction` routes every statement through the transaction connection and owns commit, rollback, interruption masking, and connection-scope finalization. Transaction bodies never call `orDie` on `SqlError`. A typed body `SqlError` returned after successful stock rollback maps to `StoreTransactionFailed`. RC 111 converts commit and rollback `SqlError`s to defects with `Effect.orDie`, so one narrow recovery boundary immediately around `withTransaction` converts only a pure defect-form Effect SQL `SqlError` escaping finalization to `StoreTransactionOutcomeUnknown`. Private body-exit and phase evidence prevents an original body defect from being reclassified. Unrelated defects remain defects, interruption remains interruption, and composite Causes are never converted.
+`CoordinationStore` alone invokes stock `SqlClient.withTransaction`. RC 111's Bun driver supplies `BEGIN IMMEDIATE`; stock `withTransaction` routes statements through the transaction connection and owns begin, commit, rollback, interruption masking, and its acquired transaction-connection scope. The separately acquired outer `SqliteClient.make` scope is not part of `withTransaction`. Transaction bodies never call `orDie` on `SqlError`. Because stock begin runs before the body exit handler, a typed `BEGIN IMMEDIATE` failure proves body invocation count zero and non-commit and maps directly to `StoreTransactionFailed`; a typed private persistence failure returned after successful stock rollback also maps there. Successful-body commit `Die(SqlError)`, plus only the positively phase-evidenced composite of a recognized public expected `Schema.TaggedError` body `Fail` or `NoOpRollback` body `Fail` with rollback `Die(SqlError)`, map to `StoreTransactionOutcomeUnknown`. Private persistence Fail plus rollback defect, original defects, interruption, reordered/extra-reason look-alikes, and unrelated composites remain unchanged; phase is never inferred from tags alone.
 
-Transaction-current domain rejection and approved no-op are private typed body failures, not pre-transaction return values. `Rejected { error }` fails the body with a private pending-domain-error wrapper; `Unchanged`, `AlreadyInactive`, `AlreadyBlocked`, and `AlreadyUnblocked` fail with `NoOpRollback { value }`. Stock `withTransaction` rolls back, and the Store recovers the pending public domain error or no-op success only after rollback succeeds. No-op decisions occur before any semantic writer or Activity appender call. A rollback-finalization defect supersedes the pending body outcome and maps to `StoreTransactionOutcomeUnknown`. Only `Commit` executes the semantic writer and runner-owned Activity appender; the already prepared public value is released only when stock `withTransaction` returns success.
+Transaction-current public domain errors fail the body directly; there is no decision variant or private wrapper for them. `Unchanged`, `AlreadyInactive`, `AlreadyBlocked`, and `AlreadyUnblocked` alone fail with `NoOpRollback { value }`. Stock `withTransaction` rolls back and returns the original domain error or sentinel only after rollback succeeds. No-op paths occur before any semantic writer or Activity appender call. Rollback finalization failure supersedes the body outcome as transaction uncertainty. Only `Commit` executes the semantic writer and Activity appender. After `withTransaction` succeeds, no application work follows in the isolated mutation-client scope; normal close releases the prepared value, while a positively identified pure outer close defect maps to `StoreMutationCommittedButFinalizationFailed`. The committed state is authoritative and is never replayed automatically.
 
 `SqlError`, Bun errors, statements, rows, and transaction implementation details never cross `CoordinationStore`. The Store ignores `SqlError.isRetryable`: known non-commit permits deliberate retry only after correcting the cause, unknown outcome requires reread and reconciliation, and neither transaction nor domain decisions are automatically retried. The 30-second SQLite busy wait is connection waiting, not a retry, and cannot replay the transaction body.
 
@@ -392,20 +386,24 @@ Transaction-current domain rejection and approved no-op are private typed body f
 
 The gate pipeline is an explicit state machine. Aggregate checks begin only after safe structure and metadata inspection. Each collection is projected to public-safe diagnostic facts, sorted only by those facts, and then assigned positive ordinals. Equal public projections remain equal duplicates; neither row ID, physical order, SQL text, hash order, nor unsafe raw value breaks the tie. Only completely decoded records enter semantic reference graphs. Engine and foreign-key observations are projected to their closed public shapes before sorting. The Domain Contract Module owns the `BoundedDiagnostic` schema and pure normalization; persistence and runtime adapters own projection of vendor/platform causes into that contract.
 
-### CLI Preparation Services
+### CLI Preparation Capabilities
 
-CLI preparation is owned by three private services. `CommandInput` turns parser, environment, and filesystem observations into canonical command values. `StoreLocationResolver` owns cwd, explicit/default Store precedence, canonicalization, Git common-root scope, and project-key hashing. `CommandInvocation` is a per-selected-command service whose parameterized Layer composes those results and exposes one fully prepared command plus canonical Store Location before core construction.
+`CommandInput` and `StoreLocationResolver` remain private services because they own reusable input/filesystem and Store-resolution behavior. One-shot preparation is ordinary named `Effect.fn("prepareCommand")`; it combines their observations into an immutable `PreparedCommand` plus canonical Store Location before core construction. One-shot execution is ordinary named `Effect.fn("executeCommand")`.
 
-- Boundary type: private `Context.Service` capabilities with static infrastructure Layers and one parameterized invocation Layer.
-- Owned capability: structured parse-error projection, occurrence bounds, source conflicts, cwd/Store precedence, canonicalization, Git common-root scope, project-key hashing, strict UTF-8 files, Actor fallback, and adapter-only acknowledgments.
-- Hidden depth: deepest-existing-ancestor realpath handling, absent-tail normalization, regular-file checks, SHA-256 project keys, file/source attribution, and first-failure selection.
-- Inputs: argv, `TM_CWD`, `TM_STORAGE_PATH`, `TM_ACTOR`, process cwd, home, Git, and files.
-- Outputs: a command program ready to run with one canonical Store Location, or a typed adapter failure.
-- Story impact: US1.2-US1.3, US1.12-US1.14, US1.22, US1.40, US1.44, US1.59; FR1.2-FR1.3, FR1.9-FR1.11, FR1.30, FR1.36; TC3.4; IR5.1-IR5.4.
+- Boundary type: private `CommandInput` and `StoreLocationResolver` `Context.Service` capabilities plus ordinary `PreparedCommand` and functions.
+- Owned capability: structured parse-error projection, occurrence bounds, source conflicts, lazy cwd/Store/Actor precedence, canonicalization, Git common-root scope, project-key hashing, strict UTF-8 files, and adapter-only acknowledgments.
+- Hidden depth: preserving Effect Config acquisition, deepest-existing-ancestor realpath handling, bounded Git process capture, SHA-256 project keys, file/source attribution, and first-failure selection.
+- Inputs: structured parser values, independent `TM_CWD`, `TM_STORAGE_PATH`, and `TM_ACTOR` descriptors, process cwd, home, Git, and files.
+- Outputs: one prepared command ready for exactly one Task Manager provision, or a typed adapter failure.
+- Story impact: US1.2-US1.3, US1.12-US1.14, US1.22, US1.40, US1.44, US1.59; FR1.2-FR1.3, FR1.9-FR1.11, FR1.30, FR1.36; TC3.3-TC3.4; IR5.1-IR5.4.
 
 The command tree is `init`, `validate`, `create`, `update`, `show`, `list`, `next`, `claim`, `renew`, `release`, `complete`, `cancel`, `delete`, `block`, and `unblock`. Executor changes are `update --executor`; no separate core or CLI operation exists. Production uses `Command.run` as the sole argv ingress; `Command.runWith` is reserved for tests. Only `effect/unstable/cli` parses syntax, produces help/version/completion, and reports structured parser facts. The adapter never reparses argv or parser prose.
 
-For a selected command, `CliApplication.layer` creates one `CommandInvocation.layer(parsedCommand)` value. That Layer completes source validation and Store resolution, then `Layer.unwrap` derives the Store-specific public `TaskManager` Layer and supplies it to `CommandExecution.layerNoDeps`. The command handler only yields `CommandExecution.execute`; it contains no `Effect.provide`, service constructor, Store-layer factory, or platform wiring. Multi-call flows therefore share the same one provided `TaskManager` service. Help, version, completion, and parse-failure paths never build the Store-specific subtree.
+`TM_CWD`, `TM_STORAGE_PATH`, `TM_ACTOR`, and CLI-private `TM_DEBUG` each have an independent lazy Config descriptor. A private `ConfigProvider.fromEnv({ preserveEmptyStrings: true })` acquires only those descriptors and does not replace the ambient provider used by OTEL configuration. `CommandInput` evaluates a descriptor only when higher-precedence syntax did not select the value; it never uses `Config.all`. Selected empty strings are explicitly supplied invalid environment values and decode as `InputRejected { source: environment }`, not absence/fallback. `CommandInput`, not Config, owns source attribution, normalization, precedence, and public error mapping.
+
+`StoreLocationResolver` performs Git discovery with one `ChildProcess.make` after cwd resolution and scoped `ChildProcessSpawner.spawn`. It captures bounded raw stdout and stderr byte streams, strictly decodes them, and distinguishes only documented Git not-a-repository from operational failure; direct Bun/Node child-process APIs and message parsing are forbidden. The same unstable process services own all real CLI/process fixtures. Fixture handles are scoped, byte capture is bounded, exit is awaited, and cleanup escalates through the bounded harness protocol. RC 111 exposes no observed termination-signal identity, so evidence records only a harness-requested signal and never infers one from `PlatformError` prose.
+
+For a selected command, `prepareCommand(parsedCommand)` completes source validation and Store resolution. `CliApplication` constructs the exported Task Manager `layer({ storeLocation: prepared.storeLocation })` once, then applies `Effect.provide(executeCommand(prepared), taskManagerLayer)` exactly once; multi-call flows share that provision. `Layer.unwrap` is not used to transport `PreparedCommand`, and no one-shot service or hidden mutable cell substitutes for the value. Help, version, completion, and parse-failure paths never construct the Store-specific Layer.
 
 `AppLive` provides `CliConfig.layer({ builtIns: [GlobalFlag.Help, GlobalFlag.Version, GlobalFlag.Completions] })` and `CliOutput.layer(CliOutput.defaultFormatter({ colors: false }))` while constructing the CLI service Layers. `GlobalFlag.Wizard` and `GlobalFlag.LogLevel` are deliberately absent because they are not part of the closed Lean V1 grammar. The declaration order above is the action precedence. Architecture tests inspect the installed built-ins so a future Effect default cannot silently expand the command surface.
 
@@ -424,9 +422,9 @@ Deletion preview uses exactly one public `listTickets` call with the explicit ta
 
 ### CLI Rendering and Runtime Services
 
-Pure human/JSON formatting remains an ordinary exhaustive projection from typed outcomes to exact bytes. Effectful publication and arbitration are services: `ProcessOutput` owns the single-assignment command-result cell and live Stdio Sink publication; `CliRuntime` owns staged Effect Console behavior, framework/product arbitration, and expected process exit; `CommandExecution` invokes the prepared command through one provided `TaskManager` and passes its authoritative typed outcome to the pure renderer and `ProcessOutput`.
+Pure human/JSON formatting remains an ordinary exhaustive projection from typed outcomes to exact bytes. Effectful publication and arbitration remain services: `ProcessOutput` owns the single-assignment command-result cell and live Stdio Sink publication; `CliRuntime` owns staged Effect Console behavior, framework/product arbitration, and expected process exit. Ordinary `executeCommand(prepared)` invokes the provided `TaskManager` and passes its authoritative typed outcome to the pure renderer and `ProcessOutput`.
 
-- Boundary type: private `CommandExecution`, `ProcessOutput`, and `CliRuntime` `Context.Service` capabilities plus pure renderer functions.
+- Boundary type: private `ProcessOutput` and `CliRuntime` `Context.Service` capabilities plus ordinary `executeCommand` and pure renderer functions.
 - Owned capability: command-to-core routing, human templates, tree/detail grammar, command JSON envelopes, compact canonical JSON bytes, stdout/stderr selection, one newline, framework-output staging, and exit status.
 - Hidden depth: complete-Subject rendering, typed collection formatting, connector state, typed Schema-JSON codec selection, parser/domain error dispatch, and staged-output selection.
 - Inputs: authoritative typed adapter/core value or error, staged framework bytes, and selected output mode.
@@ -439,76 +437,20 @@ Framework formatting remains owned by Effect CLI, while the runner controls fina
 
 ### Private Deterministic Controls
 
-The Private Deterministic Controls schedule or fail production logic for evidence without becoming public product capabilities.
+Private deterministic controls schedule or fail real production logic for evidence without becoming public product capabilities.
 
-- Boundary type: core-internal Context services with live defaults and package-private test Layers.
-- Owned capability: one occurrence Clock, cryptographic Identity Source, writer barriers, and transaction-body mutation checkpoints. A separate test-only `SqlClient` decorator may suppress one real successful transaction return with a defect-form `SqlError` for unknown-outcome evidence.
-- Hidden depth: deterministic schedules, body-failure latches, and test-only public-`SqlClient` decoration.
-- Inputs: test schedules or live Effect Clock/Crypto services.
-- Outputs: time/IDs, suspension, or an injected persistence failure at a real production checkpoint.
-- Story impact: US1.53-US1.56; TC3.7; NFR2.3, NFR2.9-NFR2.10, NFR2.14-NFR2.19.
+- Boundary type: native Effect Clock and Crypto capabilities, ordinary private allocation/hash helpers, and one private mutation-checkpoint `Context.Reference` whose default is disabled.
+- Owned capability: one sampled occurrence instant, secure production entropy, deterministic test provision, writer barriers/body checkpoints, and test-only public-`SqlClient` decoration for finalization evidence.
+- Hidden depth: rejection sampling, collision/exhaustion handling, deterministic schedules, body-failure latches, and exact Cause classification.
+- Inputs: native live Clock/Crypto or package-private `TestClock`/`Crypto.make` provision plus test schedules.
+- Outputs: canonical time/IDs, suspension, or injected persistence failure at a real production checkpoint.
+- Story impact: US1.53-US1.56, US1.61; TC3.7; NFR2.3, NFR2.9-NFR2.10, NFR2.14-NFR2.19.
 
-Production uses Effect Clock and Crypto. Implementations acquire `const crypto = yield* Crypto.Crypto` and invoke `crypto.randomUUIDv4`, `crypto.randomBytes(size)`, and `crypto.digest("SHA-256", bytes)`; `IdentitySource.layerCrypto` depends on `Crypto.Crypto`. Ticket IDs use secure bytes, rejection sampling over the complete `36^6` range, and a transaction-current active/Trash collision check; a full-space count proves `TicketIdSpaceExhausted`, while a deterministic cyclic fallback from a random start guarantees finding an available ID rather than relying on bounded luck. Claim IDs are inserted into a permanent private `claim_id_reservations` relation in the same transaction as the Claim and Activity so a released, renewed, expired, or consumed ID is never generated again.
+`CoordinationStore` samples `DateTime.now` exactly once after snapshot pinning for reads or writer acquisition for mutations. Claim expiry is computed with `DateTime.addDuration(occurredAt, Duration.hours(1))`; tests provide `TestClock`. The exported core Layer captures native `Crypto.Crypto`; ordinary helpers use `crypto.randomUUIDv4`, `crypto.randomBytes(size)`, and `crypto.digest("SHA-256", bytes)`. Tests provide deterministic `Crypto.make`. Ticket IDs retain secure rejection sampling over `36^6`, transaction-current active/Trash collision checks, full-space exhaustion proof, and deterministic cyclic fallback; Claim UUIDs retain permanent reservation. No project Clock or identity service exists.
 
-The exact private Layer graph is centralized inside the exported public Layer factory and shared at the transaction level:
+Mutation checkpoints remain indispensable because they pause/fail exact production writer positions. A private `Context.Reference` supplies the disabled default without a required live Layer; package-private tests locally set a protocol before building the same public graph. Feature methods receive the one sampled instant and cannot sample again or invoke checkpoints outside the transaction. Test-only transaction/client-finalizer decorators wrap public Effect contracts below `CoordinationStore`, delegate to the real stock work, manufacture no domain outcome, and never retry.
 
-- `layer({ storeLocation })` composes `TaskManager` from the four private feature-service Layers.
-- `StoreAdministration.layerNoDeps` requires `CoordinationStore | StoreValidation | IdentitySource`; `Tickets.layerNoDeps` requires `CoordinationStore | IdentitySource`; `Claims.layerNoDeps` requires `CoordinationStore | IdentitySource`; and `Trash.layerNoDeps` requires `CoordinationStore`.
-- `StoreValidation.layerNoDeps` requires `CoordinationStore`.
-- `CoordinationStore.layerNoDeps(storeLocation)` requires `FileSystem | Path | StoreSqlClient | OccurrenceClock | MutationControl`.
-- `StoreSqlClient.layerNoDeps(storeLocation)` owns direct `SqliteClient.make` calls, provides `Reactivity.layer` privately, and requires `FileSystem | Path` for construction-failure path classification; `OccurrenceClock.layerLive` uses the live Effect Clock reference, `IdentitySource.layerCrypto` requires `Crypto.Crypto`, and `MutationControl.layerDisabled` is infallible.
-- Pure policy modules are imported by the service implementation that owns the rule; they add no Context requirement or Layer node.
-
-`CoordinationStore` captures `OccurrenceClock` because the Store session runner owns the invariant that a read instant is sampled after the snapshot-pinning metadata read and a mutation instant only after stock `withTransaction` has acquired the writable transaction. It captures `MutationControl` because the Store owns material-effect and pre-finalization body checkpoints. Feature-service methods receive the one sampled instant and semantic observations through the transaction program; they cannot sample a second time or invoke a checkpoint outside the real transaction path. The test-only unknown-outcome decorator wraps the public `SqlClient` contract below `CoordinationStore`, delegates to the real stock transaction, and is not a production fault checkpoint.
-
-One invocation of `layer({ storeLocation })` creates each private Layer value once. Layer memoization therefore gives all feature services one shared `CoordinationStore`, `StoreValidation`, `StoreSqlClient`, identity, and control graph. Sharing is scoped to that provisioning; it is not a process-global client or connection cache. The graph must not use `Layer.fresh`, reconstruct an equivalent Store Layer per feature, or cache a `SqlClient`; every ordinary Store operation still constructs one fresh scoped stock client. The public constructor returns `Layer<TaskManager, never, FileSystem | Path | Crypto.Crypto>`, and the CLI invocation Layer supplies those remaining platform services once.
-
-Package-private tests call `TestTaskManager.layer({ storeLocation, controlProtocol })`, construct the same complete service graph and real Coordination Store, and replace only Clock, identity, and mutation-control Layers before dependent services are built. No private service or control is in package exports. The composition is intentionally centralized; `Layer.provide` hides implementation requirements, while tests assert requirement elimination and shared-node behavior rather than one exact combinator tree:
-
-```ts
-const makeInfrastructureLayers = (
-  storeLocation: CanonicalAbsolutePath,
-  clockLayer: OccurrenceClockLayer,
-  identityLayer: IdentitySourceLayer,
-  controlLayer: MutationControlLayer
-) => {
-  const sqlClientLayer = StoreSqlClient.layerNoDeps(storeLocation)
-  const storeLayer = CoordinationStore.layerNoDeps(storeLocation).pipe(
-    Layer.provide(sqlClientLayer),
-    Layer.provide(clockLayer),
-    Layer.provide(controlLayer)
-  )
-  const validationLayer = StoreValidation.layerNoDeps.pipe(
-    Layer.provide(storeLayer)
-  )
-  return Layer.mergeAll(storeLayer, validationLayer, identityLayer)
-}
-
-const makeLiveLayer = (storeLocation: CanonicalAbsolutePath) =>
-  makeTaskManagerLayer(
-    makeInfrastructureLayers(
-      storeLocation,
-      OccurrenceClock.layerLive,
-      IdentitySource.layerCrypto,
-      MutationControl.layerDisabled
-    )
-  )
-
-const makeTestLayer = (
-  storeLocation: CanonicalAbsolutePath,
-  controls: TestControlProtocol
-) =>
-  makeTaskManagerLayer(
-    makeInfrastructureLayers(
-      storeLocation,
-      OccurrenceClock.layerTest(controls),
-      IdentitySource.layerTest(controls),
-      MutationControl.layerTest(controls)
-    )
-  )
-```
-
-The named Layer aliases above are representative documentation names, not public types. Exact aliases and signatures must be verified against the pinned RC 111 Effect source without type assertions. Test controls are supplied before the Store, validation, feature, and Task Manager Layers are built, so live defaults cannot shadow them.
+One invocation of `layer({ storeLocation })` creates the private Layers once. Layer memoization shares `CoordinationStore`, `StoreValidation`, and `StoreSqlClient`; native Clock/Crypto provision and the checkpoint reference are captured consistently. Sharing is scoped, not a process-global client cache. The graph does not use `Layer.fresh`, reconstruct an equivalent Store Layer per feature, or cache a `SqlClient`; every ordinary operation constructs a fresh scoped client. The public constructor remains `Layer<TaskManager, never, FileSystem | Path | Crypto.Crypto>` because Clock and the disabled checkpoint are Context references. Private tests provide `TestClock`, deterministic `Crypto.make`, and the checkpoint protocol through Effect context before dependent Layers are built; no control is exported.
 
 ## Data Model and Data Flow
 
@@ -519,11 +461,7 @@ The named Layer aliases above are representative documentation names, not public
 The Hybrid uses a generic decision shape and common commit envelope, but it has no universal operation union or dispatcher:
 
 ```ts
-type MutationDecision<A, E, Intent> =
-  | {
-      readonly _tag: "Rejected"
-      readonly error: E
-    }
+type MutationDecision<A, Intent> =
   | {
       readonly _tag: "NoOp"
       readonly value: A
@@ -550,6 +488,8 @@ type CommitIntent<Mutation> = {
 }
 ```
 
+A mutation program fails directly with `E` for an operation-specific public domain rejection. It returns `NoOp` only for the four approved successful no-op cases and `Commit` only for an effective mutation; no private domain-error wrapper exists.
+
 `ActivityBatchIntent.items` is target-first for every multi-Ticket operation. It contains Actor Identity, Ticket ID, and semantic event only. Neither an Activity Cursor nor an occurrence instant may appear in it. The runner supplies its already sampled occurrence instant to the Activity appender and allocates Cursors inside persistence.
 
 A mutation program is an ordinary private function owned by one feature. It closes over the decoded operation input and feature dependencies, but receives transaction-local values only inside stock `withTransaction` after writable transaction acquisition and occurrence sampling. The operation commit function is another ordinary private function. It accepts only the mutation body and semantic writer, performs no reads, and cannot append Activity or commit:
@@ -563,8 +503,8 @@ type MutationContext = {
 type MutationProgram<A, E, Mutation> = (
   context: MutationContext
 ) => Effect.Effect<
-  MutationDecision<A, E, CommitIntent<Mutation>>,
-  InternalDecisionFailure
+  MutationDecision<A, CommitIntent<Mutation>>,
+  E | InternalDecisionFailure
 >
 
 type OperationCommit<Mutation> = (
@@ -747,7 +687,19 @@ Every boundary names its Effect Schema `Encoded` and `Type` representations; a S
 
 Persistence row schemas therefore define unknown Effect SQL result-row objects as `Encoded` and canonical domain records as `Type`. SQL `NULL` exists only on the encoded side and is normalized into the closed lifecycle union or an omitted domain field; domain logic never handles nullable lifecycle combinations. `result_json`, Trash Snapshot JSON, and Activity event JSON are text only on the encoded side and compose through the iterative JSON-text codec into their canonical domain schemas. The reverse encoder is the sole producer of those columns. CLI JSON text uses that same text-to-`Schema.Json` transformation before composition with the Result schema. No repository, feature, or renderer maintains a parallel DTO conversion table outside these codecs.
 
-Each transformation documents both directions. For canonical domain `t`, `decode(encode(t))` must be equivalent to `t`; for accepted boundary `e`, `encode(decode(e))` may normalize whitespace, null layout, object-member order, and JSON text, and is compared with the documented canonical encoded form rather than original bytes. Unknown decoding may fail with precise Schema issues; typed encoding of a canonical domain value is expected to succeed, and an encoding failure is a defect at the owning boundary.
+Each transformation documents both directions. For canonical domain `t`, `decode(encode(t))` must be equivalent to `t`; for accepted boundary `e`, `encode(decode(e))` may normalize whitespace, null layout, object-member order, and JSON text, and is compared with the documented canonical encoded form rather than original bytes. Ordinary persistence request/result schemas, bidirectional codecs, and `SqlSchema` helpers are module-scope constants. Their result schemas carry `onExcessProperty: "error"` and `reportInput: false` because RC 111 `SqlSchema` exposes no parse-options argument; aggregate raw validation alone uses `errors: "all"`. Invocation-local parameter-bound Statements are obtained through the currently scoped private generic `SqlClient`.
+
+`SqlSchema` helper selection is normative:
+
+| RC 111 helper | Approved use |
+| --- | --- |
+| `findAll` | Zero-or-more reads and every guarded DML `RETURNING`; decode all rows, then explicitly assert exact count and identity where required |
+| `findNonEmpty` | One-or-more only when exact count is not part of the contract |
+| `findOne` | Required singleton only when established structure/query shape makes duplicates impossible; never affected-row proof |
+| `findOneOption` | Optional singleton only under established uniqueness; never duplicate detection or affected-row proof |
+| `void` | DDL, connection configuration, or deliberately result-free effects; never semantic-writer DML |
+
+RC 111 `findOne` and `findOneOption` decode only the first row, `findNonEmpty` proves only non-emptiness, and `void` discards results. Guarded semantic writers therefore use `RETURNING`, `findAll`, and explicit zero/exact/excess and identity assertions. At the SQL helper boundary, request encoding and result decoding `SchemaError` map privately to `PersistenceSchemaFailure`: read runners sanitize it to `StoreQueryFailed`; mutation bodies treat it as `PersistenceAssertionFailure`, roll back, and return `StoreTransactionFailed`; it is never `InputRejected`. `NoSuchElementError` likewise remains private cardinality evidence. The read-only raw-validation runner is the sole direct unknown-row exception; it uses closed package-owned statement structure and bound parameters, performs no writes or feature calls, immediately passes unknown rows to module-scope aggregate-safe decoders, and never leaks raw rows, SQL, parameters, or schema objects.
 
 ### Format-1 Storage
 
@@ -875,7 +827,7 @@ CREATE UNIQUE INDEX activity_one_trashed ON activity(ticket_id)
   WHERE event_tag = 'TicketTrashed';
 ```
 
-There are no SQL cascade actions. `moveSelectionToTrash` removes all touching Dependency rows and exact persisted inactive Claims, inserts complete Trash entries target-first, then deletes selected Ticket rows in reverse canonical tree order so every child precedes its parent under `ON DELETE RESTRICT`. The returned values and runner-owned Activity remain target-first. Every semantic writer method derives and checks exact expected affected-row counts; a mismatch is a persistence assertion, never a second domain decision. The Activity metadata update additionally predicates on the previously read high-water and must affect exactly one row.
+There are no SQL cascade actions. `moveSelectionToTrash` removes all touching Dependency rows and exact persisted inactive Claims, inserts complete Trash entries target-first, then deletes selected Ticket rows in reverse canonical tree order so every child precedes its parent under `ON DELETE RESTRICT`. The returned values and runner-owned Activity remain target-first. Every guarded insert/update/delete uses `RETURNING` of a package-owned sentinel, identity, or exact persisted row, decodes all rows with module-scope `SqlSchema.findAll`, and asserts exact expected count and identity. Zero, excess, duplicate, or unexpected identities are persistence assertions, never second domain decisions. `findOne`, `findOneOption`, and `void` are never affected-row proof. The Activity metadata update additionally predicates on the previously read high-water and must return and prove exactly one row.
 
 The active Ticket Snapshot's public `blockedBy` field is assembled only from `ticket_dependencies`; it is not duplicated in `tickets`. `result_json` is the canonical compact encoded Result object. `trash.snapshot_json` is the canonical compact encoded complete public Ticket Snapshot, including assembled `blockedBy` before active edges are removed. `activity.event_payload_json` contains only the event-specific payload: resulting Ticket for `TicketCreated`; effective field deltas for `TicketUpdated`; complete new Claim facts for `TicketClaimed`; prior Claim ID plus complete replacement Claim for `TicketClaimRenewed`; Claim ID for `TicketClaimReleased`; Result plus consumed Claim ID for `TicketCompleted`; reason plus Claim Consumption for `TicketCancelled`; `{}` for `TicketTrashed`; and prerequisite ID for Dependency events. The event tag is stored only in `event_tag`, not duplicated in the payload.
 
@@ -938,20 +890,17 @@ The ERD omits a physical Activity-to-Ticket/Trash edge deliberately. Historical 
 
 Fresh initialization must not expose a partial canonical database. When `task-manager.db` is absent, `StoreAdministration` and the `CoordinationStore` initialization runner perform this exact sequence:
 
-1. Effect FileSystem exclusively creates one unique same-directory temporary main file with mode `0600`; Effect SQL never creates the file.
-2. `StoreSqlClient` opens that existing temporary file through one scoped writable `SqliteClient.make` with `readonly: false`, `readwrite: true`, `create: false`, and `disableWAL: true`.
-3. Before any transaction, the Store configures and verifies the writable connection profile: 30-second busy timeout, safe integers, `foreign_keys: ON`, `synchronous: FULL`, and `journal_mode: DELETE`.
-4. Stock `SqlClient.withTransaction` installs the complete format-1 schema and metadata.
-5. The construction client validates the generated Store. Failure of Task Manager's own generated schema or metadata validation is an implementation defect, not `StoreInitializationRejected`.
-6. The construction-client scope finalizes normally; any finalization defect prevents publication.
-7. Effect FileSystem verifies mode `0600` and the absence of sibling `-journal`, `-wal`, and `-shm` files.
-8. One independent scoped read-only stock client reopens the temporary file with `readonly: true` and `create: false`.
-9. It configures and verifies the read profile, then validates the complete format-1 structure and metadata in a stock read transaction.
-10. The verification-client scope finalizes normally; any finalization defect prevents publication.
-11. `FileSystem.link(temp, task-manager.db)` publishes by same-filesystem no-replace hard link.
-12. The winner removes its temporary filename and returns `Created`.
+1. Enter one initialization-artifact `Effect.scoped` region and acquire `FileSystem.makeTempFileScoped({ directory: storeLocation, prefix: ".task-manager-init-" })`. RC 111 creates a protected generated directory and seed file; Effect SQL creates neither.
+2. Immediately `chmod(seed, 0o600)` and verify it before SQL open. Derive a unique private same-directory staging basename from the seed path.
+3. Acquire a hard link from seed to staging main with `Effect.acquireRelease`. Its idempotent release removes staging `-journal`, `-wal`, and `-shm` then staging main with force; LIFO closure removes these before the scoped seed directory.
+4. Open only staging main through one scoped writable `SqliteClient.make` with `readonly: false`, `readwrite: true`, `create: false`, and `disableWAL: true`; configure and verify busy timeout, safe integers, `foreign_keys: ON`, `synchronous: FULL`, and `journal_mode: DELETE`.
+5. Stock `SqlClient.withTransaction` installs format 1. Generated-schema/metadata validation failure is a defect. Close the construction-client scope; any close defect prevents publication.
+6. Independently reopen staging main through a new read-only `create: false` client, configure it, validate complete format 1 in a stock read transaction, and close it; any close defect prevents publication.
+7. Recheck staging mode `0600` and sidecar absence.
+8. In an uninterruptible publication region, `FileSystem.link(stagingMain, task-manager.db)` performs no-replace publication.
+9. Close the complete artifact scope before returning `Created` or, after `AlreadyExists`, before opening and inspecting the winning Store.
 
-A same-filesystem hard link is atomic and does not replace an existing path. A loser observing `AlreadyExists` removes its complete private temporary files, opens the winner through a new read-only stock client, and returns `Existing` only if it is compatible. Every failure path cleans its own temporary main filename and sidecars, and no private temporary filename crosses a public error. Normal Effect SQL scope finalization plus independent read-only reopen validation is the accepted close evidence; product code does not access an underlying Bun close API or handle.
+Acquisitions are atomic with finalizer registration. Interruption or failure before publication closes both client scopes and the artifact scope and leaves no canonical Store. Only `PlatformError` reason `AlreadyExists` from the final link is a concurrency loss; every other link failure is known non-publication. After publication, no finalizer ever unlinks `task-manager.db`; private cleanup failure remains a defect, the complete canonical Store remains authoritative, and a later init observes `Existing`. Initialization client-close failures before publication and post-publication artifact cleanup never map to `StoreMutationCommittedButFinalizationFailed`.
 
 When the canonical path already exists, initialization never installs or migrates anything. It uses a scoped read-only stock client to perform the approved identity, format, and structure inspection and returns `Existing` or the corresponding rejection unchanged. A valid unrelated, partial, or incompatible database is never rewritten. Store format 1, its metadata, and its schema remain unchanged; there is no `effect_sql_migrations` table, no Effect SQL migration layer, and no automatic migration. Engine and package versions are qualification facts rather than Store metadata, and the engine switch alone does not create format 2. (FR1.4-FR1.5, NFR2.1, TC3.6)
 
@@ -965,7 +914,7 @@ When the canonical path already exists, initialization never installs or migrate
 
 ### Public Capability Contract
 
-`TaskManagerService` contains no repository, health, Activity-read, transaction, retry, migration, purge, recovery, authentication, or orchestration method. The Layer constructor accepts one branded canonical Store Location and requires Effect FileSystem, Path, and `Crypto.Crypto` capabilities during composition; Effect Clock is the runtime's default Context reference and is captured behind private `OccurrenceClock`. The provided `TaskManager` service captures these dependencies so access functions require only `TaskManager`. This keeps environment requirements out of direct consumers and prevents ad hoc provision chains.
+`TaskManagerService` contains no repository, health, Activity-read, transaction, retry, migration, purge, recovery, authentication, or orchestration method. The Layer constructor accepts one branded canonical Store Location and captures Effect FileSystem, Path, native `Crypto.Crypto`, native Clock, and the private disabled mutation-checkpoint reference so access functions require only `TaskManager`. No project Clock/identity service or public deterministic control exists.
 
 `TaskManagerLayerOptions.storeLocation` is the exported `CanonicalAbsolutePath` representing the canonical containing Store Location, not the database filename. The core appends only `task-manager.db`. The CLI owns effectful path canonicalization and then decodes the result through the exported `CanonicalAbsolutePath` Schema before passing `layer({ storeLocation })`. Direct core consumers carry the same responsibility: canonicalize at their platform boundary and decode through that Schema rather than asserting the brand. The core exports no second path-canonicalization capability. (FR1.2, TC3.2, TC3.6)
 
@@ -973,7 +922,7 @@ When the canonical path already exists, initialization never installs or migrate
 
 A read session asks `StoreSqlClient` for one scoped stock client configured with `readonly: true`, `create: false`, a 30-second busy timeout, safe integers enabled, `query_only: ON`, `foreign_keys: ON`, and verified `journal_mode: DELETE`. The Store configures and verifies these connection-local settings before stock `SqlClient.withTransaction`. The RC 111 Bun driver explicitly leaves read-only clients unaffected by its writable `BEGIN IMMEDIATE` behavior, so this profile does not acquire a writer reservation.
 
-Inside `withTransaction`, the session first performs one deterministic metadata read to establish the deferred SQLite snapshot. Only after that read pins the snapshot does it sample one observation instant and run every remaining semantic query through the same transaction connection. Effective Claim filtering uses only that instant. Details, relationships, trees, selection, preview, and validation never combine observations from different transactions. Ordinary queries decode every unknown row strictly through `SqlSchema`. Validation may use the same `SqlClient` to obtain unknown raw rows only so its aggregate-safe validation decoder can report all safely discoverable issues; query generics are never runtime proof.
+Inside `withTransaction`, the session first performs one deterministic metadata read to establish the deferred SQLite snapshot. Only after that read pins the snapshot does it sample one observation instant and run every remaining semantic query through the same transaction connection. Effective Claim filtering uses only that instant. Details, relationships, trees, selection, preview, and validation never combine observations from different transactions. Every ordinary fixed-shape request and unknown result row crosses a module-scope `SqlSchema` helper under the helper-selection contract above. Validation alone may use the same generic `SqlClient` to obtain unknown raw rows in its read-only inspector so aggregate-safe decoders can report all safely discoverable issues; query generics are never runtime proof.
 
 Statement, row-decoding, and read-only transaction-finalization failures map to `StoreQueryFailed`, or validation's corresponding query failure, because no mutation was attempted. No read performs Claim cleanup, timestamp changes, Activity, reservation, or reactive invalidation. (FR1.6, FR1.17-FR1.19, FR1.23, NFR2.4)
 
@@ -1020,24 +969,25 @@ A write session asks `StoreSqlClient` for one scoped stock client opened with `r
 
 1. completes create-disabled scoped client construction and classification;
 2. configures and verifies every connection-local setting;
-3. enters stock `withTransaction`, which acquires writer ownership with `BEGIN IMMEDIATE`;
-4. samples one exact millisecond occurrence instant;
+3. enters stock `withTransaction`, which attempts writer ownership with `BEGIN IMMEDIATE`; a typed begin failure maps to `StoreTransactionFailed` with body invocation count zero and no rollback;
+4. after begin succeeds, samples one exact millisecond occurrence instant;
 5. constructs the ordinary transaction read session and Store-retained semantic writer and Activity appender;
 6. lets the owning feature observe transaction-current state and decide exactly once;
-7. on `Rejected`, fails the body with a private pending-domain-error wrapper; on `NoOp`, fails with `NoOpRollback { value }`; neither path invokes a semantic writer or Activity appender;
-8. after stock rollback succeeds, recovers the pending domain error or approved no-op success outside `withTransaction`;
+7. on a public domain rejection, fails the body directly with that error; on `NoOp`, fails only with `NoOpRollback { value }`; neither path invokes a semantic writer or Activity appender;
+8. after stock rollback succeeds, returns the original domain error or recovers the approved no-op value outside `withTransaction`;
 9. on `Commit`, runs the supplied operation commit function with only the mutation body and semantic writer;
-10. invokes the shared Activity appender exactly once with the same occurrence instant and the intent's target-first batch;
+10. invokes the shared Activity appender exactly once with the same occurrence instant and target-first batch;
 11. executes applicable material/per-item and pre-finalization body checkpoints;
-12. returns body success so stock `withTransaction` performs commit and scope finalization;
-13. immediately around `withTransaction`, converts only a pure finalization defect-form `SqlError` to `StoreTransactionOutcomeUnknown` and maps a typed body `SqlError` returned after successful rollback to `StoreTransactionFailed`; and
-14. releases the prepared public value only after `withTransaction` returns success.
+12. returns body success so stock `withTransaction` performs commit and closes its acquired transaction scope;
+13. classifies typed begin failure or a typed private persistence failure after successful rollback as `StoreTransactionFailed`, commit `Die(SqlError)` as transaction unknown, and only a phase-evidenced recognized public expected `Schema.TaggedError` Fail or `NoOpRollback` Fail plus rollback `Die(SqlError)` as transaction unknown; private persistence plus rollback defect and every negative look-alike remain unchanged;
+14. after `withTransaction` success, performs no application work and closes the isolated outer mutation-client scope; and
+15. releases the prepared value after normal close, or maps a positively identified pure close defect to `StoreMutationCommittedButFinalizationFailed` without replay.
 
-An intent is therefore always constructed inside the owned stock transaction after writer ownership, occurrence sampling, and transaction-current observation. The Store never wraps an intent constructed outside the transaction. No automatic domain or transaction retry exists. The 30-second SQLite busy timeout waits for writer ownership but does not replay a domain decision and is not a retry. A timeout returned as a typed body `SqlError` becomes a known transaction failure only after stock rollback succeeds; a competing writer that commits first changes the later operation's transaction-current typed outcome. (FR1.37-FR1.39, NFR2.1-NFR2.3, NFR2.10)
+An intent is therefore always constructed inside the owned stock transaction after writer ownership, occurrence sampling, and transaction-current observation. The Store never wraps an intent constructed outside the transaction. No automatic domain or transaction retry exists. The 30-second SQLite busy timeout waits for writer ownership but does not replay a domain decision and is not a retry. A busy timeout returned by `BEGIN IMMEDIATE` becomes known non-commit without body invocation or rollback; a timeout returned later as a typed body `SqlError` becomes a known transaction failure only after stock rollback succeeds; a competing writer that commits first changes the later operation's transaction-current typed outcome. (FR1.37-FR1.39, NFR2.1-NFR2.3, NFR2.10)
 
 ### Preserved Mutation Invariants
 
-- Rejection and approved no-op variants are structurally unable to carry `CommitIntent`; the runner performs no semantic write or Activity append, fails the body privately, and returns the pending public outcome only after successful stock rollback.
+- Direct public domain failure and the approved `NoOp` variant are structurally unable to carry `CommitIntent`; the runner performs no semantic write or Activity append, fails the body with the original domain error or `NoOpRollback`, and releases that outcome only after successful stock rollback.
 - The RC 111 Bun driver's stock `BEGIN IMMEDIATE` precedes the single occurrence instant, every mutation observation, intent construction, Claim active/inactive decision, Snapshot timestamp, Trash deletion time, and Activity occurrence time. No commit function can sample a second instant.
 - Logical Claim expiry remains a semantic observation. Exact Claim ID and Actor fencing is decided by the feature before intent construction; `releaseClaim` `AlreadyInactive` does not clean an expired row, while effective operations carry exact inactive-row evidence when physical cleanup is required.
 - `Unchanged`, `AlreadyInactive`, `AlreadyBlocked`, and `AlreadyUnblocked` retain their exact lifecycle/endpoint precedence, reach no writer, and use `NoOpRollback { value }`. Effective mutations preserve target-fence precedence before later operation-specific blockers.
@@ -1045,7 +995,7 @@ An intent is therefore always constructed inside the owned stock transaction aft
 - Multi-Ticket Activity stays target-first because one non-empty batch is constructed by the feature and appended once by the runner. Deletion physical Ticket removal stays reverse-tree because the writer derives it from the same canonical target-first selection.
 - Activity Cursor ranges remain contiguous and high-water remains guarded because only the Activity appender owns prior-high-water observation, safe range calculation, insert counts, and metadata update.
 - All Ticket, Claim, Dependency, Trash, Activity, and high-water effects share one stock transaction. A typed body failure after partial material or Activity effects reaches `StoreTransactionFailed` only after stock rollback returns the original body failure; reopen evidence must show exact prior state.
-- Stock `withTransaction` finalizes once. A pure defect-form Effect SQL `SqlError` escaping commit or rollback finalization becomes `StoreTransactionOutcomeUnknown`; successful transaction return releases the already prepared public result; no public result, rejection, or no-op is returned earlier. Unrelated defects, interruption, and composite Causes are not converted.
+- Stock `withTransaction` finalizes its transaction once. Commit `Die(SqlError)` and only the exact phase-evidenced recognized public expected `Schema.TaggedError` Fail or `NoOpRollback` Fail plus rollback `Die(SqlError)` become `StoreTransactionOutcomeUnknown`; private persistence plus rollback defect, negative look-alikes, unrelated composites, defects, and interruption remain unchanged. After transaction success, isolated outer mutation-client close is a separate phase: normal close releases the prepared value, while a pure close defect yields `StoreMutationCommittedButFinalizationFailed` and never replay.
 - A writer predicate or affected-row mismatch is an internal persistence assertion. The operation does not reread domain state, choose another public rejection/no-op, or automatically retry after that failure.
 
 ### Interaction Diagram
@@ -1080,10 +1030,10 @@ sequenceDiagram
   DB-->>Read: untrusted rows decoded through persistence codecs
   Read-->>Program: decoded observations
   Program->>Program: decide exactly once and prepare public value
-  alt Rejected or NoOp
-    Program-->>Store: typed decision
-    Store->>DB: fail body privately; stock rollback; no semantic write
-    Store-->>Feature: typed outcome after successful rollback
+  alt Domain Fail or NoOp
+    Program-->>Store: direct typed failure or NoOp decision
+    Store->>DB: fail body; stock rollback; no semantic write
+    Store-->>Feature: original domain error or no-op after successful rollback
   else Commit
     Program-->>Store: CommitIntent with operation-local mutation and Activity batch
     Store->>CommitFn: mutation body and semantic writer
@@ -1092,10 +1042,15 @@ sequenceDiagram
     Store->>Activity: append batch exactly once
     Activity->>DB: contiguous Activity plus guarded high-water
     Store->>DB: material/pre-finalization checkpoints then body success
-    Store->>DB: stock withTransaction commit and scope finalization
+    Store->>DB: stock withTransaction commit and transaction-scope finalization
     alt Transaction returns successfully
-      Store-->>Feature: prepared public value
-    else Pure finalization defect-form SqlError
+      Store->>DB: isolated outer client close; no application work
+      alt Close succeeds
+        Store-->>Feature: prepared public value
+      else Pure close-finalizer defect
+        Store-->>Feature: StoreMutationCommittedButFinalizationFailed
+      end
+    else Commit/rollback SqlError Cause matches approved uncertainty shape
       Store-->>Feature: StoreTransactionOutcomeUnknown
     end
   end
@@ -1127,8 +1082,8 @@ sequenceDiagram
   Read-->>Program: decoded renewal view
   Program->>Program: check open, active, exact ID, Actor
   alt Fence rejected
-    Program-->>Store: Rejected
-    Store->>DB: private body failure and successful stock rollback without writer call
+    Program-->>Store: direct public domain failure
+    Store->>DB: successful stock rollback without writer call
   else Exact active Claim
     Program->>Program: construct replacement ID and one-hour Claim
     Program-->>Store: CommitIntent(expected Claim, replacement Claim, TicketClaimRenewed)
@@ -1166,9 +1121,9 @@ sequenceDiagram
   DB-->>Read: transaction-current rows
   Read-->>Program: decoded active coordination graph
   Program->>Program: select target-first subtree and evaluate all blockers
-  alt Rejected scope, Claim, parent fence, external dependent, or Executor
-    Program-->>Store: Rejected with canonical evidence
-    Store->>DB: private body failure and successful stock rollback without writer call
+  alt Scope, Claim, parent fence, external dependent, or Executor rejection
+    Program-->>Store: direct public domain failure with canonical evidence
+    Store->>DB: successful stock rollback without writer call
   else Eligible selection
     Program->>Program: build one target-first selection and Activity batch
     Program-->>Store: CommitIntent(selection, TicketTrashed batch)
@@ -1187,24 +1142,30 @@ The feature supplies no separate deletion-order array. `moveSelectionToTrash` de
 
 ### Transaction Finalization Decision Table
 
-| Stock boundary observation | Private evidence guard | Public mapping | Retry rule |
-| --- | --- | --- | --- |
-| Recognized Bun SQLite construction defect | Path absence positively established after the defect | `StoreNotInitialized` | Initialize deliberately |
-| Recognized Bun SQLite construction defect | Path exists or path state is ambiguous | `StoreOpenFailed` | Correct access or inspect |
-| Unrelated construction defect | Not a recognized Bun open defect | Defect | Investigate; no typed retry claim |
-| Typed body `SqlError` | Stock rollback succeeded and returned the original body failure | `StoreTransactionFailed` | Deliberate retry is safe after correcting the cause |
-| Pending domain rejection | Stock rollback succeeded and returned the private wrapper | Original public domain error | No automatic retry |
-| `NoOpRollback { value }` | Stock rollback succeeded and returned the sentinel | Approved public no-op success | No automatic retry |
-| Original body defect or interruption | Body-exit evidence identifies it as the original Cause | Original defect or interruption | Not converted |
-| Pure defect-form `SqlError` during rollback finalization | Body failure was pending; Cause is not composite | `StoreTransactionOutcomeUnknown` and pending body outcome is superseded | Reread and reconcile |
-| Pure defect-form `SqlError` during commit finalization | Body succeeded; Cause is not composite | `StoreTransactionOutcomeUnknown` | Reread and reconcile |
-| Composite Cause containing `SqlError` | More than one Cause fact is present | Composite Cause remains a defect | Investigate; no typed retry claim |
-| Stock writable transaction returns success | Commit and client-scope finalization returned through the public abstraction | Prepared mutation success | Do not replay |
-| Read-only transaction statement or finalization failure | No mutation was attempted | `StoreQueryFailed` or validation query failure | Correct or validate; never use mutation-unknown reason |
+| Observation | Public mapping | Retry/recovery rule |
+| --- | --- | --- |
+| Recognized Bun SQLite construction defect; path absence established | `StoreNotInitialized` | Initialize deliberately |
+| Recognized Bun SQLite construction defect; path exists/ambiguous | `StoreOpenFailed` | Correct access or inspect |
+| `BEGIN IMMEDIATE` fails in the typed channel before body invocation | `StoreTransactionFailed` | Non-commit established; deliberate retry only after correction |
+| Domain error fails body; rollback succeeds | Original public domain error | No automatic retry |
+| `NoOpRollback { value }` fails body; rollback succeeds | Approved no-op success | No automatic retry |
+| Private persistence/statement/assertion failure; rollback succeeds | `StoreTransactionFailed` | Deliberate retry only after correction |
+| Phase-evidenced recognized public expected `Schema.TaggedError` body `Fail` plus rollback `Die(SqlError)` | `StoreTransactionOutcomeUnknown` | Reread and reconcile |
+| `NoOpRollback { value }` body `Fail` plus rollback `Die(SqlError)` | `StoreTransactionOutcomeUnknown` | Reread and reconcile; the no-op is not released |
+| Private persistence body `Fail` plus rollback `Die(SqlError)` | Preserve the original flat composite Cause unchanged | Investigate; no typed retry claim |
+| Successful body plus commit `Die(SqlError)` | `StoreTransactionOutcomeUnknown` | Reread and reconcile |
+| `withTransaction` succeeds; isolated outer mutation-client close then defects | `StoreMutationCommittedButFinalizationFailed` | Committed state authoritative; reread; do not replay |
+| Read-only transaction/client finalization fails | `StoreQueryFailed` or validation query failure | Validate/correct; never mutation finalization reason |
+| Initialization close fails before publication | Known non-publication | Never committed-finalization reason |
+| Original body defect, interruption, unrelated construction defect, unrecognized composite Cause, or negative look-alike composite | Preserve unchanged as defect/interruption | Investigate; no typed retry claim |
+
+Classification uses positive phase evidence captured at the boundary; it never infers begin/body/rollback/commit/outer-close phase from reason tags alone. A private persistence failure plus successful rollback remains `StoreTransactionFailed`; private persistence plus rollback defect, reordered composites, extra reasons, different `SqlError` placement, and every unrelated look-alike remain the exact original RC 111 flat Cause.
 
 Diagnostics come only from stable private classification of Effect SQL failures where safe, never from raw vendor messages as policy. The sanitizer removes SQL identifiers and text, parameters, rows, statement objects, stacks, raw Causes, private paths, and aliases; collapses controls/whitespace; applies the exact default and UTF-8/code-point truncation rules; and returns only `BoundedDiagnostic`. `SqlError.isRetryable` and suspected commit/rollback phase never cross the public boundary. (NFR2.5, DR4.16)
 
-The unknown-outcome human renderer is exactly `Error: Task Manager Store transaction outcome is unknown at <database-path>; reread current state before retrying: <diagnostic>`. Known non-commit remains exactly `Error: Task Manager Store mutation failed before commit at <database-path>: <diagnostic>`. The JSON codec mechanically emits this nested shape and no prose message:
+The additive public reason is exactly `StoreMutationCommittedButFinalizationFailed { diagnostic: BoundedDiagnostic }` inside the closed `StoreMutationError` reason union; it adds no other field.
+
+The unknown-outcome human renderer is exactly `Error: Task Manager Store transaction outcome is unknown at <database-path>; reread current state before retrying: <diagnostic>`. Known non-commit remains exactly `Error: Task Manager Store mutation failed before commit at <database-path>: <diagnostic>`. Known commit with outer finalization failure is exactly `Error: Task Manager Store mutation committed but finalization failed at <database-path>; reread current state and do not retry: <diagnostic>`. Its JSON codec mechanically emits this nested shape and no prose message:
 
 ```json
 {
@@ -1213,22 +1174,75 @@ The unknown-outcome human renderer is exactly `Error: Task Manager Store transac
     "type": "StoreMutationError",
     "databasePath": "/canonical/store/task-manager.db",
     "reason": {
-      "type": "StoreTransactionOutcomeUnknown",
+      "type": "StoreMutationCommittedButFinalizationFailed",
       "diagnostic": "<bounded-diagnostic>"
     }
   }
 }
 ```
 
+## Privileged Debug Observability
+
+### Activation and ownership
+
+The command tree declares one shared inherited root boolean parameter as `Flag.boolean("debug").pipe(Flag.atMost(1))`. Effect CLI remains the sole argv parser: there is no raw argv scan, pre-parser, or second parser. Exact RC 111 owns `--debug`, generated `--no-debug`, and boolean literal forms (`true | yes | on | 1 | y | false | no | off | 0 | n`) in its supported attached/separate syntax. `Flag.atMost(1)` retains all occurrences so the zero-element result means no explicit value, the one-element result is the explicit boolean, and repetition or a positive/negative mix is mechanically projected to the existing public `DuplicateOption` reason. There is no product alias and `GlobalFlag.LogLevel` remains absent.
+
+Only after successful command selection does `CliApplication` resolve activation lazily from the bounded parser result: explicit parsed CLI boolean, otherwise `TM_DEBUG`, otherwise false. Debug does not use `Flag.withFallbackConfig`, because parser-owned fallback evaluation would violate the help/version/completion and parse-failure bypass. An explicit false, including generated negation or a false literal, does not evaluate `TM_DEBUG`. `TM_DEBUG` is read case-sensitively without trimming and accepts exactly `true`, `false`, `1`, or `0`; present empty or any other spelling uses the existing environment `InputRejected` path. Help, version, completion, and every parse failure finish without reading `TM_DEBUG`, constructing Store/core/debug resources, or exporting.
+
+Debug is entirely CLI-private. It changes neither the exact public 15-method `TaskManagerService`, named access functions, operation inputs/results/errors, Semantic Activity, exact `TaskManagerLayerOptions { storeLocation }`, nor core Layer requirements/exports. `AppLive` provides one private resource-free `DebugTelemetrySessionFactory`; providing `AppLive` before parsing allocates no telemetry resource. Only after activation does `CliApplication.run` invoke the factory inside its command scope. Disabled/default/explicit-false mode skips enabled acquisition and allocates no exporter, queue, timer, stack projector, `HttpClient`, or network resource. The enabled command session owns privacy projection, one combined command queue with cap 128 and drop-on-overflow, fixed transport, force-flush, and shutdown.
+
+### Transparent observation
+
+Every operation observer uses the original Effect directly and returns its exact `Exit`: no catch, error map, retry, recovery, reclassification, reconstruction, `Effect.failCause`, or re-fail. Success identity, typed-failure/defect object identity, reason order and annotations, interruptor IDs, and RC 111 flat composite reasons are preserved. Observation delegates are untraced, non-suspending, and non-throwing. Each observer effect captures and discards its complete Cause, making it total before `Effect.onExit` can combine finalizer failure with the observed Cause. Throwing logger, tracer, attribute, queue, exporter, projector, cleanup, or shutdown delegates are contained at that boundary.
+
+Expected classifications are observation only. Unexpected defects, interruption, and unrecognized composites escape unchanged; they are neither logged as operation errors nor converted, so `BunRuntime` retains singular unexpected-failure reporting. Enabled and disabled runs preserve byte-identical product stdout/stderr, JSON, help/version/completion/parse output where applicable, framing, and status.
+
+Persistence and product observation order is normative: transaction body; narrow `withTransaction` classifier; isolated outer client close; outer-close classifier; final public operation observer; CLI rendering/runtime. The final process sequence is every Store/client finalizer, preserve the original Exit, publish product output exactly once, end `CliApplication.run`, perform one combined traces-plus-logs force-flush/shutdown under one deterministic 250 ms total deadline, then return the original Exit. Finalization has no retry and never reconstructs the Exit.
+
+### Transport and privacy boundary
+
+Enabled transport uses only direct OTLP HTTP to `http://127.0.0.1:4318/v1/traces` and `http://127.0.0.1:4318/v1/logs`. The client performs no DNS lookup, follows no redirect, accepts no proxy destination override, and sends no ambient authorization, proxy-authorization, cookies, URL userinfo/query, headers, credentials, or secrets. OTEL destination/header/credential variables, resource detectors, and ambient host/user/process attributes are not consumed. The exact resource allowlist is `service.name=task-manager`, manifest `service.version`, `effect.version=4.0.0-rc.111`, the closed telemetry schema version, and `telemetry.mode=privileged-debug`.
+
+There is no metric, periodic export, or network operation while a Store transaction or any `SqliteClient` scope is open. Refusal, HTTP status/failure, redirect, hang/timeout, serialization/projection/export defect, queue overflow, and telemetry finalization loss silently drop and cannot alter output or Exit.
+
+Final serialized traces and logs are default deny. They never include raw argv, reconstructed command lines, option or environment values, stdin/file contents, paths; Actor/Ticket/Claim/Store/Cursor/Subject/Description/Context/Result/Cancellation/Trash/Activity values; cwd/home/Git/temp/database paths; SQL identifiers/text/parameters/rows/counts/statements/engine/`SqlError`; public objects or malformed rows; diagnostics, raw vendor values, Exit/Cause/`Cause.pretty`, fibers/composite serialization; host/user/PID/executable/ambient resource; or credentials, cookies, tokens, secrets, URL query/userinfo. Ordinary attributes and logs contain no arbitrary messages or stacks.
+
+One singular package-owned defect may use an explicit reviewed terminal-span projector: a static or closed-enum sanitized message capped at 4096 UTF-8 bytes and at most 64 repository-relative application frames totaling at most 16384 UTF-8 bytes, each containing only function, relative source path, line, and column. External/dependency/cache/source-map frames, absolute prefixes, and URL data are dropped. Otherwise the terminal span uses exactly `Untrusted defect message omitted.` and no stack. Composite, vendor, or unapproved defects receive closed classification only. The Store-finalizer projector never serializes SQL/vendor/domain objects.
+
+RC 111 stock `OtlpTracer` automatically serializes exception messages/stacks and stock `OtlpLogger` serializes `Cause.pretty`; therefore neither unmodified stock Layer is installed and loggers are not default-merged. A total non-throwing allowlist wrapper/filter constructs safe terminal span/log data before stock serialization and never passes the raw application Exit/Cause to stock projection.
+
+### Sparse topology and classification
+
+After successful command selection and activation, the static span tree is only:
+
+- `CliApplication.run`;
+- optional `StoreLocationResolver.resolve`, with optional child `StoreLocationResolver.gitCommonRoot`;
+- optional `CommandInput.readFile`;
+- each genuine named public `TaskManager` access function exactly once;
+- exactly one child `CoordinationStore.runRead`, `CoordinationStore.runMutation`, `CoordinationStore.runInitialization`, or `CoordinationStore.runValidation`;
+- `StoreSqlClient.acquire`;
+- `CoordinationStore.publishInitialization` only for `init`; and
+- `ProcessOutput.publish`.
+
+Existing public named `Effect.fn` access functions own operation spans and observe delegated effects inside them; no traced wrapper duplicates them. A direct core invocation has its Task Manager operation as root unless an embedding parent exists. Multi-call flows have one span per genuine access. Static names only are exported. No span is emitted for private feature services/helpers, `CommandExecution`, renderers, Layer creation, semantic writers, Activity appenders, intents, transaction/session values, codecs, graph helpers, rows, SQL statements/transactions/checkpoints; stock `sql.execute` and `sql.transaction` export is suppressed.
+
+Allowed attributes are closed and low-cardinality: command/output mode; operation/kind; Store source/session; client profile; outcome; transaction outcome; recognized public expected-error parent/reason; fail/die/interrupt reason counts; exit code 0 or 1; and `db.system=sqlite`. Outcomes are `success`; `expected_failure` for exactly one recognized public `Schema.TaggedError` Fail; `defect` for exactly one Die; `interrupted` for interrupt-only; and `composite_failure` for multiple or mixed reasons. Recognition uses closed schemas/constructors, never arbitrary `_tag` strings. Recovery class is `non_commit_established`, `transaction_outcome_unknown`, or `committed_finalization_failed` only for the matching Store reasons.
+
+Privileged OTLP logs are required. An ordinary recognized expected failure emits at most one fixed classification log containing only operation, parent/reason, and recovery tags. `StoreTransactionOutcomeUnknown` and `StoreMutationCommittedButFinalizationFailed` each emit exactly one finalization classification log after public reason selection and suppress the ordinary duplicate. Interruption, unexpected defects, and unrecognized composites emit none. Approved defect evidence appears only on the terminal trace projection.
+
+### Debug evidence
+
+Tests use logical time and latches plus final serialized OTLP-byte capture. They prove disabled resource absence; complete flag/environment/precedence/invalid/suppression/repetition/mixed/generated-negation/help/version/completion behavior; off/on byte/status equality for success, no-op/no-work, each expected family, controlled defect, help/version/completion, and parse failure; exact Exit/Cause identity, annotations, interruption, and sequential/parallel-generated flat composites; throwing delegates; refusal/status/redirect/hang; topology/parents/cardinality/forbidden spans; no export until transaction and client scopes close; final order and the one 250 ms deadline; privacy canaries; finalization-log deduplication; and unchanged public architecture. Transaction rows include phase-evidenced public expected Fail plus rollback Die, `NoOpRollback` plus rollback Die, successful-body commit Die, private persistence plus rollback success, private persistence plus rollback defect, and reordered/extra-reason look-alikes.
+
 ## Integration Points
 
-- Exact lockstep Effect RC 111: `effect` `4.0.0-rc.111`, `@effect/sql-sqlite-bun` `4.0.0-rc.111`, and every participating Effect package at `4.0.0-rc.111`. The accepted unstable APIs are stock `effect/unstable/sql` `SqlClient`, `SqlSchema`, `SqlError`, statement compilation/binding, and `SqlClient.SafeIntegers`, plus `Context.Service`, Layer, Schema, `Effect.fn`, Scope, Cause/Exit, Deferred, MutableRef, Clock, Crypto, FileSystem, Path, Stream, Sink, Stdio, Console, Runtime, Bun platform, and `effect/unstable/cli`. RC 111 source at tag `effect@4.0.0-rc.111` is normative for signatures: `SqliteClient.make` requires Scope and Reactivity, opens Bun SQLite synchronously with a declared `never` error channel, uses a scoped close finalizer, and gives writable `withTransaction` `BEGIN IMMEDIATE`; stock `withTransaction` converts commit and rollback `SqlError` to defects with `Effect.orDie`. The CLI retains its pinned built-ins and no-color formatter.
-- Effect SQL feature boundary: use `SqliteClient.make`, generic `SqlClient`, stock `withTransaction`, statement compilation and parameter binding, `SqlError`, and `SqlSchema` where useful. Provide `Reactivity.layer` privately even though no reactive product API is exposed. Do not use `SqliteMigrator`, `SqlModel.makeRepository`, `SqlResolver`, reactive queries/mutations, SQL streaming, local forks, package-internal imports, patches, monkey-patching, or underlying Bun handles. Private tests may decorate only the public `SqlClient` contract.
+- Exact lockstep Effect RC 111: `effect` `4.0.0-rc.111`, `@effect/sql-sqlite-bun` `4.0.0-rc.111`, and every participating Effect package at `4.0.0-rc.111`. The accepted APIs include stock `effect/unstable/sql` `SqlClient`, `SqlSchema`, `SqlError`, statement compilation/binding, and `SqlClient.SafeIntegers`; `effect/unstable/process` `ChildProcess`/`ChildProcessSpawner`; Config/ConfigProvider; `FileSystem.makeTempFileScoped`; Clock/TestClock, DateTime/Duration, Crypto/Crypto.make, private `Context.Reference`, Layer, Schema, `Effect.fn`, Scope, Cause/Exit, Deferred, MutableRef, Stream, Sink, Stdio, Console, Runtime, Bun platform, and `effect/unstable/cli`. RC 111 source at tag `effect@4.0.0-rc.111` is normative for signatures: `SqliteClient.make` requires Scope and Reactivity, opens Bun SQLite synchronously with a declared `never` error channel, uses a scoped close finalizer, and gives writable `withTransaction` `BEGIN IMMEDIATE`; stock `withTransaction` converts commit and rollback `SqlError` to defects with `Effect.orDie`. The CLI retains its pinned built-ins and no-color formatter.
+- Effect SQL feature boundary: use `SqliteClient.make`, generic `SqlClient`, stock `withTransaction`, statement compilation and parameter binding, private `SqlError`, and module-scope `SqlSchema` as the default for every ordinary fixed-shape request/result. Provide `Reactivity.layer` privately even though no reactive product API is exposed. Do not use `SqliteMigrator`, `SqlModel.makeRepository`, `SqlResolver`, reactive queries/mutations, SQL streaming, local forks, package-internal imports, patches, monkey-patching, or underlying Bun handles. Private tests may decorate only the public `SqlClient` contract.
 - Bun `1.3.13`: the pinned executable and its embedded SQLite engine are the entire native database boundary. Qualification records the Bun executable digest, `sqlite_version()`, `sqlite_source_id()`, ordered compile options, and exact connection behavior. Product code never imports `bun:sqlite.Database` and has no libSQL, Rust, N-API, Cargo/toolchain, or custom native-artifact dependency.
-- Filesystem: canonical Store directory, mode `0700` when created by Task Manager, exclusive same-directory initialization temporary-file creation with mode `0600`, sidecar absence checks, no-replace hard-link publication, regular-file input, strict UTF-8 reads, and scoped test directories. Effect FileSystem alone creates initialization files; every Effect SQL open uses `create: false`.
-- Git: one child-process query for canonical common-root discovery after cwd resolution. Failure to establish Git scope falls back outside Git only when Git reports not-a-repository; operational Git failures remain typed path/configuration failures rather than silently changing project identity.
+- Filesystem: canonical Store directory, mode `0700` when Task Manager creates it, scoped seed creation through `makeTempFileScoped`, immediate checked seed `chmod 0600`, acquire/release same-directory staging hard link with sidecar cleanup, independent close/reopen verification, uninterruptible no-replace publication, regular-file input, strict UTF-8 reads, and scoped test directories. Every SQL open uses `create: false`.
+- Git and process fixtures: `effect/unstable/process` `ChildProcess.make` and scoped `ChildProcessSpawner.spawn` own the single bounded-byte Git query after cwd resolution and every real process fixture. Only documented not-a-repository falls back; operational failures remain typed. Fixtures bound capture/wait/cleanup and record only harness-requested signals because RC 111 does not expose observed signal identity. Direct Bun/Node spawning and `PlatformError` message parsing are forbidden.
 - SHA-256: Effect Crypto over UTF-8 canonical project scope; the project key implementation uses the complete lowercase digest.
-- Environment: only `TM_CWD`, `TM_STORAGE_PATH`, and `TM_ACTOR`, read at the CLI adapter.
+- Environment: independent lazy preserving Config descriptors read only `TM_CWD`, `TM_STORAGE_PATH`, `TM_ACTOR`, and CLI-private `TM_DEBUG`; `CommandInput` owns path/Actor precedence and source meaning, the activation boundary owns debug precedence/exact values, and ambient OTEL Config remains untouched.
 - Process streams: a runner-scoped Effect Console stages only framework output and appends the required LF, Effect Stdio publishes each selected pre-encoded byte sequence through a one-element Stream/Sink run, and a private expected-exit error uses `Runtime.errorExitCode`/`Runtime.errorReported` with default teardown while preserving ordinary defect and signal handling.
 - Skills and documentation: rebuilt only after core/CLI conformance, tested in fresh sessions against disposable Stores and real generated help/JSON. They import no implementation authority. (FR1.42, IR5.6)
 
@@ -1237,13 +1251,15 @@ The unknown-outcome human renderer is exactly `Error: Task Manager Store transac
 - Error model: public expected failures are closed Schema-backed tagged values. Operation wrappers own target IDs and nested reasons; common Store/lookup/fence values are reused without generic prose fields. Persistence and platform errors are private and mapped before crossing the core or CLI seam.
 - Store absence: every stock client construction uses `create: false`. A narrow boundary around `SqliteClient.make` maps a recognized Bun SQLite construction defect to `StoreNotInitialized` only when post-defect Effect FileSystem evidence positively establishes path absence; existing or ambiguous path state maps the recognized defect to `StoreOpenFailed`. An unrelated construction defect remains a defect. No existence check can enable creation.
 - Open/query failure: client construction and database-identity failures are separated from failures after a safe open. Query/decode and read-only finalization failures direct validation but disclose no SQL, rows, `SqlError`, or Bun error.
-- Known rollback: typed statement `SqlError`, semantic-writer assertion mismatch, injected transaction-body failure, or mutation-program infrastructure failure returns `StoreTransactionFailed` only after stock `withTransaction` successfully rolls back and returns that typed body failure. Reopen evidence must show equality and successful retry. A writer assertion never triggers a domain reread, alternative public reason, or retry.
-- Unknown outcome: only a pure defect-form Effect SQL `SqlError` escaping stock mutation finalization returns `StoreTransactionOutcomeUnknown`. Private body-exit evidence excludes original body defects; unrelated defects, interruption, and composite Causes remain unchanged. Pending domain/no-op outcomes are superseded when rollback finalization defects. No automatic retry, durable receipt, phase field, provider retryability, or retryability boolean is added.
+- Known non-commit: typed `BEGIN IMMEDIATE` failure returns `StoreTransactionFailed` before body invocation and without rollback. Typed statement `SqlError`, semantic-writer assertion mismatch, injected transaction-body failure, or mutation-program infrastructure failure returns `StoreTransactionFailed` only after stock `withTransaction` successfully rolls back and returns that typed body failure. Reopen evidence must show equality and successful retry. A writer assertion never triggers a domain reread, alternative public reason, or retry.
+- Transaction uncertainty: successful-body commit `Die(SqlError)` and only the exact phase-evidenced recognized public expected `Schema.TaggedError` Fail or `NoOpRollback` Fail plus rollback `Die(SqlError)` composite return `StoreTransactionOutcomeUnknown`. A private persistence Fail plus rollback success maps `StoreTransactionFailed`; private persistence plus rollback defect, original defects, interruption, negative look-alikes, and unrelated composites remain unchanged.
+- Committed but outer finalization failed: only after ordinary effective mutation, proven `withTransaction` success, no subsequent application work, and a positively isolated pure mutation-client close defect does the runner return `StoreMutationCommittedButFinalizationFailed`. Committed state is authoritative; reread is required and replay forbidden. Privileged telemetry may record a sanitized close-defect message and repository-relative stack frames.
+- No public finalization reason adds a durable receipt, phase, provider retryability, retryability boolean, SQL, raw Cause, automatic transaction/domain retry, or replay.
 - Domain race: current identity, lifecycle, Claim, hierarchy, Dependency, Executor scope, and relation state select the typed outcome. The core never waits for a preferred domain result or reruns policy after losing a race.
-- Initialization: same-directory complete temporary construction plus no-replace hard-link publication prevents an incomplete canonical Store and turns a concurrent publication loss into compatibility inspection.
+- Initialization: scoped FileSystem seed plus same-directory staging construction, independent close/reopen verification, and uninterruptible no-replace hard-link publication prevent an incomplete canonical Store. Only `AlreadyExists` becomes compatibility inspection after private scope closure; interruption before publication leaves no canonical Store, and cleanup never unlinks a published Store.
 - Validation: gates fail fast through structure safety; aggregate issues are returned together only after safe inspection. Unsafe optional observations are omitted, not coerced.
 - Logical expiry: the operation's single instant determines effective Claim state. Expired rows remain durable until a mutation on that Ticket replaces or consumes/removes them; ordinary reads do not clean them.
-- Interruption: stock `withTransaction` restores interruption only for the body and owns uninterruptible rollback/commit finalization. The targeted defect converter never turns interruption or a composite Cause into a typed Store failure.
+- Interruption: stock `withTransaction` restores interruption only for the body and owns uninterruptible rollback/commit finalization. Initialization acquisitions atomically register cleanup and publication is masked. Targeted converters never turn interruption or an unrecognized composite Cause into a typed Store failure.
 - Degraded modes and recovery: invalid/incompatible Store is read-only rejected; query/integrity problems direct `tm validate`; known rollback permits deliberate retry after correcting the cause; unknown transaction outcome requires reread and reconciliation before retry; Trash has no recovery/purge; Claim handoff remains release then ordinary acquisition or waiting for expiry.
 
 Private transaction-body fault checkpoints exist after Snapshot effects, Claim reservation/installation/removal effects, relationship effects, per-item Trash insertion and active deletion, per-item Activity insertion and high-water effects, and immediately before body success. They can suspend or fail only the real production body; they cannot return a fabricated domain result, bypass the runner's exactly-once Activity call, or inject after stock finalization begins. Unknown-outcome evidence instead uses one test-only `SqlClient` decorator that delegates to the real stock transaction, allows its real commit, then suppresses the successful return with a defect-form `SqlError` without manufacturing a domain result or retrying. (TC3.7, NFR2.9-NFR2.10)
@@ -1252,7 +1268,7 @@ Private transaction-body fault checkpoints exist after Snapshot effects, Claim r
 
 - Actor Identity is recorded attribution only. No module authenticates it or treats `--allow-human` or other acknowledgments as authorization.
 - Task Manager-created Store directories and databases use owner-only permissions; existing permissions are not silently widened. Explicit paths do not expand `~`, and canonicalization prevents symlink aliases from producing separate Store identities.
-- Effect SQL owns statement compilation and parameter binding. Dynamic SQL structure comes only from closed package-owned manifest values, never caller input. SQL identifiers and text, bound parameters, untrusted rows, statement objects, `SqlError`, raw Causes, stacks, engine objects, private temporary paths, and path aliases remain private. Statement objects are never serialized because their JSON includes parameters. Parameter-free compiled SQL text may exist only in private spans; parameters and rows are never attached to logs or spans. Exported telemetry is privileged operational data and requires separate review. Only bounded typed diagnostics cross the public seam.
+- Effect SQL owns statement compilation and parameter binding. Dynamic SQL structure comes only from closed package-owned manifest values, never caller input. Product stdout/stderr, public JSON, metrics, ordinary attributes, SQL spans, and non-privileged logs contain no SQL identifiers/text, parameters, rows, statement objects, raw Causes, stacks, Store records, Activity/Result payloads, secrets, engine objects, private temporary paths, or aliases. The privileged allowlist may contain sanitized defect messages and repository-relative stack frames, including isolated close-finalizer defects, but this is not authorization to intentionally attach any banned SQL/domain payload. Console and Stdio remain product/framework output capabilities and are never telemetry sinks. Telemetry enablement never changes product bytes or the program's original `Exit`/`Cause`; exported telemetry requires separate review. Only bounded typed diagnostics cross the public seam.
 - Foreign keys, uniqueness, lifecycle checks, and indexes provide defense in depth. Cross-feature domain policy remains in neutral pure private modules, while operation precedence and operation-local intent construction remain in the owning feature because SQL constraints cannot express approved precedence, no-op placement, or human scopes. SQL guards and affected-row counts assert the already chosen transition; they never choose public domain outcomes.
 - Verified SQLite `journal_mode: DELETE` plus writable `synchronous: FULL` is the declared qualification target. `DELETE` names rollback-journal mode throughout the operation; it does not delete the database. All multi-record facts and high-water commit together; no network call, Git command, file input, or human wait occurs inside a database transaction.
 - One fresh scoped stock client per ordinary operation makes connection-local pragma verification and scope ownership explicit. Concurrent calls through one capability may own separate clients; same-process and cross-process writers serialize through the RC 111 Bun driver's `BEGIN IMMEDIATE`, while each read-only client owns one snapshot transaction without a writer reservation.
@@ -1264,9 +1280,9 @@ Private transaction-body fault checkpoints exist after Snapshot effects, Claim r
 
 ## Implementation Strategy
 
-- Composition sites: `packages/core/src/TaskManager.ts` exposes the public service and exported `layer(options)` that composes and hides the complete private core service graph. `packages/cli/src/AppLive.ts` is the static process composition root. `CliApplication.layer` owns the one sanctioned dynamic `CommandInvocation`/`Layer.unwrap` subtree that constructs the Store-specific `TaskManager` and `CommandExecution` services after preparation. `packages/cli/src/bin.ts` only provides `AppLive` to `CliApplication.run` and invokes `BunRuntime.runMain`; command handlers contain no Layer construction or manual service provision.
+- Composition sites: `packages/core/src/TaskManager.ts` exposes the public service and exported `layer(options)` that composes and hides the complete private core graph. `packages/cli/src/AppLive.ts` owns static process infrastructure. `CliApplication` invokes ordinary `prepareCommand`, constructs the Store-specific `TaskManager` Layer, and directly provides ordinary `executeCommand(prepared)` exactly once. `packages/cli/src/bin.ts` only provides `AppLive` to `CliApplication.run` and invokes `BunRuntime.runMain`.
 - Resource ownership: `StoreSqlClient` constructs one fresh `SqliteClient.make` inside one private scope for each ordinary Store operation, provides Reactivity privately, and finalizes the scope before return; no outward `Scope` requirement remains. `CoordinationStore` owns stock `withTransaction` and creates its read session, semantic writer, and Activity appender only inside that transaction after writer acquisition; none owns a resource independently or escapes. `StoreAdministration` initialization owns the logical publication use case and its sequential construction and verification client scopes while the Store runner owns and cleans its unique temporary database; CLI services and tests retain their existing resource ownership.
-- Direct runtime boundary: stock `@effect/sql-sqlite-bun` is the only database runtime integration and internally owns `bun:sqlite.Database`; product code never imports or accesses it. The only exceptional recovery seams are the narrow client-construction defect classifier and transaction-finalization defect converter described above. Filesystem links, Stdio, Console, child processes, Crypto, Clock, paths, and process teardown use Effect capabilities.
+- Direct runtime boundary: stock `@effect/sql-sqlite-bun` is the only database runtime integration and internally owns `bun:sqlite.Database`; product code never imports or accesses it. Narrow recovery seams classify construction, stock transaction uncertainty, and isolated outer mutation-client close separately. FileSystem scoped artifacts/links, Config, Stdio, Console, `effect/unstable/process`, Crypto, Clock/TestClock, paths, and process teardown use Effect capabilities.
 - Strategy: establish strict pure domain Schemas and policies first; define only coherent effectful capabilities as `Context.Service`s with dependency-requiring Layers; implement and qualify `StoreSqlClient`; implement `CoordinationStore` stock transaction runners and the constrained semantic writer/Activity appender; implement `StoreValidation`; implement feature-owned decision/intent/commit-function slices inside the four feature services; map the exact `TaskManager` façade; assemble live/test core Layers; then define CLI services, compose `AppLive`, and reduce `bin.ts` to provision plus `runMain`. This order keeps feature decisions separate from persistence assertions without introducing service-per-operation or service-per-table nodes.
 
 The source tree follows Lalph's capability-first naming and thin-entrypoint pattern without copying its single-package product layout: the public capability stays near the package root, cohesive feature behavior is grouped by owned use case, and generic horizontal repository/service folders are avoided. The additional `internal/` partition enforces Lean V1's stricter two-package export seam.
@@ -1289,18 +1305,18 @@ packages/core/src/
   internal/claims/                      Claims service/Layer, decisions, intents, commit functions
   internal/trash/                       Trash service/Layer, canonical selection and commit function
   internal/persistence/                 CoordinationStore and StoreSqlClient services/Layers, Effect SQL setup, schema, codecs, transaction-local sessions/writers/appender
-  internal/runtime/                     Clock, identity, mutation-control services/Layers, diagnostics
+  internal/runtime/                     identity/allocation helpers, mutation-checkpoint reference, diagnostics
   internal/testing/                     private test Layers, barriers, and fault controls
 
 packages/cli/src/
   bin.ts                                provide AppLive to main Effect; Bun runMain only
   AppLive.ts                            static CLI Layer composition root
-  CliApplication.ts                     application service and dynamic invocation Layer composition
+  CliApplication.ts                     application service and exactly-once TaskManager provision
   CliRuntime.ts                         staged Console, arbitration, Stdio, expected-exit service
-  CommandInput.ts                       sources, files, JSON, Actor, and scope service
-  StoreLocationResolver.ts              cwd, Git, and canonical Store-resolution service
-  CommandInvocation.ts                  prepared per-command service and Layer factory
-  CommandExecution.ts                   one-TaskManager command execution service
+  CommandInput.ts                       Config sources, files, JSON, Actor, and scope service
+  StoreLocationResolver.ts              cwd, Effect-process Git, and Store-resolution service
+  prepareCommand.ts                     one-shot prepared-command Effect.fn
+  executeCommand.ts                     one-shot TaskManager execution Effect.fn
   ProcessOutput.ts                      single-publication service
   commandTree.ts                        Effect CLI grammar and service calls only
   output/                               pure human and JSON renderers
@@ -1326,12 +1342,15 @@ Implementation must pin `effect`, `@effect/sql-sqlite-bun`, and every participat
 - Read tests prove one observation for details, list, selection, preview, and validation while a competing process commits; use the exact read-only profile, prove it acquires no writer reservation, pin a deferred stock read transaction with its first metadata read before sampling the observation instant, cover a Claim commit before that pinning read, and prove logical expiry causes no write. Read-only finalization failure maps to query failure, never mutation unknown outcome.
 - Black-box multi-process tests spawn a dedicated fixture importing only the public core package; natural start barriers coordinate before invocation. Controlled race fixtures under `packages/core/test/fixtures/` may additionally import the package-private `TestTaskManager.layer` and control protocol, but they still invoke only exported access functions and the real Store implementation. The controls only pause at named production checkpoints; the real database decides concurrent initialization, multiple writers, Claim acquisition, renewal/release/expiry fences, cascades, and competing cycles. (NFR2.2, NFR2.14-NFR2.18)
 - The global fence, completion, cancellation, deletion, and Dependency suites enumerate every precedence and race combination in NFR2.14-NFR2.18 as named table rows. Each losing operation asserts its exact typed reason and absence of automatic retry.
-- Real Store transaction evidence first proves a successful stock Effect SQL commit, client-scope finalization, and reopen. Completion, cancellation cascade, Trash cascade, Dependency addition, and Dependency removal each inject a typed transaction-body failure after material effects, allow stock rollback and scope finalization, reopen the Store, prove byte/domain equality of every relevant Snapshot, Claim, relationship, Trash, Activity, timestamp, and high-water fact, then deliberately retry through the public access function. Focused tests prove the original typed body failure returns only after successful rollback, while rollback-finalization defect supersedes any pending typed body failure. (NFR2.9)
-- Unknown-outcome evidence installs one private test-only `SqlClient` decorator below the real `CoordinationStore`. It delegates to the real stock `@effect/sql-sqlite-bun` transaction, allows that transaction to commit, suppresses only its successful return with a defect-form `SqlError`, manufactures no domain result, and performs no retry. Through one exported public operation and real temporary Store, the test asserts `StoreTransactionOutcomeUnknown`, rereads the exactly-once committed mutation, and proves the transaction body ran once. It does not simulate physical disk failure.
-- An executable RC 111 contract test uses actual `SqlClient.make` with a controlled low-level `SqlConnection` to prove three stock behaviors: successful body plus commit failure defects with `SqlError`; failed body plus rollback failure defects with `SqlError`; and failed body plus successful rollback returns the original typed body failure. Additional Cause tests prove original body defects, interruption, and composite Causes are not converted by the Store boundary.
+- Real Store transaction evidence proves: typed `BEGIN IMMEDIATE` failure with body invocation count zero, no rollback, and unchanged reopened state; direct public domain body failure plus successful rollback; `NoOpRollback` plus rollback; typed private persistence failure plus rollback and `StoreTransactionFailed`; successful stock commit and transaction-scope completion; isolated outer client close success; and reopen. Representative mutation families fail after material effects, roll back, reopen equal, then deliberately retry. Focused RC 111 Cause tests prove a phase-evidenced recognized public expected `Schema.TaggedError` Fail plus rollback `Die(SqlError)` and `NoOpRollback` plus rollback `Die(SqlError)` map to `StoreTransactionOutcomeUnknown`, successful body plus commit `Die(SqlError)` maps likewise, private persistence plus rollback defect remains unchanged, and original defects, interruption, reordered/extra-reason look-alikes, and unrelated composites remain unchanged. (NFR2.9)
+- Known-commit outer-finalization evidence uses an isolated public-client-scope test decorator below real `CoordinationStore`: real `withTransaction` returns success once, no application work follows, then outer close defects. Through an exported public mutation it asserts exact `StoreMutationCommittedButFinalizationFailed` human/JSON, privileged close-defect telemetry, exactly-once authoritative reread, and no replay. This is separate from commit/rollback unknown-outcome tests and read-close classification.
+- An executable RC 111 contract test uses actual `SqlClient.make` with controlled `SqlConnection` to prove begin failure returns typed `SqlError` before body invocation and without rollback; success plus commit failure; failed body plus rollback failure composite Cause; failed body plus successful rollback returning the original typed failure; and `withTransaction` success occurring before outer client-scope closure.
 - Validation fixtures construct real malformed databases only through private test arrangement. Every gate, issue family, deterministic locator, physical reorder, duplicate issue, valid/invalid reference combination, cycle witness, Cursor/high-water case, safe/unsafe identity, diagnostic bound, and JSON nested tag is asserted through exported `validateStore`. Schema-manifest fixtures also remove or alter each Claim-reservation trigger and prove structure rejection before aggregate validation. (NFR2.19)
-- Real CLI process tests spawn `packages/cli/src/bin.ts` using the pinned Bun runtime and disposable Stores. They assert raw stdout/stderr bytes, exit status, argv-order parse errors, duplicate flags, environment fallback, cwd/Git/Store paths, strict files, Actor-before-Store, acknowledgments, exact human output, compact one-object JSON, and one newline. Dedicated runner cases prove explicit help/version/completion exit 0; an empty-error `ShowHelp` forwards staged help; every non-empty parse failure discards staged help in both human and JSON modes; duplicate `Deferred.succeed`, unsupported staged Console arguments, and simultaneous framework/product output defect; Stdio Sink failure defects; `--wizard` and `--log-level` are unknown options; expected failures carry the Runtime markers and exit 1 without runtime diagnostics; and an unexpected defect still follows default Bun reporting and teardown. Source-level boundary tests prove `bin.ts` remains thin and no command handler calls `BunRuntime`, mutates `process.exitCode`, or writes live streams. Core race matrices are not duplicated at this layer. (NFR2.8, NFR2.19)
-- Initialization tests race independent processes against an absent final path and assert exactly one `Created`, compatible `Existing` outcomes, one complete canonical database, no partial publication, verified published mode `0600`, and unchanged incompatible existing files. They prove Effect FileSystem exclusively creates the same-directory temporary file, every construction and verification client opens with `create: false`, writable configuration and schema transaction succeed, construction scope finalizes, no sidecar remains, an independent read-only client validates complete format 1, verification scope finalizes, and no-replace publication occurs only afterward. Removing the main file immediately before `SqliteClient.make` proves no absent Store is created; recognized construction defects exercise absent/existing/ambiguous path classification, while unrelated defects remain defects. Generated-schema validation failure and either scope-finalization defect prevent publication.
+- Real CLI process tests spawn `packages/cli/src/bin.ts` through scoped `effect/unstable/process` `ChildProcess.make`/`ChildProcessSpawner.spawn` using the pinned Bun runtime and disposable Stores. They assert raw stdout/stderr bytes, exit status, argv-order parse errors, duplicate flags, environment fallback, cwd/Git/Store paths, strict files, Actor-before-Store, acknowledgments, exact human output, compact one-object JSON, and one newline. Dedicated runner cases prove explicit help/version/completion exit 0; an empty-error `ShowHelp` forwards staged help; every non-empty parse failure discards staged help in both human and JSON modes; duplicate `Deferred.succeed`, unsupported staged Console arguments, and simultaneous framework/product output defect; Stdio Sink failure defects; `--wizard` and `--log-level` are unknown options; expected failures carry the Runtime markers and exit 1 without runtime diagnostics; and an unexpected defect still follows default Bun reporting and teardown. Source-level boundary tests prove `bin.ts` remains thin and no command handler calls `BunRuntime`, mutates `process.exitCode`, or writes live streams. Core race matrices are not duplicated at this layer. (NFR2.8, NFR2.19)
+- Initialization tests race independent processes against an absent final path and assert exactly one `Created`, compatible `Existing` outcomes, one complete canonical database, no partial publication, published mode `0600`, and unchanged incompatible files. They prove `makeTempFileScoped` seed ownership, immediate chmod verification, acquire/release same-directory staging link and LIFO idempotent sidecar cleanup, every client `create: false`, independent construction/verification scopes, uninterruptible no-replace publication, loser scope closure before winner inspection, and interruption/failure at every phase. Prepublication failure leaves no canonical Store; postpublication cleanup failure leaves a valid Store and later init returns `Existing`; neither uses the committed-mutation finalization reason. Removing the main file immediately before `SqliteClient.make` proves no absent Store is created; recognized construction defects exercise absent/existing/ambiguous path classification, while unrelated defects remain defects. Generated-schema validation failure and either scope-finalization defect prevent publication.
+- `SqlSchema` contract tests prove request encoding before execute; every unknown row decoded; strict excess-property rejection from schema annotations; empty/first-row behavior of all five admitted helpers; private `SchemaError`/`NoSuchElementError` projection; and zero/exact/excess guarded `RETURNING` assertions. Raw-validation tests prove the read-only inspector is the only direct unknown-row exception and ordinary malformed reads fail closed. Architecture checks ban `SqlModel.makeRepository`, `SqlResolver`, and semantic-writer `SqlSchema.void`.
+- Config tests prove absence, selected empty string, explicit invalid value, and lazy higher-precedence suppression for each TM variable without changing ambient OTEL/debug Config. Native `TestClock` and deterministic `Crypto.make` tests preserve one-instant leases, secure live entropy, collision behavior, and exhaustion semantics. CLI composition tests prove one Task Manager provision per prepared command and no one-shot service identities.
+- Process fixture tests assert bounded raw stdout/stderr capture, strict decode, exit code, Scope cleanup, bounded escalation, and requested-signal-only evidence; architecture checks ban direct Bun/Node child process use and `PlatformError` message parsing.
 - Architecture tests assert the core service has exactly 15 methods and matching named access functions; the root exports exact `TaskManagerLayerOptions` and `layer(options)` alongside the closed capability; access functions retain only the `TaskManager` requirement; the public Layer eliminates every private requirement and shares one `CoordinationStore` and `StoreSqlClient` service value without `Layer.fresh`; no private service, `SqlClient`, connection, statement, row, `SqlError`, engine handle, transaction value, or core internal subpath is exported; every coherent reusable effectful capability with runtime identity has a `Context.Service` and Layer; mutation programs, operation intents, commit functions, transaction sessions, writers, and appenders do not; package import direction remains closed; the CLI imports only the public core root; `bin.ts` only provides `AppLive` and calls `runMain`; command handlers perform no Layer construction; and no product source imports `bun:sqlite`, libSQL, Effect package internals, `SqliteMigrator`, `SqlModel.makeRepository`, `SqlResolver`, reactive SQL APIs, or SQL streaming. Tests do not freeze one exact Layer syntax, but they prove one scoped stock client per ordinary operation, private Reactivity provision, no client cache, service ownership, dependency elimination, public behavior, transaction evidence, and export closure.
 - Qualification runs the complete suite on Bun `1.3.13` with its exact executable digest and embedded SQLite identity, `effect` `4.0.0-rc.111`, `@effect/sql-sqlite-bun` `4.0.0-rc.111`, every participating Effect package at RC 111, the exact recorded Darwin 25 arm64 patch, local APFS, and both declared connection profiles. It records `sqlite_version()`, `sqlite_source_id()`, ordered compile options, pragmas, open flags, busy behavior, and resolved lockfile. Any participating Effect upgrade reruns source review, stock transaction and client-construction contract tests, full real-Store, multi-process, initialization, CLI process, and support-statement generation. The support statement is evidence output, not an assumption.
 - Rebuilt skills run in fresh isolated agent sessions against disposable Stores only after core and CLI conformance. Examples are compared with generated help and real public JSON before documentation regeneration. (FR1.42, IR5.6)
@@ -1340,7 +1359,7 @@ Implementation must pin `effect`, `@effect/sql-sqlite-bun`, and every participat
 ## Risks and Tradeoffs
 
 - Exact RC 111 `effect/unstable/sql` is intentionally accepted despite its unstable status. Stock ownership removes the custom Rust/N-API/native-artifact burden, but participating Effect upgrades become qualification events because `SqliteClient.make` construction and `withTransaction` defect semantics are version-sensitive. The design forbids forks, patches, monkey-patching, internals, and underlying Bun handles so qualification remains against the published package.
-- RC 111 stock `withTransaction` turns commit and rollback `SqlError` into defects. The narrow converter preserves a useful public unknown-transaction outcome without misclassifying original body defects, but it requires explicit body-exit evidence and exact Cause-shape tests. Composite Causes intentionally remain defects rather than being flattened into a misleading public result.
+- RC 111 stock `withTransaction` turns commit and rollback `SqlError` into defects. Exact phase-evidenced Cause classification maps successful-body commit `Die(SqlError)` and only recognized public expected `Schema.TaggedError` Fail or `NoOpRollback` Fail plus rollback `Die(SqlError)` to transaction uncertainty; private persistence plus rollback defect, original defects, interruption, negative look-alikes, and every unrelated composite remain unchanged. This requires explicit body-exit evidence and contract tests.
 - RC 111 `SqliteClient.make` declares `never` while synchronous Bun construction may defect. The narrow recognized-defect plus path-state classifier retains absence/open recovery, but ambiguous filesystem state must fail conservatively as `StoreOpenFailed`, and unrelated defects remain defects.
 - Same-directory hard-link initialization is intentionally profile-specific. It provides no-replace atomic publication on the local APFS qualification target, while ordinary Effect SQL scope finalization plus independent reopen validation replaces direct strict-close proof. Network filesystems and other unqualified platforms are not advertised.
 - Delete-journal mode favors initialization publication and the qualified format-1 profile over WAL read/write concurrency. Writers may wait for readers at commit, bounded by the busy timeout; because Bun SQLite is synchronous, busy waiting blocks the event loop. The complete concurrency suite must qualify this tradeoff and prove waiting never replays domain decisions.
@@ -1359,4 +1378,4 @@ Implementation must pin `effect`, `@effect/sql-sqlite-bun`, and every participat
 
 - Assumptions: This technical design and the revised charter, user stories, and requirements are one pending approval pack. A later explicit final-pack approval will update repository authority references and remove the legacy architecture/checklist before implementation Ticket recreation.
 - Open questions: None.
-- TODO: Confirm: None.
+- Confirmation items: None.

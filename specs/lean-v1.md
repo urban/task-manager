@@ -268,7 +268,11 @@ type StoreMutationErrorReason =
       readonly diagnostic: BoundedDiagnostic;
     }
   | {
-      readonly _tag: "StoreCommitOutcomeUnknown";
+      readonly _tag: "StoreTransactionOutcomeUnknown";
+      readonly diagnostic: BoundedDiagnostic;
+    }
+  | {
+      readonly _tag: "StoreMutationCommittedButFinalizationFailed";
       readonly diagnostic: BoundedDiagnostic;
     };
 
@@ -279,14 +283,15 @@ type StoreMutationError = {
 };
 ```
 
-`StoreTransactionFailed` is used only when non-commit is known, including a failure before the `COMMIT` attempt whose transaction has completely rolled back. `StoreCommitOutcomeUnknown` means a commit was attempted but the physical outcome cannot be established; it never claims rollback or safe blind retry. Callers reread current state and reconcile before deciding whether to retry. Domain rejection and no-op outcomes remain distinct and never become Store failures. No generic retryability boolean is exposed because recovery follows the reason.
+`StoreTransactionFailed` is used only when non-commit is established, including typed `BEGIN IMMEDIATE` failure before body invocation and private persistence failure returned only after successful rollback. `StoreTransactionOutcomeUnknown` means stock commit or rollback finalization did not establish the durable outcome; callers reread and reconcile before deciding whether to retry. `StoreMutationCommittedButFinalizationFailed` means stock `withTransaction` succeeded and only the isolated outer mutation-client close then failed; committed state is authoritative and must not be replayed. Domain rejection and no-op outcomes remain distinct after successful rollback. No generic retryability boolean is exposed because recovery follows the reason.
 
 Diagnostics and `databasePath` follow the same canonical-path, normalization, bound, and no-vendor-internals rules as `StoreReadError`. Human output is exact:
 
 - `StoreNotInitialized`: `Error: Task Manager Store is not initialized at <database-path>; run tm init.`
 - `StoreOpenFailed`: `Error: Could not open Task Manager Store at <database-path>: <diagnostic>`
 - `StoreTransactionFailed`: `Error: Task Manager Store mutation failed before commit at <database-path>: <diagnostic>`
-- `StoreCommitOutcomeUnknown`: `Error: Task Manager Store commit outcome is unknown at <database-path>; reread current state before retrying: <diagnostic>`
+- `StoreTransactionOutcomeUnknown`: `Error: Task Manager Store transaction outcome is unknown at <database-path>; reread current state before retrying: <diagnostic>`
+- `StoreMutationCommittedButFinalizationFailed`: `Error: Task Manager Store mutation committed but finalization failed at <database-path>; reread current state and do not retry: <diagnostic>`
 
 JSON mechanically maps parent and reason `_tag` fields to `type`, preserves every field, and adds no prose `message`. Public schema-backed definitions support Effect parent/reason catching and reason unwrapping.
 
@@ -2861,6 +2866,53 @@ declare const removeTicketDependency: (
 The endpoint and fence fields mirror `ChangeDependencyInput`, but the required `gateScope` prevents invalid addition/removal field combinations. The core owns lookup, lifecycle, no-op detection, target fencing, gate enforcement, dependency normalization, transaction, and Activity.
 
 The CLI surface is `tm unblock <ticket-id> --by <dependency-id> --actor <identity> [--claim-id <uuid>] [--allow-human]` plus shared Store/JSON flags, with `TM_ACTOR` fallback. The optional Claim ID maps mechanically to `TargetClaimFence`, and `--allow-human` maps to `DependencyRemovalGateScope`. The adapter calls `removeTicketDependency` once without endpoint or relationship pre-reads.
+
+## Privileged debug traces and logs
+
+### Activation contract
+
+The CLI declares exactly one shared root boolean parameter, `Flag.boolean("debug").pipe(Flag.atMost(1))`, inherited by every command. Effect CLI is the sole argv parser; no raw argv scan or second parser exists. Exact RC 111 owns `--debug`, generated `--no-debug`, and its boolean literal forms (`true | yes | on | 1 | y | false | no | off | 0 | n`) in supported attached/separate syntax. The bounded result retains zero or one explicit boolean; repeated or mixed forms produce the existing public `DuplicateOption`. There is no alias and no `GlobalFlag.LogLevel`.
+
+Activation is evaluated only after successful command selection from that bounded parser result: explicit CLI boolean, otherwise `TM_DEBUG`, otherwise false. Debug does not use `Flag.withFallbackConfig`. Explicit false suppresses environment evaluation. `TM_DEBUG` is case-sensitive and untrimmed and accepts exactly `true`, `false`, `1`, or `0`; present empty or any other value follows existing environment `InputRejected` rendering. Help, version, completion, and parse failures never read `TM_DEBUG`, construct Store/core/telemetry resources, or export.
+
+Debug is CLI-private. It changes none of the exact 15-method service, public access functions, operation inputs/results/errors, Semantic Activity, exact `TaskManagerLayerOptions { storeLocation }`, or core Layer requirements and exports.
+
+### Transparency, ownership, and finalization
+
+Debug on/off preserves byte-identical product stdout, stderr, JSON, help/version/completion/parse output where applicable, framing, and exit status. An observer returns the exact original Effect Exit/Cause without catch, map, retry, recovery, reclassification, reconstruction, or re-fail. It preserves success and error/defect object identity, flat Cause reason order and annotations, interruptor IDs, and sequential/parallel-generated RC 111 composites. Observer effects are untraced, non-suspending, and total: every complete observer Cause is captured and discarded so `onExit` cannot combine it. Tracer, logger, attribute, queue, exporter, projector, and cleanup delegates are non-throwing. Interruption, unexpected defects, and unrecognized composites escape unchanged and BunRuntime reports an unexpected failure once.
+
+`AppLive` is the sole assembly point for a private resource-free debug-session factory provided before parsing. Only after selection and activation does `CliApplication.run` use that factory inside its command scope to acquire the enabled private session. Disabled/default/explicit-false mode skips enabled acquisition and creates no exporter, queue, timer, stack projector, HttpClient, or network resource. The enabled session owns privacy projection; one combined drop-on-overflow queue capped at 128 records; direct OTLP HTTP trace/log transport; bounded flush; and shutdown. It uses only `http://127.0.0.1:4318/v1/traces` and `http://127.0.0.1:4318/v1/logs`, performs no DNS, follows no redirects, accepts no proxy destination override, sends no ambient headers/cookies/authorization/credentials/userinfo/query, consumes no OTEL destination/header/credential/resource-detector setting, and adds no ambient host/user/process resource. Resource fields are exactly `service.name=task-manager`, manifest `service.version`, `effect.version=4.0.0-rc.111`, closed telemetry schema version, and `telemetry.mode=privileged-debug`. There are no metrics, periodic exports, or network calls during a Store transaction or any SqliteClient scope.
+
+Normative completion order is every Store/client finalizer; preserve original Exit; publish product output exactly once; finish `CliApplication.run`; one traces-plus-logs force-flush and shutdown under one deterministic 250 ms total deadline; then return the original Exit. There is no retry. Refusal, HTTP status/failure, redirect, hang/timeout, serialization/projection/export defect, queue overflow, and finalization loss silently drop without changing output or Exit.
+
+Persistence observation order is transaction body, narrow `withTransaction` classifier, isolated outer client close, outer-close classifier, final public operation observer, then CLI rendering/runtime. Classification uses positive phase evidence, never reason tags alone:
+
+| Boundary observation | Result |
+| --- | --- |
+| Typed begin failure before body invocation | `StoreTransactionFailed` |
+| Public expected `Schema.TaggedError` body Fail plus successful rollback | Original public error |
+| `NoOpRollback` plus successful rollback | Approved no-op |
+| Private persistence Fail plus successful rollback | `StoreTransactionFailed` |
+| Phase-evidenced public expected Fail plus rollback `Die(SqlError)` | `StoreTransactionOutcomeUnknown` |
+| `NoOpRollback` plus rollback `Die(SqlError)` | `StoreTransactionOutcomeUnknown` |
+| Successful body plus commit `Die(SqlError)` | `StoreTransactionOutcomeUnknown` |
+| Private persistence Fail plus rollback defect | Preserve original flat composite Cause |
+| Proven `withTransaction` success plus isolated outer close defect | `StoreMutationCommittedButFinalizationFailed` |
+| Original defect, interruption, extra/reordered/mixed or negative look-alike composite | Preserve unchanged |
+
+### Topology, classification, logs, and privacy
+
+The sparse static tree after selection/activation contains only `CliApplication.run`; optional `StoreLocationResolver.resolve` and optional child `StoreLocationResolver.gitCommonRoot`; optional `CommandInput.readFile`; each genuine named public Task Manager access function exactly once; exactly one `CoordinationStore.runRead | runMutation | runInitialization | runValidation`; `StoreSqlClient.acquire`; `CoordinationStore.publishInitialization` only for init; and `ProcessOutput.publish`. Existing public `Effect.fn` access functions own operation spans and observe delegation inside them; there is no duplicate wrapper. Direct core calls use the Task Manager operation as root unless embedded. Multi-call flows have one span per genuine access. Names are static. There are no spans for private features/helpers, CommandExecution/renderers/Layer construction, writers/appenders/intents, transaction/session values, codecs/graphs/rows, SQL statements/transactions/checkpoints; stock `sql.execute` and `sql.transaction` export is suppressed.
+
+Attributes are closed low-cardinality command/output mode, operation/kind, Store source/session, client profile, outcome, transaction outcome, recognized expected parent/reason, fail/die/interrupt counts, exit code 0/1, and `db.system=sqlite`. Outcomes are `success`; `expected_failure` for exactly one recognized public package-owned `Schema.TaggedError` Fail; `defect` for one Die; `interrupted` for interrupt-only; and `composite_failure` for multiple/mixed reasons. Expected errors are recognized by closed schemas/constructors, never arbitrary tags. Store recovery classes are exactly `non_commit_established`, `transaction_outcome_unknown`, and `committed_finalization_failed`.
+
+Privileged OTLP logs are required. An ordinary expected failure emits at most one fixed classification log containing operation, parent/reason, and recovery tags only. The two finalization reasons each emit exactly one finalization classification log after public reason selection and suppress the ordinary duplicate. Interruption, unexpected defects, and unrecognized composites emit none; approved defect evidence belongs only on the terminal trace.
+
+Final serialized traces/logs are default deny and never contain raw argv, reconstructed command lines, option/environment values, stdin/file contents/paths; domain payloads or public/malformed objects; cwd/home/Git/temp/database paths; SQL identifiers/text/parameters/rows/counts/statements/engine/SqlError; diagnostics/vendor values; raw Exit/Cause/Cause.pretty/fibers/composites; host/user/PID/executable/ambient resource; or credentials/tokens/cookies/secrets/URL userinfo/query. Ordinary fields have no arbitrary message or stack. One singular package-owned defect with an explicit reviewed projector may expose a static/closed-enum message capped at 4096 UTF-8 bytes and at most 64 repository-relative application frames totaling at most 16384 bytes, each only function, relative source path, line, column; external/dependency/cache/source-map/absolute/URL data is dropped. Otherwise use exactly `Untrusted defect message omitted.` with no stack. Composite/vendor/unapproved defects get classification only; Store-finalizer projection never serializes SQL/vendor/domain objects.
+
+Unmodified stock `OtlpTracer`/`OtlpLogger` are not installed and loggers are not default-merged: RC 111 automatically projects exception message/stack and Cause.pretty. A total allowlist wrapper/filter must precede stock serialization and never supply raw application Exit/Cause.
+
+Deterministic public and real-process evidence covers disabled absence; the complete flag/env/precedence/invalid/suppression/duplicate/generated-negation/help/version/completion matrix; off/on byte/status equality for success, no-op/no-work, every expected family, controlled defect, help/version/completion/parse; exact Exit/Cause identity/annotations/interruption/composites; throwing delegates; refusal/status/redirect/hang; topology/cardinality/forbidden spans; no export before transaction/client closure; final order and one 250 ms deadline under logical time/latches; final-byte privacy canaries; log dedupe; the complete transaction table and negative look-alikes; and exact public architecture.
 
 ## Documentation and skills
 

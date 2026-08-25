@@ -131,6 +131,12 @@ Context must contain only information that changes how this Subtask is executed.
 
 Decompose each command into small vertical slices rather than internal layers.
 
+For privileged debug observability, create exactly one global cross-cutting activation/privacy/transport Task. It owns the single inherited root `debug` flag declaration and lazy `TM_DEBUG` policy; private AppLive resource ownership; fixed numeric-loopback trace/log transport; queue cap and shutdown deadline; final-byte default-deny projection; transparent Exit/Cause observation; and global architecture/disabled-resource evidence. Do not create a horizontal telemetry-framework phase, separate tracer/logger/transport/privacy Tasks, or repeat global flag implementation under command Tasks.
+
+Then add vertical command tracer bullets to the applicable command Tasks. Each bullet must land a usable command path through parsing, one genuine public access function, persistence, product publication, bounded telemetry finalization, and real-process equality/privacy/outage evidence. Later command bullets own only their command-specific spans and classifications and depend on the landed global Task; they do not reimplement activation, transport, wrappers, or finalization.
+
+The first tracer bullet is `tm init --debug` and must cover the complete initial path: sole Effect CLI parser and root boolean/generated negation/environment precedence; fixed trace/log endpoints and disabled resource absence; `CliApplication.run` -> public Task Manager initialization access -> `CoordinationStore.runInitialization` -> `StoreSqlClient.acquire` -> init-only `CoordinationStore.publishInitialization` -> `ProcessOutput.publish` -> one bounded traces-plus-logs flush/shutdown after all Store/client scopes. Its acceptance includes privacy canaries, exporter refusal/status/redirect/hang, and byte/status/original-Exit equality with debug off. This first vertical slice establishes the shared implementation used by later command tracers without becoming a horizontal telemetry-framework phase.
+
 - A core Subtask cuts through the exported public core API, domain validation, transaction and persistence behavior, and public result or typed error required for its outcome.
 - A CLI Subtask exercises the real command entrypoint and uses the public core capability. It owns only the relevant parsing, environment fallback, files, confirmation, rendering, streams, and exit status behavior.
 - Separate CLI input and parsing from rendering and process behavior when either slice would exceed one fresh context.
