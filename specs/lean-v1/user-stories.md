@@ -1,7 +1,7 @@
 ---
 name: lean-v1-user-stories
 created_at: 2026-08-18T21:07:51Z
-updated_at: 2026-08-18T21:13:37Z
+updated_at: 2026-08-25T13:58:39Z
 generated_by:
   root_skill: specification-authoring
   producing_skill: user-story-authoring
@@ -23,6 +23,36 @@ source_artifacts:
 ---
 
 # User Stories
+
+## High-Level User Stories
+
+### High-Level Story: Establish and access a safe local coordination Store
+- Story ID: HLS1.1
+- Actor: Store operator, core package integrator, or CLI caller
+- Goal: Resolve, initialize, validate, and access one canonical Store through typed public boundaries without persistence leakage.
+- Value: Local callers can trust Store identity, format, health, input, and lookup behavior before coordinating work.
+- Detailed story coverage: US1.1, US1.2, US1.3, US1.4, US1.5, US1.6, US1.7, US1.8, US1.9, US1.10, US1.11, US1.12, US1.13, US1.14, US1.15, US1.16, US1.17
+
+### High-Level Story: Coordinate Ticket work atomically under exact Claims
+- Story ID: HLS1.2
+- Actor: External orchestrator, agent executor, or human executor
+- Goal: Author, inspect, select, claim, complete, cancel, move, and relate Tickets with transaction-current fencing and all-or-nothing outcomes.
+- Value: Multiple local processes can coordinate durable work without stale holders, partial cascades, duplicate mutations, or hidden workflow policy.
+- Detailed story coverage: US1.18, US1.19, US1.20, US1.21, US1.22, US1.23, US1.24, US1.25, US1.26, US1.27, US1.28, US1.29, US1.30, US1.31, US1.32, US1.33, US1.34, US1.35, US1.36, US1.37, US1.38, US1.39, US1.40, US1.41, US1.42, US1.43, US1.44, US1.45, US1.46, US1.47, US1.48, US1.49, US1.50, US1.51, US1.52, US1.53, US1.54, US1.55, US1.56
+
+### High-Level Story: Consume deterministic process contracts safely
+- Story ID: HLS1.3
+- Actor: CLI caller or external orchestrator
+- Goal: Use exact human or JSON process output while explicitly acknowledging defined human-work impact.
+- Value: People and automation can branch on stable public outcomes without parsing storage details or bypassing coordination invariants.
+- Detailed story coverage: US1.57, US1.58, US1.59
+
+### High-Level Story: Follow conformant Lean V1 guidance
+- Story ID: HLS1.4
+- Actor: Implementation executor and reviewer
+- Goal: Use shipped skills and documentation that match the implemented public core and CLI.
+- Value: Planning, execution, and review remain aligned with the approved product contract rather than superseded internals.
+- Detailed story coverage: US1.60
 
 ## Capability Area: Public Core and Store Resolution
 
@@ -470,13 +500,13 @@ source_artifacts:
 - Outcome: The caller can rely on complete rollback rather than repairing partial product state.
 - Observation: Tickets, Claims, Trash, timestamps, Semantic Activity, and Store high-water remain unchanged after reopening the Store.
 
-### Story: Reconcile an unknown commit outcome
+### Story: Reconcile an unknown transaction outcome
 - Story ID: US1.54
 - Actor: External orchestrator
-- Situation: A commit was attempted but its physical outcome cannot be established.
+- Situation: Stock Effect SQL transaction finalization failed and the durable transaction outcome cannot be established through its public abstraction.
 - Action: Reread and reconcile transaction-current state before deciding whether to retry.
 - Outcome: The caller avoids duplicating a mutation that may already have committed.
-- Observation: The typed failure explicitly distinguishes unknown outcome from proven rollback and never claims that blind retry is safe.
+- Observation: `StoreTransactionOutcomeUnknown` explicitly distinguishes the unknown transaction outcome from US1.53's proven rollback and never claims that blind retry is safe.
 
 ### Story: Lose a mutation race explicitly
 - Story ID: US1.55

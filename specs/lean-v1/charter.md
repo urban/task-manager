@@ -1,7 +1,7 @@
 ---
 name: lean-v1-charter
 created_at: 2026-08-18T15:03:13Z
-updated_at: 2026-08-18T15:03:50Z
+updated_at: 2026-08-25T13:58:39Z
 generated_by:
   root_skill: specification-authoring
   producing_skill: charter
@@ -23,7 +23,7 @@ source_artifacts: {}
 ## Goals
 
 - Deliver Lean V1 as a local, orchestrator-facing coordination kernel for durable Tickets, Claims, permanent Trash, and Semantic Activity while leaving assignment, execution, review, and progress policy to external orchestrators.
-- Provide one typed Effect core package and one thin CLI package with stable public seams, explicit Store configuration, and no persistence or domain-policy leakage into callers.
+- Provide one typed Effect core package and one thin CLI package with stable public seams, explicit Store configuration, and no persistence or domain-policy leakage into callers, while using stock Effect SQL with Bun SQLite entirely behind the vendor-neutral core boundary.
 - Support safe coordination by multiple local processes sharing one embedded Store through atomic, transaction-current behavior and exact Claim fencing.
 - Preserve the accepted Ticket lifecycle, hierarchy, dependency, Claim, Activity, Trash, Store-validation, typed-failure, human-output, and JSON-output semantics as one coherent Lean V1 product contract.
 - Produce one approved and internally consistent specification pack from which implementation and fresh execution Tickets can be derived without consulting superseded Lean V1 architecture or verification documents.
@@ -32,7 +32,7 @@ source_artifacts: {}
 ## Non-Goals
 
 - Task Manager does not become a workflow engine and does not own assignment, execution, review, progress, or agent-orchestration policy.
-- Lean V1 does not include backup, restore, Store migration, revision guards, durable retry receipts, Ticket reparenting or reopening, Trash recovery or purge, whole-Store destruction, broad platform qualification, or exhaustive crash and physical power-loss hardening.
+- Lean V1 does not include backup, restore, automatic or Effect SQL migration, revision guards, durable retry receipts, Ticket reparenting or reopening, Trash recovery or purge, whole-Store destruction, broad platform qualification, or exhaustive crash and physical power-loss hardening.
 - The specification-authoring process does not change an accepted Lean V1 behavior merely to simplify how the new artifacts are organized; any substantive behavior change requires an explicit decision and approval.
 - The charter does not determine implementation modules, source folders, internal abstractions, or coding patterns; those decisions belong to the approved technical design.
 - The specification-authoring process does not create or execute implementation Tickets before final pack approval.
@@ -45,7 +45,7 @@ source_artifacts: {}
 - **Agent executor:** Performs agent-executor Ticket work under an explicit Actor Identity and the applicable exact Claim fence.
 - **Human executor:** Performs human-executor Ticket work while remaining visible to Executor filtering and explicit human-work acknowledgments.
 - **Store operator:** Resolves, initializes, validates, and diagnoses one local Store without depending on private database structure or vendor failures.
-- **Core package integrator:** Uses the public typed `TaskManager` capability directly and must not depend on SQL, rows, libSQL clients, platform handles, or connection lifecycle.
+- **Core package integrator:** Uses the public typed `TaskManager` capability directly and must not depend on SQL clients, connections, statements, rows, SQL errors, SQLite engine details, platform handles, or connection lifecycle.
 - **CLI caller:** Uses deterministic human output or compact structured JSON to inspect and mutate Task Manager state through the supported command surface.
 - **Implementation executor and reviewer:** Uses the approved specification pack, `CONTEXT.md`, repository instructions, and a self-contained Ticket to implement and verify one bounded behavioral outcome without inventing conflicting product or implementation architecture.
 
@@ -55,8 +55,8 @@ source_artifacts: {}
 - SC1.2: The approved pack defines the complete public core capability, Store model, CLI command surface, domain invariants, typed failures, and mandatory verification evidence for Lean V1.
 - SC1.3: Every core behavior is verifiable through exported access functions requiring the `TaskManager` capability and a Layer backed by a real temporary file-based Store.
 - SC1.4: Every CLI behavior is verifiable through the real process entrypoint, including parsing, environment fallback, file input, output streams, exit status, human rendering, and JSON framing where applicable.
-- SC1.5: The mandatory evidence includes bounded multi-process writing, Claim acquisition races, atomic Activity and Trash behavior, deterministic failure precedence, and rollback-and-reopen verification for representative failed mutations.
-- SC1.6: The approved technical design gives a fresh implementation executor an unambiguous package structure, module ownership model, allowed dependency direction, composition strategy, persistence and transaction ownership model, public export policy, and testing architecture.
+- SC1.5: The mandatory evidence includes bounded multi-process writing, Claim acquisition races, atomic Activity and Trash behavior, deterministic failure precedence, successful stock Effect SQL commit and reopen, proven stock rollback and deliberate retry, and unknown-transaction-outcome reconciliation through a real public mutation.
+- SC1.6: The approved technical design gives a fresh implementation executor an unambiguous package structure, module ownership model, allowed dependency direction, composition strategy, stock Effect SQL client and transaction ownership model, public export policy, and testing architecture.
 - SC1.7: `charter.md`, `user-stories.md`, `requirements.md`, `technical-design.md`, every artifact approval view, and the final pack approval view pass their validators with no unresolved confirmation markers.
 - SC1.8: The old Lean V1 architecture and verification checklist are removed only after final pack approval, complete source-coverage review, and updates to every repository authority reference.
 - SC1.9: New implementation Tickets are recreated only after final pack approval, using `specs/lean-v1-ticket-planning.md` to produce self-contained behavioral tracer bullets with explicit public seams, prerequisites, verification, and source traceability.
