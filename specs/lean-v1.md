@@ -1,5 +1,7 @@
 # Lean V1 Task Manager architecture
 
+> **Retired migration evidence:** This document is not implementation authority. The normative Lean V1 specification is the four-artifact pack under `specs/lean-v1/`.
+
 ## Purpose
 
 Lean V1 prioritizes a working orchestrator-facing Task Manager over exhaustive production hardening. It defines the smallest useful local multi-process coordination product.
@@ -10,7 +12,7 @@ Task Manager is a local coordination kernel, not a workflow engine. External orc
 
 The repository will contain two packages:
 
-- `packages/core` (`@urban/task-manager`) owns domain schemas, typed Effect operations, libSQL persistence, transactions, Claims, permanent Trash entries, and Semantic Activity.
+- `packages/core` (`@urban/task-manager`) owns domain schemas, typed Effect operations, private Bun SQLite persistence through stock Effect SQL, transactions, Claims, permanent Trash entries, and Semantic Activity.
 - `packages/cli` (`@urban/task-manager-cli`) owns command parsing, environment-variable fallback, file-input convenience, confirmation, and human/JSON rendering. It depends on the core package and contains no SQL or duplicate domain mutations.
 
 The core exposes one `Context.Service` capability, service-required typed access functions, and one parameterized live Layer:
@@ -144,14 +146,14 @@ declare const layer: (
 
 `TaskManagerService` is the closed service shape containing exactly the defined public core operations in this architecture. Each service method encapsulates persistence and has the same success and typed error channel as its corresponding access function, but no `TaskManager` requirement because it is the provided capability. Every exported access function delegates through this service and explicitly includes `TaskManager` as its `Effect.Effect` requirement. Store Location is supplied only through `TaskManagerLayerOptions`; neither service methods nor access-function inputs accept it.
 
-A CLI subcommand resolves and canonicalizes Store Location, composes all core calls needed for that complete command program, and provides `layer({ storeLocation })` once around the composition. Tests may replace the complete `TaskManager` capability with a test Layer. LibSQL clients, SQL, rows, platform handles, internal repository services, and connection-lifecycle details never cross the core interface. Access functions never provide the live Layer internally or obtain Store configuration from hidden global state.
+A CLI subcommand resolves and canonicalizes Store Location, composes all core calls needed for that complete command program, and provides `layer({ storeLocation })` once around the composition. Tests may replace the complete `TaskManager` capability with a test Layer. SQL clients, SQL, rows, platform handles, internal repository services, and connection-lifecycle details never cross the core interface. Access functions never provide the live Layer internally or obtain Store configuration from hidden global state.
 
 ## Lean V1 scope
 
-- One persistent embedded-libSQL local Store at an explicitly resolved Store Location.
+- One persistent local Store backed by Bun's embedded SQLite engine through stock Effect SQL at an explicitly resolved Store Location.
 - A UUIDv4 Store Identity and one exact Store format.
 - Fresh Store initialization.
-- Multiple local processes sharing one Store through short libSQL transactions and `BEGIN IMMEDIATE` mutations.
+- Multiple local processes sharing one Store through short stock Effect SQL transactions and `BEGIN IMMEDIATE` mutations.
 - The closed CLI command surface defined below.
 - Singular expiring Claims with Claim IDs and Actor-Identity fencing for behavior-changing mutations while a Claim is active.
 - Lean typed Semantic Activity: one ordered item per changed Ticket, an Activity Cursor, occurrence time, Actor Identity, Ticket ID, and operation-specific event.
@@ -199,7 +201,7 @@ The CLI completes this resolution before constructing the core Layer. The core r
 
 Moving or renaming a repository changes its path-derived default Store Location. Callers that require location continuity across such a move must select the prior location explicitly. Lean V1 performs no automatic Store discovery, relocation, or merging.
 
-The default active libSQL database is `task-manager.db` inside the resolved Store Location. It and its engine-owned sibling sidecars remain outside the repository and outside Git.
+The default active SQLite database is `task-manager.db` inside the resolved Store Location. It and its engine-owned sibling sidecars remain outside the repository and outside Git.
 
 ## Core domain model
 
@@ -846,7 +848,7 @@ Structured JSON failures mechanically encode typed adapter or core error data. T
 
 Shared flags: `--cwd`, `--storage-path`, and `--json`. There are no command-specific flags.
 
-The CLI resolves Store Location, constructs the core Layer, and calls `initializeStore`. The core atomically creates the libSQL schema, Store Identity, and metadata when absent; returns an `Existing` outcome for an already compatible Store; and rejects unrelated, partial, corrupt, or incompatible database state without modifying it. Initialization emits no Activity.
+The CLI resolves Store Location, constructs the core Layer, and calls `initializeStore`. The core atomically creates the Bun SQLite schema through stock Effect SQL, Store Identity, and metadata when absent; returns an `Existing` outcome for an already compatible Store; and rejects unrelated, partial, corrupt, or incompatible database state without modifying it. Initialization emits no Activity.
 
 Initialization-specific rejection is exact:
 
@@ -915,7 +917,7 @@ declare const initializeStore: () => Effect.Effect<
 >;
 ```
 
-`Created` returns the committed fresh metadata with `activityHighWater: 0`. `Existing` returns the authoritative current metadata, including the existing Store Identity and current Activity high-water. The result contains no libSQL client, persistence handle, or Store Location because location is a Layer parameter rather than Store metadata.
+`Created` returns the committed fresh metadata with `activityHighWater: 0`. `Existing` returns the authoritative current metadata, including the existing Store Identity and current Activity high-water. The result contains no SQL client, persistence handle, or Store Location because location is a Layer parameter rather than Store metadata.
 
 The CLI combines that result with its resolved canonical paths. JSON success is exactly:
 
@@ -951,7 +953,7 @@ The literal `unknown` represents an omitted unsafe observation in human output. 
 
 Shared flags only. The CLI calls `validateStore` and renders its report. Validation is read-only and emits no Activity.
 
-Validation checks Store identity and format, the Lean V1 schema, libSQL `quick_check`, foreign keys, all active Ticket, Claim, Trash-entry, and Activity schemas, complete active hierarchy and dependency integrity, Trash Snapshot integrity, contiguous Activity Cursors and high-water agreement, matching `TicketTrashed` attribution, and disjoint active/Trash IDs.
+Validation checks Store identity and format, the Lean V1 schema, SQLite `quick_check`, foreign keys, all active Ticket, Claim, Trash-entry, and Activity schemas, complete active hierarchy and dependency integrity, Trash Snapshot integrity, contiguous Activity Cursors and high-water agreement, matching `TicketTrashed` attribution, and disjoint active/Trash IDs.
 
 Successful validation returns:
 

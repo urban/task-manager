@@ -1,6 +1,8 @@
 # Lean V1 verification checklist
 
-Architecture source: [`lean-v1.md`](./lean-v1.md)
+> **Retired migration evidence:** This checklist is not an implementation or evidence authority. Mandatory evidence is defined by `specs/lean-v1/requirements.md`, `specs/lean-v1/technical-design.md`, and the stable approval-time verification traceability ledger.
+
+Historical architecture source: [`lean-v1.md`](./lean-v1.md)
 
 ## Authority and organization
 
@@ -8,7 +10,7 @@ Lean V1 uses a layered mandatory qualification gate. Each accepted contract obli
 
 Tests assert through the public typed core interface or CLI. Private test-only phase barriers, clocks, and fault controls may make scheduling deterministic, but may not manufacture domain outcomes or bypass production persistence logic.
 
-Every environment advertised as supported must pass the complete Lean V1 checklist. Initially the project should advertise only the exact development/CI runtime, native libSQL artifact, OS/architecture, local filesystem, and connection profile that it actually tests.
+Every environment advertised as supported must pass the complete Lean V1 checklist. Initially the project should advertise only the exact development/CI Bun runtime and embedded SQLite identity, OS/architecture, local filesystem, and connection profile that it actually tests.
 
 ## Qualification boundary
 
@@ -20,7 +22,7 @@ Lean V1 requires qualification only for its declared runtime and filesystem prof
 - Expose exact `TaskManagerLayerOptions { storeLocation: CanonicalAbsolutePath }` and `layer(options): Layer.Layer<TaskManager>`; accept Store Location only through this Layer option rather than through operation inputs or hidden global state.
 - Require every exported typed access function to delegate through `TaskManager` and explicitly include `TaskManager` as the third `Effect.Effect` requirement. Give each underlying service method the same success and typed error channel without a `TaskManager` requirement.
 - Resolve and canonicalize Store Location in the CLI before Layer construction, compose every core call needed by one complete subcommand program, and provide `layer({ storeLocation })` exactly once around that composition.
-- Prove a CLI flow that performs multiple core calls, such as completion's human-gate pre-read and mutation, uses one provided capability and exposes no libSQL client, SQL, row, platform handle, internal repository service, or connection-lifecycle detail.
+- Prove a CLI flow that performs multiple core calls, such as completion's human-gate pre-read and mutation, uses one provided capability and exposes no SQL client, SQL, row, platform handle, internal repository service, or connection-lifecycle detail.
 - Permit tests to replace the complete `TaskManager` capability through a test Layer. Prohibit access functions from internally providing the live Layer or obtaining Store configuration from hidden global state.
 
 ## Store Location resolution
@@ -263,7 +265,7 @@ Representative global scenarios:
 - Prove every rejection leaves existing files unchanged and concurrent initialization still yields one `Created` plus compatible `Existing` outcomes.
 - Fresh dedicated location returns `Created { metadata }` and establishes one valid empty Store whose committed metadata has `applicationId: "task-manager"`, `formatVersion: 1`, one canonical UUIDv4 Store Identity, and `activityHighWater: 0`.
 - Repeating initialization returns `Existing { metadata }` with the authoritative existing Store Identity and current Activity high-water, without changing state or emitting Activity.
-- Expose exactly `InitializeStoreResult = Created { metadata } | Existing { metadata }`; return no Store Location, libSQL client, persistence handle, or engine details from the core operation.
+- Expose exactly `InitializeStoreResult = Created { metadata } | Existing { metadata }`; return no Store Location, SQL client, persistence handle, or engine details from the core operation.
 - Concurrent initialization yields one Store and no partial schema.
 - An unrelated database, partial Task Manager database, corrupt database, or incompatible format fails without replacement.
 - Render human `Created` exactly as `Initialized Task Manager Store <store-id> at <database-path>.` and `Existing` exactly as `Task Manager Store <store-id> already exists at <database-path>.`; never describe the existing outcome as created, initialized, or opened.
@@ -813,7 +815,7 @@ Representative global scenarios:
 
 ## Documentation and skills
 
-- Treat `specs/lean-v1.md`, this checklist, `CONTEXT.md`, and `AGENTS.md` as the complete implementation-document authority.
+- Treat this checklist as retired migration evidence; follow `AGENTS.md`, the normative four-artifact `specs/lean-v1/` pack, and `CONTEXT.md` for implementation authority.
 - Rebuild `skills/task-manager/SKILL.md`, creating only necessary supporting references, against the generated Lean V1 help and public JSON output.
 - Prove the Task Manager skill uses exact Ticket and Claim IDs, Actor and Claim-fence requirements, separate Claim receipts, `tm update --executor`, semantic cancellation/deletion scope, permanent Trash terminology, and the Result inputs defined by the architecture.
 - Rebuild `skills/to-tickets/SKILL.md` against the generated Lean V1 help and public JSON output.

@@ -2,12 +2,12 @@
 
 ## Authority
 
-- The normative product and command contract is `specs/lean-v1.md`.
-- Mandatory evidence is defined by `specs/lean-v1-verification-checklist.md`.
+- The normative Lean V1 specification pack is `specs/lean-v1/charter.md`, `specs/lean-v1/user-stories.md`, `specs/lean-v1/requirements.md`, and `specs/lean-v1/technical-design.md`.
+- Mandatory verification evidence is defined by the requirements and technical design in that pack; stable per-obligation scenario IDs are recorded in the derived ledger `specs/lean-v1/approval/verification-traceability.md`.
 - Canonical domain terminology is defined by `CONTEXT.md`.
-- Existing source code, tests, generated help, and `skills/` content are migration evidence, not normative behavior.
+- `specs/lean-v1.md`, `specs/lean-v1-verification-checklist.md`, existing source code, tests, generated help, and `skills/` content are migration evidence, not normative behavior.
 - Do not restore removed historical specifications, decision logs, deferred-hardening documents, or current-implementation guides as implementation authority.
-- When an implementation detail conflicts with the Lean V1 architecture, implement the architecture and migrate or replace the conflicting detail.
+- When an implementation detail conflicts with the normative Lean V1 specification pack, implement the pack and migrate or replace the conflicting detail.
 
 ## Self-hosting boundary
 
@@ -46,10 +46,9 @@ strictly separate.
 - Evaluate rebuilt Lean V1 skills in fresh, isolated agent sessions with
   disposable stores. Do not install them over the stable operational skills
   until the explicit cutover.
-- Tickets coordinate implementation work but do not override
-  `specs/lean-v1.md`, `specs/lean-v1-verification-checklist.md`, or `CONTEXT.md`.
-  If a Ticket conflicts with those authorities, stop and correct the Ticket
-  rather than implementing the conflict.
+- Tickets coordinate implementation work but do not override the normative
+  `specs/lean-v1/` pack or `CONTEXT.md`. If a Ticket conflicts with those
+  authorities, stop and correct the Ticket rather than implementing the conflict.
 
 ## Development workflow
 
@@ -121,7 +120,7 @@ The two sets of skills have distinct roles:
 
 Do not activate or follow the skills from this worktree during ordinary Lean V1
 implementation. Rebuild them only as part of the explicit skill-migration
-obligations in the Lean V1 architecture and verification checklist.
+obligations in the normative Lean V1 specification pack.
 
 Test rebuilt skills in fresh sessions using disposable stores. Installing the
 Lean V1 skills and switching the globally linked CLI are explicit cutover

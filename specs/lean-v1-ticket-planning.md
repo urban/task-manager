@@ -6,14 +6,14 @@ Use the registered Task Manager planning skill and the intended coordination Sto
 
 ## Authority and boundaries
 
-- Treat `specs/lean-v1.md` as the normative product and command contract.
-- Treat `specs/lean-v1-verification-checklist.md` as the mandatory evidence contract.
+- Treat `specs/lean-v1/charter.md`, `specs/lean-v1/user-stories.md`, `specs/lean-v1/requirements.md`, and `specs/lean-v1/technical-design.md` as the normative specification pack.
+- Treat `specs/lean-v1/approval/verification-traceability.md` as the stable scenario ledger for mandatory evidence planning.
 - Treat `CONTEXT.md` as the canonical domain vocabulary.
 - Follow `AGENTS.md` for repository, branch, package-manager, verification, and coordination boundaries.
 - Treat product source, generated help, existing tests, and in-repository skills as implementation evidence unless an authoritative project document says otherwise.
 - Use the stable coordination CLI at `/Volumes/Code/personal/task-manager/packages/cli/src/bin.ts`, never the Lean V1 CLI under development.
 - Use `/Volumes/Code/personal/task-manager-next/.tasks` as the coordination Store. Pass it with `--storage-path` when required by `AGENTS.md`.
-- Stop if the stable CLI, Store, specification, checklist, context document, or repository instructions cannot be verified.
+- Stop if the stable CLI, Store, normative specification pack, verification traceability ledger, context document, or repository instructions cannot be verified.
 
 ## Hierarchy
 
@@ -84,8 +84,8 @@ One sentence stating the independently useful behavior to implement.
 
 ## Source
 
-- `specs/lean-v1.md`, exact section.
-- `specs/lean-v1-verification-checklist.md`, exact item.
+- Exact canonical `specs/lean-v1/` artifact, section, and requirement identifier.
+- `specs/lean-v1/approval/verification-traceability.md`, exact stable scenario ID.
 ```
 
 Keep the Outcome to one sentence. Prefer two to six precise bullets in each remaining section. Every acceptance criterion must belong to this Subtask alone.
@@ -194,7 +194,7 @@ Before drafting:
 - verify the registered Task Manager planning skill;
 - verify `realpath "$(command -v tm)"` resolves to the stable coordination CLI;
 - verify Executor support and validate the intended coordination Store;
-- read the complete authoritative specification, verification checklist, `CONTEXT.md`, and `AGENTS.md`;
+- read the complete normative four-artifact specification pack, the verification traceability ledger, `CONTEXT.md`, and `AGENTS.md`;
 - inspect the package structure, verification commands, public boundaries, and only the nearby implementation patterns needed to size Tickets.
 
 Stop exploring when enough evidence exists to draft bounded Tickets. Do not begin implementation.
