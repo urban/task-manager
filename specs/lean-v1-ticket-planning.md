@@ -149,17 +149,17 @@ Context must contain only information that changes how this Subtask is executed.
 
 Decompose each command into small vertical slices rather than internal layers.
 
-For privileged debug observability, create exactly one global cross-cutting debug Task as the ownership and closeout boundary. Do not create a horizontal telemetry-framework phase, sibling tracer/logger/transport/privacy Tasks, or repeat global flag implementation under command Tasks. Split its implementation into bounded behavioral Subtasks rather than one oversized debug assignment:
+For privileged debug observability, create exactly one global cross-cutting debug Task as the ownership and closeout boundary. Do not create a horizontal telemetry-framework phase, sibling tracer/logger/transport/privacy Tasks, or repeat global flag implementation under command Tasks. Split its implementation into exactly these bounded behavioral Subtasks, and make them one strict prerequisite chain in the listed order: Subtask 2 is blocked by 1, 3 by 2, 4 by 3, and 5 by 4.
 
-1. activation precedence, duplicate handling, early-path bypass, and disabled-resource absence;
+1. activation precedence, duplicate handling, early-path bypass, disabled-resource absence, and RC 112 help/completion rebaselining;
 2. resource-free AppLive factory ownership and exact transparent Exit/Cause observation;
-3. fixed numeric-loopback trace/log transport, queue bounds, and final-byte default-deny projection;
+3. private safe Tracer/Logger, stock `OtlpSerialization`, no-retry numeric-loopback Effect HTTP publication, queue bounds, and final-byte default-deny projection;
 4. product-publication ordering, one total 250 ms finalization deadline, and refusal/status/redirect/hang loss behavior;
-5. global architecture, topology, cardinality, logging, privacy, and no-transaction-network evidence reconciliation.
+5. global architecture, topology, cardinality, logging, privacy, no-retry, and no-transaction-network evidence reconciliation.
 
-Under the `init` command Task, add an initial end-to-end `tm init --debug` Subtask that lands one usable success path through the sole Effect CLI parser, public initialization access, Store acquisition/publication, product publication, and bounded telemetry finalization. Keep its acceptance to success-path topology plus debug-off/on byte, status, and original Exit equality. Add separate bounded `init` privacy-canary and transport/outage matrix Subtasks when those cases are needed to establish the reusable path. Record true prerequisite edges from those Subtasks to the relevant global-debug Subtasks.
+All five global debug Subtasks must be done before any `init` implementation Subtask may begin; represent that gate with a dependency from every `init` implementation Subtask to global debug Subtask 5. Under the `init` command Task, add an end-to-end `tm init --debug` Subtask that lands one usable success path through the sole Effect CLI parser, public initialization access, Store acquisition/publication, product publication, and bounded telemetry finalization. Keep its acceptance to success-path topology plus debug-off/on byte, status, and original Exit equality. Add separate bounded `init` privacy-canary and transport/outage matrix Subtasks when those cases are needed to establish the reusable path.
 
-Then add vertical command tracer Subtasks to the applicable command Tasks. Each lands one usable command path through parsing, one genuine public access function, persistence when applicable, product publication, bounded telemetry finalization, and the command-specific equality/classification evidence assigned to it. These Subtasks depend on the landed global behavior and own only command-specific spans and classifications; they do not reimplement activation, transport, wrappers, privacy projection, or finalization.
+Add one vertical command tracer Subtask under every one of the 15 command Tasks, including `init`, and place it in that command's implementation dependency chain rather than as optional follow-up work. Each lands one usable command path through parsing, one genuine public access function, persistence when applicable, product publication, bounded telemetry finalization, and the command-specific equality/classification evidence assigned to it. Every command tracer depends on global debug Subtask 5 and on the command behavior it traces; later command integration/acceptance work depends on that tracer. These Subtasks own only command-specific spans and classifications; they do not reimplement activation, transport, wrappers, privacy projection, or finalization.
 
 - A core Subtask cuts through the exported public core API, domain validation, transaction and persistence behavior, and public result or typed error required for its outcome.
 - A CLI Subtask exercises the real command entrypoint and uses the public core capability. It owns only the relevant parsing, environment fallback, files, confirmation, rendering, streams, and exit status behavior.
@@ -209,6 +209,7 @@ The matrix must satisfy all of these rules:
 - A scenario may name multiple contributing Tickets only when its evidence is intentionally split. Every contributor cites the same stable scenario ID in its Description and Result evidence.
 - No Ticket may downgrade a required public-core, real Store, real-process, multi-process, reopen, debug, skill-session, architecture, or qualification boundary to a private helper, source inspection, generated help, or aggregate gate.
 - The final cross-suite evidence Task owns `EVIDENCE-NFR2-13` and reconciles every named scenario to exact tests or qualification artifacts.
+- Do not create or require a baseline stable-evidence artifact, snapshot, or Ticket as a prerequisite. Existing stable-tool behavior is neither implementation authority nor mandatory evidence; required evidence is produced against the revised Lean V1 public boundaries and linked directly to the ledger scenarios.
 - After creation, the Ticket fields are the durable ownership record; do not maintain a separate Markdown backlog.
 
 ## Definition of ready

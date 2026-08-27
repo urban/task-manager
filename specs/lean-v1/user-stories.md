@@ -1,7 +1,7 @@
 ---
 name: lean-v1-user-stories
 created_at: 2026-08-18T21:07:51Z
-updated_at: 2026-08-25T16:30:00Z
+updated_at: 2026-08-27T18:45:00Z
 generated_by:
   root_skill: specification-authoring
   producing_skill: user-story-authoring
