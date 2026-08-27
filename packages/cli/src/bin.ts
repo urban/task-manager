@@ -1,2 +1,5 @@
-// oxlint-disable unicorn/no-empty-file
-// Baseline entrypoint intentionally has no product behavior.
+#!/usr/bin/env bun
+
+// Load the public CLI module without invoking product behavior.
+// oxlint-disable-next-line import/no-unassigned-import
+import "./main";
