@@ -1,0 +1,22 @@
+{
+  "name": "@urban/task-manager",
+  "version": "0.1.0",
+  "description": "Typed core for the Task Manager local coordination kernel",
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      "./package.json": "./package.json",
+      ".": "./dist/index.js"
+    },
+    "access": "public"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "catalog:",
+    "@effect/sql-sqlite-bun": "catalog:",
+    "effect": "catalog:"
+  }
+}

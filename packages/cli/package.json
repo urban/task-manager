@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:",
-    "@effect/platform-node": "catalog:",
+    "@urban/task-manager": "workspace:*",
     "effect": "catalog:"
   }
 }
