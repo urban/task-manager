@@ -1,7 +1,7 @@
 ---
 name: lean-v1-charter
 created_at: 2026-08-18T15:03:13Z
-updated_at: 2026-08-26T18:45:00Z
+updated_at: 2026-08-27T18:45:00Z
 generated_by:
   root_skill: specification-authoring
   producing_skill: charter
