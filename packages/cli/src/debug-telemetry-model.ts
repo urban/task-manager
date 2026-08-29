@@ -88,12 +88,14 @@ const safeSpanNames: ReadonlyArray<string> = [
   "ProcessOutput.publish",
 ];
 const safeSpanNameSet: ReadonlySet<string> = new Set(safeSpanNames);
-const safeOutcomes: ReadonlySet<SafeOutcome> = new Set([
+const safeOutcomes: ReadonlySet<unknown> = new Set([
   "composite_failure",
   "defect",
   "interrupted",
   "success",
 ]);
+const isSafeOutcome = (value: unknown): value is SafeOutcome =>
+  typeof value === "string" && safeOutcomes.has(value);
 const hex16 = /^[0-9a-f]{16}$/u;
 const hex32 = /^[0-9a-f]{32}$/u;
 const unsignedNanoTime = /^(?:0|[1-9][0-9]*)$/u;
@@ -176,41 +178,74 @@ export const safeAttributes = (
 export const makeSafeTraceRecord = (
   ...[record]: readonly [Readonly<SafeTraceRecord>]
 ): SafeTraceRecord | undefined => {
-  if (
-    !isSafeSpanName(record.name) ||
-    !hex32.test(record.traceId) ||
-    !hex16.test(record.spanId) ||
-    (record.parentSpanId !== undefined && !hex16.test(record.parentSpanId)) ||
-    !unsignedNanoTime.test(record.startTimeUnixNano) ||
-    !unsignedNanoTime.test(record.endTimeUnixNano) ||
-    !safeOutcomes.has(record.outcome) ||
-    !record.attributes.every((attribute) => safeKeyValues.has(attribute))
-  ) {
+  try {
+    const kind: unknown = record.kind;
+    const name: unknown = record.name;
+    const traceId: unknown = record.traceId;
+    const spanId: unknown = record.spanId;
+    const parentSpanId: unknown = record.parentSpanId;
+    const startTimeUnixNano: unknown = record.startTimeUnixNano;
+    const endTimeUnixNano: unknown = record.endTimeUnixNano;
+    const attributes = Object.freeze(Array.from(record.attributes));
+    const outcome: unknown = record.outcome;
+    if (
+      kind !== "trace" ||
+      typeof name !== "string" ||
+      !isSafeSpanName(name) ||
+      typeof traceId !== "string" ||
+      !hex32.test(traceId) ||
+      typeof spanId !== "string" ||
+      !hex16.test(spanId) ||
+      (parentSpanId !== undefined &&
+        (typeof parentSpanId !== "string" || !hex16.test(parentSpanId))) ||
+      typeof startTimeUnixNano !== "string" ||
+      !unsignedNanoTime.test(startTimeUnixNano) ||
+      typeof endTimeUnixNano !== "string" ||
+      !unsignedNanoTime.test(endTimeUnixNano) ||
+      !isSafeOutcome(outcome) ||
+      !attributes.every((attribute) => safeKeyValues.has(attribute))
+    ) {
+      return undefined;
+    }
+    const safe: SafeTraceRecord = Object.freeze({
+      kind,
+      name,
+      traceId,
+      spanId,
+      parentSpanId,
+      startTimeUnixNano,
+      endTimeUnixNano,
+      attributes,
+      outcome,
+    });
+    safeTraceRecords.add(safe);
+    return safe;
+  } catch {
     return undefined;
   }
-  const safe = Object.freeze({
-    ...record,
-    attributes: Object.freeze([...record.attributes]),
-  });
-  safeTraceRecords.add(safe);
-  return safe;
 };
 
 export const makeSafeLogRecord = (
   ...[record]: readonly [Readonly<SafeLogRecord>]
 ): SafeLogRecord | undefined => {
-  if (
-    !unsignedNanoTime.test(record.timeUnixNano) ||
-    !record.attributes.every((attribute) => safeKeyValues.has(attribute))
-  ) {
+  try {
+    const kind: unknown = record.kind;
+    const timeUnixNano: unknown = record.timeUnixNano;
+    const attributes = Object.freeze(Array.from(record.attributes));
+    if (
+      kind !== "log" ||
+      typeof timeUnixNano !== "string" ||
+      !unsignedNanoTime.test(timeUnixNano) ||
+      !attributes.every((attribute) => safeKeyValues.has(attribute))
+    ) {
+      return undefined;
+    }
+    const safe: SafeLogRecord = Object.freeze({ kind, timeUnixNano, attributes });
+    safeLogRecords.add(safe);
+    return safe;
+  } catch {
     return undefined;
   }
-  const safe = Object.freeze({
-    ...record,
-    attributes: Object.freeze([...record.attributes]),
-  });
-  safeLogRecords.add(safe);
-  return safe;
 };
 
 export const projectDebugDefect = (

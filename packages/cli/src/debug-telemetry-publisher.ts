@@ -1,4 +1,4 @@
-import { Effect, Stream } from "effect";
+import { Effect, Fiber, Option, Stream } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import * as Model from "./debug-telemetry-model";
@@ -8,6 +8,37 @@ type Drain = () => ReadonlyArray<Model.SafeRecord>;
 type Serialize<A> = {
   readonly run: (records: ReadonlyArray<A>) => Model.HttpBody;
 };
+
+const ownResponseBody = (
+  ...[response]: readonly [Model.Immutable<HttpClientResponse.HttpClientResponse>]
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const consumer = yield* response.stream.pipe(
+      Stream.take(1),
+      Stream.runDrain,
+      Effect.ignoreCause,
+      Effect.withTracerEnabled(false),
+      Effect.forkDetach({ startImmediately: true }),
+    );
+    let cleanupStarted = false;
+    const startCleanup = Effect.suspend(() => {
+      if (cleanupStarted) {
+        return Effect.void;
+      }
+      cleanupStarted = true;
+      return Fiber.interrupt(consumer).pipe(
+        Effect.forkDetach({ startImmediately: true }),
+        Effect.asVoid,
+      );
+    });
+    const completed = yield* Fiber.await(consumer).pipe(
+      Effect.timeoutOption(10),
+      Effect.onInterrupt(() => startCleanup),
+    );
+    if (Option.isNone(completed)) {
+      yield* startCleanup;
+    }
+  });
 
 const publishBody = (
   ...[client, endpoint, body]: readonly [
@@ -20,7 +51,7 @@ const publishBody = (
     Effect.provideService(HttpClient.TracerPropagationEnabled, false),
     Effect.flatMap(
       (...[response]: readonly [Model.Immutable<HttpClientResponse.HttpClientResponse>]) =>
-        response.stream.pipe(Stream.take(1), Stream.runDrain, Effect.timeout(10)),
+        ownResponseBody(response),
     ),
     Effect.ignoreCause,
     Effect.withTracerEnabled(false),

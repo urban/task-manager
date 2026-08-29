@@ -9,6 +9,11 @@ import {
   debugTracesEndpoint,
   makeDebugTelemetrySession,
 } from "../../src/debug-telemetry-session";
+import {
+  interruptedResponseCleanupCase,
+  pendingResponseCleanupCase,
+  responseBodyVariantsCase,
+} from "./transport-body-support";
 
 type Immutable<T> = T extends globalThis.Function
   ? T
@@ -203,5 +208,14 @@ describe("privileged debug OTLP transport", () => {
   it.live(
     "cancels a never-ending response body within the bounded publish",
     () => responseCleanupCase,
+  );
+  it.live("completes when response cancellation never settles", () => pendingResponseCleanupCase);
+  it.live(
+    "contains empty, finite, and erroring bodies across response statuses",
+    () => responseBodyVariantsCase,
+  );
+  it.live(
+    "does not trap outer interruption in response cleanup",
+    () => interruptedResponseCleanupCase,
   );
 });

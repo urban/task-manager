@@ -8,7 +8,11 @@ import {
   makeDebugTelemetrySession,
   projectDebugDefect,
 } from "../../src/debug-telemetry-session";
-import { serializeDebugTraces } from "../../src/debug-telemetry-serialization";
+import {
+  assertStatefulLogBoundary,
+  assertStatefulTraceBoundary,
+  forgedRecordBoundaryCase,
+} from "./privacy-constructor-support";
 import { assertPrivateRequestBytes, privacyCanaries } from "./privacy-support";
 
 type Immutable<T> = T extends globalThis.Function
@@ -133,34 +137,6 @@ const deterministicBytesCase = Effect.scoped(
   }),
 );
 
-const directBoundaryCase = Effect.scoped(
-  Effect.gen(function* () {
-    const services = yield* Layer.build(OtlpSerialization.layerProtobuf);
-    const serialization = Context.get(services, OtlpSerialization.OtlpSerialization);
-    const body = serializeDebugTraces(serialization, [
-      {
-        kind: "trace",
-        name: "UNSAFE_NAME_CANARY",
-        traceId: "UNSAFE_TRACE_ID_CANARY",
-        spanId: "UNSAFE_SPAN_ID_CANARY",
-        parentSpanId: undefined,
-        startTimeUnixNano: "UNSAFE_START_CANARY",
-        endTimeUnixNano: "UNSAFE_END_CANARY",
-        attributes: [{ key: "UNSAFE_KEY_CANARY", value: { stringValue: "UNSAFE_VALUE_CANARY" } }],
-        outcome: "success",
-      },
-    ]);
-    if (body["_tag"] === "Uint8Array") {
-      const payload = new globalThis.TextDecoder().decode(body.body);
-      assert.notInclude(payload, "UNSAFE_NAME_CANARY");
-      assert.notInclude(payload, "UNSAFE_KEY_CANARY");
-      assert.notInclude(payload, "UNSAFE_VALUE_CANARY");
-      assert.notInclude(payload, "UNSAFE_TRACE_ID_CANARY");
-      assert.notInclude(payload, "UNSAFE_START_CANARY");
-    }
-  }),
-);
-
 const exerciseHostileCreationAndQueue = (...[session]: readonly [Session]): void => {
   const span = session.tracer.span({
     get name(): string {
@@ -277,7 +253,10 @@ describe("privileged debug privacy", () => {
     "produces deterministic stock protobuf bytes for an identical safe fixture",
     () => deterministicBytesCase,
   );
-  it.effect("rejects forged records at the stock serialization boundary", () => directBoundaryCase);
+  it.effect(
+    "rejects forged records at the stock serialization boundary",
+    () => forgedRecordBoundaryCase,
+  );
   it.effect("contains throwing tracer and logger delegates", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -291,6 +270,19 @@ describe("privileged debug privacy", () => {
       classification: "untrusted",
       message: "Untrusted defect message omitted.",
       frames: [],
+    });
+  });
+});
+
+describe("privileged debug constructor snapshots", () => {
+  it("snapshots hostile trace records exactly once before granting provenance", () => {
+    assert.doesNotThrow(() => {
+      void assertStatefulTraceBoundary();
+    });
+  });
+  it("snapshots hostile log records exactly once before granting provenance", () => {
+    assert.doesNotThrow(() => {
+      void assertStatefulLogBoundary();
     });
   });
 });
