@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import { TestConsole } from "effect/testing";
 
 import { AppLive } from "../../src/app-live";
@@ -15,6 +15,24 @@ const outputFor = Effect.fnUntraced(function* (args: ReadonlyArray<string>) {
 });
 
 describe("CLI shell", () => {
+  it.effect("keeps the executable boundary to direct Layer provision and runMain", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const context = yield* Layer.build(AppLive);
+        const source = yield* Effect.provideContext(
+          Effect.flatMap(FileSystem.FileSystem, (fileSystem) =>
+            fileSystem.readFileString(`${import.meta.dirname}/../../src/bin.ts`),
+          ),
+          context,
+        );
+
+        assert.include(source, "run.pipe(Effect.provide(AppLive))");
+        assert.notInclude(source, "Layer.build");
+        assert.notInclude(source, "provideContext");
+      }),
+    ),
+  );
+
   it.effect("exposes only the configured stock help, version, and completion built-ins", () =>
     Effect.scoped(
       Effect.gen(function* () {
