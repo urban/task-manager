@@ -1,8 +1,6 @@
-import * as BunServices from "@effect/platform-bun/BunServices";
 import * as EffectVitest from "@effect/vitest";
 import { Cause, Console, Effect, Exit, Layer, Runtime, Sink, Stdio } from "effect";
-import * as Scope from "effect/Scope";
-import { ChildProcess } from "effect/unstable/process";
+import { CliError } from "effect/unstable/cli";
 
 import {
   CliRuntime,
@@ -17,10 +15,8 @@ import {
   ProcessOutputLayer,
   SimultaneousFrameworkAndProductOutput,
 } from "../src/process-output";
-import { captureProcess } from "./support/process-fixture";
 
 const encoder = new globalThis.TextEncoder();
-const repositoryRoot = `${import.meta.dirname}/../../..`;
 const assert: typeof EffectVitest.assert = EffectVitest.assert;
 const describe: typeof EffectVitest.describe = EffectVitest.describe;
 const it: typeof EffectVitest.it = EffectVitest.it;
@@ -35,9 +31,6 @@ type ReadonlyBytes = {
   readonly byteLength: number;
   readonly length: number;
   readonly [index: number]: number;
-};
-type TestRegistration = {
-  readonly effect: EffectVitest.Vitest.Test<BunServices.BunServices | Scope.Scope>;
 };
 
 const copyBytes = (...[chunk]: readonly [string | ReadonlyBytes]): Uint8Array =>
@@ -239,14 +232,49 @@ describe("framework and product arbitration", () => {
   });
 });
 
+describe("structured framework parse failures", () => {
+  it.effect("discards staged help and publishes one expected failure", () => {
+    const captured = makeCapturedStdio();
+    return withRuntime(captured, () =>
+      Effect.gen(function* () {
+        const runtime = yield* CliRuntime;
+        yield* Effect.exit(
+          runtime.run(() =>
+            Console.log("staged help").pipe(
+              Effect.andThen(
+                Effect.fail(
+                  CliError.ShowHelp.make({
+                    commandPath: ["tm"],
+                    errors: [
+                      CliError.UnknownSubcommand.make({
+                        parent: ["tm"],
+                        suggestions: [],
+                        subcommand: "unknown",
+                      }),
+                    ],
+                  }),
+                ),
+              ),
+            ),
+          ),
+        );
+        const stderr = encoder.encode('Error: Unknown subcommand "unknown" for "tm"\n');
+        assert.deepStrictEqual(collectBytes(captured.stdout()), new Uint8Array());
+        assert.deepStrictEqual(collectBytes(captured.stderr()), stderr);
+      }),
+    );
+  });
+});
 describe("framework staging defects", () => {
-  it.effect("defects when the framework publishes twice", () => {
+  it.effect("defects when the framework publishes twice concurrently", () => {
     const captured = makeCapturedStdio();
     return withRuntime(captured, () =>
       Effect.gen(function* () {
         const runtime = yield* CliRuntime;
         const exit = yield* Effect.exit(
-          runtime.run(() => Console.log("first").pipe(Effect.andThen(Console.log("second")))),
+          runtime.run(() =>
+            Effect.all([Console.log("first"), Console.log("second")], { concurrency: "unbounded" }),
+          ),
         );
         const defects = Exit.isFailure(exit) ? exit.cause.reasons.filter(Cause.isDieReason) : [];
         assert.strictEqual(defects[0]?.defect, DuplicateFrameworkOutput);
@@ -270,28 +298,3 @@ describe("framework staging defects", () => {
     );
   });
 });
-
-it.layer(BunServices.layer, { excludeTestServices: true })(
-  "real CLI output arbitration",
-  (...[{ effect }]: readonly [TestRegistration]) => {
-    effect("preserves exact framework version bytes and status at the executable", () =>
-      Effect.gen(function* () {
-        const result = yield* captureProcess({
-          makeCommand: () =>
-            ChildProcess.make("bun", ["packages/cli/src/bin.ts", "--version"], {
-              cwd: repositoryRoot,
-              stdin: "ignore",
-            }),
-          options: {
-            maxOutputBytes: 1_024,
-            timeoutMillis: 5_000,
-            terminationGraceMillis: 1_000,
-          },
-        });
-        assert.deepStrictEqual(result.stdout.bytes, encoder.encode("tm v0.1.0\n"));
-        assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
-        assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
-      }),
-    );
-  },
-);

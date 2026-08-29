@@ -1,4 +1,5 @@
-import { Console, Context, Effect, Exit, Layer, MutableRef, Option } from "effect";
+import { Cause, Console, Context, Effect, Exit, Layer, MutableRef, Option, Schema } from "effect";
+import { CliError } from "effect/unstable/cli";
 
 import { ExpectedProcessExit } from "./expected-process-exit";
 import { ProcessOutput, SimultaneousFrameworkAndProductOutput } from "./process-output";
@@ -36,6 +37,19 @@ export const ProductOutputWithFrameworkFailure: globalThis.Error = new globalThi
 );
 
 const encoder = new globalThis.TextEncoder();
+
+const renderParseFailure = (
+  ...[{ error }]: readonly [Readonly<{ readonly error: Readonly<{ readonly message: string }> }>]
+): Uint8Array => encoder.encode(`Error: ${error.message}\n`);
+
+const structuredParseFailure = (
+  ...[error]: readonly [unknown]
+): Option.Option<CliError.NonShowHelpErrors> => {
+  if (!Schema.is(CliError.ShowHelp)(error) || error.errors.length === 0) {
+    return Option.none();
+  }
+  return Option.fromNullishOr(error.errors[0]);
+};
 
 type StageFrameworkOutput = (
   ...[destination, args]: readonly [FrameworkConsoleDestination, ReadonlyArray<unknown>]
@@ -105,6 +119,26 @@ type CliRuntimeShape = {
     ...[effect]: readonly [() => Effect.Effect<A, E, R>]
   ) => Effect.Effect<A, E | ExpectedProcessExit, R>;
 };
+type PollProcessOutput = () => ProcessOutput["Service"]["poll"];
+type WriteProcessOutput = ProcessOutput["Service"]["write"];
+
+const publishParseFailure = (
+  ...[write, error]: readonly [WriteProcessOutput, Readonly<{ readonly message: string }>]
+): Effect.Effect<void> =>
+  write({
+    stdoutBytes: new Uint8Array(),
+    stderrBytes: renderParseFailure({ error }),
+    exitCode: 1,
+  });
+
+const publishFrameworkOutput = (
+  ...[write, output]: readonly [WriteProcessOutput, StagedFrameworkOutput]
+): Effect.Effect<void> =>
+  write({
+    stdoutBytes: output.destination === "stdout" ? output.bytes : new Uint8Array(),
+    stderrBytes: output.destination === "stderr" ? output.bytes : new Uint8Array(),
+    exitCode: 0,
+  });
 
 const CliRuntimeBase: Context.ServiceClass<
   CliRuntime,
@@ -116,52 +150,59 @@ const CliRuntimeBase: Context.ServiceClass<
 
 export class CliRuntime extends CliRuntimeBase {}
 
+const makeRun = (
+  ...[pollProcessOutput, writeProcessOutput]: readonly [PollProcessOutput, WriteProcessOutput]
+): CliRuntimeShape["run"] =>
+  function <A, E, R>(
+    ...[effect]: readonly [() => Effect.Effect<A, E, R>]
+  ): Effect.Effect<A, E | ExpectedProcessExit, R> {
+    return Effect.gen(function* () {
+      const staged = makeFrameworkStage();
+      const frameworkExit = yield* Effect.exit(
+        effect().pipe(Effect.provideService(Console.Console, staged.console)),
+      );
+      const frameworkOutput = staged.read();
+      if (frameworkOutput.kind === "defect") {
+        return yield* Effect.die(frameworkOutput.defect);
+      }
+      const product = yield* pollProcessOutput();
+      if (frameworkOutput.kind === "output" && Option.isSome(product)) {
+        return yield* Effect.die(SimultaneousFrameworkAndProductOutput);
+      }
+      if (Option.isSome(product)) {
+        if (Exit.isFailure(frameworkExit)) {
+          return yield* Effect.die(ProductOutputWithFrameworkFailure);
+        }
+        yield* writeProcessOutput(product.value);
+        return product.value.exitCode === 0
+          ? frameworkExit.value
+          : yield* new ExpectedProcessExit();
+      }
+      const reason =
+        Exit.isFailure(frameworkExit) && frameworkExit.cause.reasons.length === 1
+          ? frameworkExit.cause.reasons[0]
+          : undefined;
+      const parseFailure =
+        reason !== undefined && Cause.isFailReason(reason)
+          ? structuredParseFailure(reason.error)
+          : Option.none();
+      if (Option.isSome(parseFailure)) {
+        yield* publishParseFailure(writeProcessOutput, parseFailure.value);
+        return yield* new ExpectedProcessExit();
+      }
+      if (frameworkOutput.kind === "output") {
+        yield* publishFrameworkOutput(writeProcessOutput, frameworkOutput.output);
+      }
+      return Exit.isSuccess(frameworkExit)
+        ? frameworkExit.value
+        : yield* Effect.failCause(frameworkExit.cause);
+    });
+  };
+
 export const CliRuntimeLayer: Layer.Layer<CliRuntime, never, ProcessOutput> = Layer.effect(
   CliRuntime,
   Effect.gen(function* () {
     const processOutput = yield* ProcessOutput;
-    const run = <A, E, R>(
-      ...[effect]: readonly [() => Effect.Effect<A, E, R>]
-    ): Effect.Effect<A, E | ExpectedProcessExit, R> =>
-      Effect.gen(function* () {
-        const staged = makeFrameworkStage();
-        const frameworkExit = yield* Effect.exit(
-          effect().pipe(Effect.provideService(Console.Console, staged.console)),
-        );
-        const frameworkOutput = staged.read();
-        if (frameworkOutput.kind === "defect") {
-          return yield* Effect.die(frameworkOutput.defect);
-        }
-        const product = yield* processOutput.poll;
-        if (frameworkOutput.kind === "output" && Option.isSome(product)) {
-          return yield* Effect.die(SimultaneousFrameworkAndProductOutput);
-        }
-        if (Option.isSome(product)) {
-          if (Exit.isFailure(frameworkExit)) {
-            return yield* Effect.die(ProductOutputWithFrameworkFailure);
-          }
-          yield* processOutput.write(product.value);
-          return product.value.exitCode === 0
-            ? frameworkExit.value
-            : yield* new ExpectedProcessExit();
-        }
-        if (frameworkOutput.kind === "output") {
-          yield* processOutput.write({
-            stdoutBytes:
-              frameworkOutput.output.destination === "stdout"
-                ? frameworkOutput.output.bytes
-                : new Uint8Array(),
-            stderrBytes:
-              frameworkOutput.output.destination === "stderr"
-                ? frameworkOutput.output.bytes
-                : new Uint8Array(),
-            exitCode: 0,
-          });
-        }
-        return Exit.isSuccess(frameworkExit)
-          ? frameworkExit.value
-          : yield* Effect.failCause(frameworkExit.cause);
-      });
-    return CliRuntime.of({ run });
+    return CliRuntime.of({ run: makeRun(() => processOutput.poll, processOutput.write) });
   }),
 );
