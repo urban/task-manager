@@ -4,6 +4,11 @@ import * as PlatformError from "effect/PlatformError";
 import * as Scope from "effect/Scope";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
+
+import * as ProcessFixtureOptions from "./process-fixture-options";
+
+export type InvalidProcessFixtureBound = ProcessFixtureOptions.InvalidProcessFixtureBound;
+export type CaptureProcessOptions = ProcessFixtureOptions.CaptureProcessOptions;
 export type InvalidUtf8 = {
   readonly _tag: "InvalidUtf8";
 };
@@ -31,13 +36,6 @@ export type ProcessCapture = {
   readonly status: ProcessStatus;
   readonly timedOut: boolean;
   readonly requestedSignals: ReadonlyArray<ChildProcess.Signal>;
-};
-export type CaptureProcessOptions = {
-  readonly awaitStdoutBytes?: number;
-  readonly maxOutputBytes: number;
-  readonly onReady?: () => Effect.Effect<void>;
-  readonly timeoutMillis: number;
-  readonly terminationGraceMillis: number;
 };
 type MutableCapture = {
   readonly chunks: Array<Uint8Array>;
@@ -246,6 +244,9 @@ const captureInScope = Effect.fnUntraced(function* (input: Readonly<CaptureProce
   const stdoutReadiness = makeStdoutReadiness(input.options.awaitStdoutBytes, () =>
     Deferred.completeWith(stdoutReady, Effect.void).pipe(Effect.asVoid),
   );
+  if (stdoutReadiness?.byteCount === 0) {
+    yield* stdoutReadiness.signal();
+  }
   const { stderrFiber, stdoutFiber } = yield* forkCaptureStreams({
     maxOutputBytes: input.options.maxOutputBytes,
     stderr: () => handle.stderr,
@@ -291,8 +292,9 @@ export const captureProcess = Effect.fn("ProcessFixture.captureProcess")(functio
   input: Readonly<CaptureProcessInput>,
 ): Effect.fn.Return<
   ProcessCapture,
-  PlatformError.PlatformError,
+  InvalidProcessFixtureBound | PlatformError.PlatformError,
   ChildProcessSpawner.ChildProcessSpawner
 > {
+  yield* ProcessFixtureOptions.validateProcessFixtureOptions(input.options);
   return yield* Effect.scoped(captureInScope(input));
 });

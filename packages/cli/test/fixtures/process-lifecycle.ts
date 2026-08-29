@@ -25,6 +25,17 @@ const ignoreTerm = Effect.gen(function* () {
   return yield* Effect.never;
 });
 
+const ignoreTermSilent = Effect.gen(function* () {
+  let ignoredTermRequests = 0;
+  yield* Effect.sync(() => {
+    globalThis.process.removeAllListeners("SIGTERM");
+    globalThis.process.on("SIGTERM", () => {
+      ignoredTermRequests += 1;
+    });
+  });
+  return yield* Effect.never;
+});
+
 const ignoreTermWriter = (writerPath: string): Effect.Effect<never> =>
   Effect.gen(function* () {
     let sequence = 0;
@@ -72,6 +83,9 @@ const programForMode = (): Effect.Effect<void> => {
   }
   if (mode === "ignore-term") {
     return ignoreTerm;
+  }
+  if (mode === "ignore-term-silent") {
+    return ignoreTermSilent;
   }
   if (mode === "scope-cleanup" && args[0] !== undefined && args[1] !== undefined) {
     return scopeCleanup(args[0], args[1]);

@@ -111,9 +111,39 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
   },
 );
 
+const zeroReadinessCase = Effect.gen(function* () {
+  let readyCalls = 0;
+  const result = yield* captureProcess({
+    makeCommand: () =>
+      ChildProcess.make("bun", [lifecycleFixture, "ignore-term-silent"], {
+        cwd: repositoryRoot,
+        stdin: "ignore",
+      }),
+    options: {
+      awaitStdoutBytes: 0,
+      maxOutputBytes: 1_024,
+      onReady: () =>
+        Effect.sync(() => {
+          readyCalls += 1;
+        }),
+      timeoutMillis: 1,
+      terminationGraceMillis: 0,
+    },
+  }).pipe(Effect.timeout("1 second"));
+  assert.strictEqual(readyCalls, 1);
+  assert.strictEqual(result.stdout.totalBytes, 0);
+  assert.isTrue(result.timedOut);
+  assert.deepStrictEqual(result.status, { _tag: "Signaled" });
+  assert.deepStrictEqual(result.requestedSignals, ["SIGTERM", "SIGKILL"]);
+});
+
 it.layer(BunServices.layer, { excludeTestServices: true })(
   "process timeout",
   (...[{ effect }]: readonly [TestRegistration]) => {
+    effect(
+      "starts timeout immediately when zero stdout bytes are required",
+      () => zeroReadinessCase,
+    );
     effect("starts timeout after readiness and escalates a non-terminating child", () =>
       Effect.gen(function* () {
         const actualSignals: Array<ChildProcess.Signal> = [];
