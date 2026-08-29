@@ -7,6 +7,7 @@ import {
   DebugInputRejected,
   DebugTelemetrySessionFactory,
 } from "../../src/debug-activation";
+import { observeWithDebugTelemetry } from "../../src/debug-telemetry-session";
 import { runSelectedWith } from "../support/selected-command";
 
 type Harness = {
@@ -63,6 +64,10 @@ const earlyExitCases: ReadonlyArray<ReadonlyArray<string>> = [
   ["unknown"],
 ];
 
+const ignoreExit = (...[exit]: readonly [unknown]): void => {
+  void exit;
+};
+
 const makeHarness = Effect.fnUntraced(function* (
   ...[environmentValue]: readonly [environmentValue?: string]
 ) {
@@ -77,7 +82,9 @@ const makeHarness = Effect.fnUntraced(function* (
   });
   const factory = DebugTelemetrySessionFactory.of({
     acquire: Effect.acquireRelease(
-      Ref.update(acquisitions, (count) => count + 1),
+      Ref.update(acquisitions, (count) => count + 1).pipe(
+        Effect.as({ observe: observeWithDebugTelemetry(ignoreExit) }),
+      ),
       () => Ref.update(releases, (count) => count + 1),
     ),
   });

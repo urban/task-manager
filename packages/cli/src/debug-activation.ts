@@ -54,7 +54,8 @@ export const runSelectedCommand = <E, R>(
     const enabled = explicitValue ?? (yield* resolveEnvironmentActivation());
     if (enabled) {
       const factory = yield* DebugTelemetrySessionFactory;
-      yield* factory.acquire;
+      const session = yield* factory.acquire;
+      return yield* session.observe(options.selected);
     }
-    yield* options.selected();
+    return yield* Effect.suspend(options.selected);
   });
