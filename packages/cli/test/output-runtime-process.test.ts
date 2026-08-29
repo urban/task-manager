@@ -21,6 +21,8 @@ const runCli = (...[args]: readonly [ReadonlyArray<string>]) =>
       ChildProcess.make("bun", ["packages/cli/src/bin.ts", ...args], {
         cwd: repositoryRoot,
         stdin: "ignore",
+        env: { TM_DEBUG: "false" },
+        extendEnv: true,
       }),
     options: {
       maxOutputBytes: 1_024,
