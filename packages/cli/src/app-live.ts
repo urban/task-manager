@@ -3,6 +3,11 @@ import { Layer } from "effect";
 import { CliConfig, CliOutput, Command, GlobalFlag } from "effect/unstable/cli";
 
 import { CliRuntime, CliRuntimeLayer } from "./cli-runtime";
+import {
+  DebugActivationLive,
+  DebugEnvironment,
+  DebugTelemetrySessionFactory,
+} from "./debug-activation";
 import { ProcessOutput, ProcessOutputLayer } from "./process-output";
 
 const ProcessRuntimeLive = CliRuntimeLayer.pipe(
@@ -10,7 +15,7 @@ const ProcessRuntimeLive = CliRuntimeLayer.pipe(
   Layer.provideMerge(BunServices.layer),
 );
 
-export const AppLive: Layer.Layer<Command.Environment | CliRuntime | ProcessOutput> =
+export const CliFrameworkLive: Layer.Layer<Command.Environment | CliRuntime | ProcessOutput> =
   Layer.mergeAll(
     ProcessRuntimeLive,
     CliConfig.layer({
@@ -18,3 +23,7 @@ export const AppLive: Layer.Layer<Command.Environment | CliRuntime | ProcessOutp
     }),
     CliOutput.layer(CliOutput.defaultFormatter({ colors: false })),
   );
+
+export const AppLive: Layer.Layer<
+  Command.Environment | CliRuntime | ProcessOutput | DebugEnvironment | DebugTelemetrySessionFactory
+> = Layer.merge(CliFrameworkLive, DebugActivationLive);
