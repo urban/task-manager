@@ -1,5 +1,12 @@
 #!/usr/bin/env bun
 
-// Load the public CLI module without invoking product behavior.
-// oxlint-disable-next-line import/no-unassigned-import
-import "./main";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import { Effect } from "effect";
+
+import { AppLive } from "./app-live";
+import { run } from "./cli-application";
+
+// @effect-diagnostics-next-line strictEffectProvide:off
+const application = run.pipe(Effect.provide(AppLive));
+
+BunRuntime.runMain(application);
