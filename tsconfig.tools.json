@@ -6,5 +6,5 @@
     "noEmit": true,
     "tsBuildInfoFile": "./dist/tsconfig.tools.tsbuildinfo"
   },
-  "include": ["vitest.config.ts", "vitest.setup.ts"]
+  "include": ["oxfmt.config.ts", "oxlint.config.ts", "vitest.config.ts", "vitest.setup.ts"]
 }

@@ -22,6 +22,12 @@
       "./bin": null
     }
   },
+  "scripts": {
+    "check": "bun run format && bun run lint && bun run typecheck",
+    "format": "oxfmt -c ../../oxfmt.config.ts .",
+    "lint": "oxlint --fix --tsconfig ../../tsconfig.json -c ../../oxlint.config.ts .",
+    "typecheck": "tsc -b tsconfig.json tsconfig.test.json"
+  },
   "dependencies": {
     "@effect/platform-bun": "catalog:",
     "@urban/task-manager": "workspace:*",
