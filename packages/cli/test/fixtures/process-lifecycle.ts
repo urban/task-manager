@@ -25,6 +25,29 @@ const ignoreTerm = Effect.gen(function* () {
   return yield* Effect.never;
 });
 
+const ignoreTermWriter = (writerPath: string): Effect.Effect<never> =>
+  Effect.gen(function* () {
+    let sequence = 0;
+    let ignoredTermRequests = 0;
+    yield* Effect.sync(() => {
+      globalThis.process.removeAllListeners("SIGTERM");
+      globalThis.process.on("SIGTERM", () => {
+        ignoredTermRequests += 1;
+      });
+    });
+    yield* Effect.promise(() => globalThis.Bun.write(writerPath, String(sequence)));
+    yield* Effect.promise(() =>
+      globalThis.Bun.write(globalThis.Bun.stdout, new Uint8Array([0x01])),
+    );
+    return yield* Effect.forever(
+      Effect.gen(function* () {
+        sequence += 1;
+        yield* Effect.promise(() => globalThis.Bun.write(writerPath, String(sequence)));
+        yield* Effect.sleep("1 millis");
+      }),
+    );
+  });
+
 const scopeCleanup = (readyPath: string, cleanupPath: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const cleanupRequested = Deferred.makeUnsafe<void>();
@@ -58,4 +81,8 @@ const programForMode = (): Effect.Effect<void> => {
   });
 };
 
-BunRuntime.runMain(programForMode());
+if (mode === "ignore-term-writer" && args[0] !== undefined) {
+  Effect.runFork(ignoreTermWriter(args[0]));
+} else {
+  BunRuntime.runMain(programForMode());
+}

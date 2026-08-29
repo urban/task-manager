@@ -1,8 +1,8 @@
 import * as BunServices from "@effect/platform-bun/BunServices";
 import * as EffectVitest from "@effect/vitest";
-import { Deferred, Effect, Fiber, FileSystem, Schedule } from "effect";
+import { Deferred, Effect, Fiber, FileSystem, Option, Schedule } from "effect";
 import * as Scope from "effect/Scope";
-import { ChildProcess } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { captureProcess, decodeUtf8Strict } from "./process-fixture";
 
@@ -13,6 +13,7 @@ const lifecycleFixture = "packages/cli/test/fixtures/process-lifecycle.ts";
 type TestRegistration = {
   readonly effect: EffectVitest.Vitest.Test<BunServices.BunServices | Scope.Scope>;
 };
+type IsRunning = () => ChildProcessSpawner.ChildProcessHandle["isRunning"];
 
 const cliCommand = (...args: ReadonlyArray<string>) =>
   ChildProcess.make("bun", ["packages/cli/src/bin.ts", ...args], {
@@ -42,6 +43,28 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
         assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
         assert.strictEqual(result.stderr.totalBytes, 0);
         assert.isFalse(result.stderr.truncated);
+        assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
+        assert.isFalse(result.timedOut);
+        assert.deepStrictEqual(result.requestedSignals, []);
+      }),
+    );
+
+    effect("returns a short-lived CLI result when stdout ends below readiness", () =>
+      Effect.gen(function* () {
+        const result = yield* captureProcess({
+          makeCommand: () => cliCommand("--version"),
+          options: {
+            awaitStdoutBytes: 11,
+            maxOutputBytes: 1_024,
+            timeoutMillis: 50,
+            terminationGraceMillis: 1_000,
+          },
+        }).pipe(Effect.timeout("1 second"));
+        assert.deepStrictEqual(
+          result.stdout.bytes,
+          new globalThis.TextEncoder().encode("tm v0.1.0\n"),
+        );
+        assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
         assert.isFalse(result.timedOut);
         assert.deepStrictEqual(result.requestedSignals, []);
@@ -93,6 +116,7 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
   (...[{ effect }]: readonly [TestRegistration]) => {
     effect("starts timeout after readiness and escalates a non-terminating child", () =>
       Effect.gen(function* () {
+        const actualSignals: Array<ChildProcess.Signal> = [];
         const result = yield* captureProcess({
           makeCommand: () =>
             ChildProcess.make("bun", [lifecycleFixture, "ignore-term"], {
@@ -105,53 +129,101 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
             timeoutMillis: 1,
             terminationGraceMillis: 0,
           },
+          onKillRequested: (signal) =>
+            Effect.sync(() => {
+              actualSignals.push(signal);
+            }),
         });
         assert.isTrue(result.timedOut);
         assert.deepStrictEqual(result.status, { _tag: "Signaled" });
         assert.deepStrictEqual(result.requestedSignals, ["SIGTERM", "SIGKILL"]);
+        assert.deepStrictEqual(actualSignals, result.requestedSignals);
       }),
     );
   },
 );
 
+const cooperativeCleanupCase = Effect.scoped(
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = yield* fileSystem.makeTempDirectoryScoped();
+    const readyPath = `${directory}/ready`;
+    const cleanupPath = `${directory}/cleaned`;
+    const ready = yield* Deferred.make<void>();
+    const fiber = yield* Effect.forkScoped(
+      captureProcess({
+        makeCommand: () =>
+          ChildProcess.make("bun", [lifecycleFixture, "scope-cleanup", readyPath, cleanupPath], {
+            cwd: repositoryRoot,
+            stdin: "ignore",
+          }),
+        options: {
+          awaitStdoutBytes: 1,
+          maxOutputBytes: 1_024,
+          onReady: () => Deferred.completeWith(ready, Effect.void).pipe(Effect.asVoid),
+          timeoutMillis: 30_000,
+          terminationGraceMillis: 1_000,
+        },
+      }),
+    );
+    yield* Deferred.await(ready);
+    assert.isTrue(yield* fileSystem.exists(readyPath));
+    yield* Fiber.interrupt(fiber);
+    const cleaned = yield* Effect.repeat(fileSystem.exists(cleanupPath), {
+      schedule: Schedule.spaced("1 millis"),
+      until: (exists) => exists,
+    }).pipe(Effect.timeout("2 seconds"));
+    assert.isTrue(cleaned);
+  }),
+);
+
+const boundedInterruptionCase = Effect.scoped(
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = yield* fileSystem.makeTempDirectoryScoped();
+    const writerPath = `${directory}/writer`;
+    const ready = yield* Deferred.make<void>();
+    const isRunning = yield* Deferred.make<IsRunning>();
+    const terminationPolicy =
+      yield* Deferred.make<readonly [ChildProcess.Signal | undefined, number | undefined]>();
+    const fiber = yield* Effect.forkScoped(
+      captureProcess({
+        makeCommand: () =>
+          ChildProcess.make("bun", [lifecycleFixture, "ignore-term-writer", writerPath], {
+            cwd: repositoryRoot,
+            stdin: "ignore",
+          }),
+        options: {
+          awaitStdoutBytes: 1,
+          maxOutputBytes: 1_024,
+          onReady: () => Deferred.completeWith(ready, Effect.void).pipe(Effect.asVoid),
+          timeoutMillis: 30_000,
+          terminationGraceMillis: 50,
+        },
+        onSpawned: (running, killSignal, forceKillAfterMillis) =>
+          Effect.all([
+            Deferred.succeed(isRunning, running),
+            Deferred.succeed(terminationPolicy, [killSignal, forceKillAfterMillis]),
+          ]).pipe(Effect.asVoid),
+      }),
+    );
+    const running = yield* Deferred.await(isRunning);
+    yield* Deferred.await(ready);
+    assert.isTrue(yield* fileSystem.exists(writerPath));
+    const interrupted = yield* Effect.timeoutOption(Fiber.interrupt(fiber), "500 millis");
+    assert.isTrue(Option.isSome(interrupted));
+    if (Option.isNone(interrupted)) {
+      return;
+    }
+    assert.isFalse(yield* running());
+    assert.deepStrictEqual(yield* Deferred.await(terminationPolicy), ["SIGTERM", 50]);
+  }),
+);
+
 it.layer(BunServices.layer, { excludeTestServices: true })(
   "process cleanup",
   (...[{ effect }]: readonly [TestRegistration]) => {
-    effect("interrupting the owning scope leaves no surviving child", () =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const directory = yield* fileSystem.makeTempDirectoryScoped();
-          const readyPath = `${directory}/ready`;
-          const cleanupPath = `${directory}/cleaned`;
-          const ready = yield* Deferred.make<void>();
-          const fiber = yield* Effect.forkScoped(
-            captureProcess({
-              makeCommand: () =>
-                ChildProcess.make(
-                  "bun",
-                  [lifecycleFixture, "scope-cleanup", readyPath, cleanupPath],
-                  { cwd: repositoryRoot, stdin: "ignore" },
-                ),
-              options: {
-                awaitStdoutBytes: 1,
-                maxOutputBytes: 1_024,
-                onReady: () => Deferred.completeWith(ready, Effect.void).pipe(Effect.asVoid),
-                timeoutMillis: 30_000,
-                terminationGraceMillis: 1_000,
-              },
-            }),
-          );
-          yield* Deferred.await(ready);
-          assert.isTrue(yield* fileSystem.exists(readyPath));
-          yield* Fiber.interrupt(fiber);
-          const cleaned = yield* Effect.repeat(fileSystem.exists(cleanupPath), {
-            schedule: Schedule.spaced("1 millis"),
-            until: (exists) => exists,
-          }).pipe(Effect.timeout("2 seconds"));
-          assert.isTrue(cleaned);
-        }),
-      ),
-    );
+    effect("interrupting the owning scope leaves no surviving child", () => cooperativeCleanupCase);
+    effect("bounds interruption of a TERM-ignoring child writer", () => boundedInterruptionCase);
   },
 );
