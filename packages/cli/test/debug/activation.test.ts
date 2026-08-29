@@ -83,7 +83,10 @@ const makeHarness = Effect.fnUntraced(function* (
   const factory = DebugTelemetrySessionFactory.of({
     acquire: Effect.acquireRelease(
       Ref.update(acquisitions, (count) => count + 1).pipe(
-        Effect.as({ observe: observeWithDebugTelemetry(ignoreExit) }),
+        Effect.as({
+          observe: observeWithDebugTelemetry(ignoreExit),
+          forceFlushAndShutdown: Effect.void,
+        }),
       ),
       () => Ref.update(releases, (count) => count + 1),
     ),

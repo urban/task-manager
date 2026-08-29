@@ -7,7 +7,9 @@ import {
   DebugEnvironment,
   DebugInputRejected,
   DebugTelemetrySessionFactory,
+  DebugTelemetryLifecycle,
 } from "../../src/debug-activation";
+import { makeDebugTelemetryLifecycle } from "../../src/debug-telemetry-lifecycle";
 
 import PackageJson from "../../package.json" with { type: "json" };
 
@@ -30,12 +32,15 @@ export const runSelectedWith = <E>(
           Layer.succeed(DebugTelemetrySessionFactory, options.factory()),
         ),
       );
-      return yield* Effect.provideContext(
+      const lifecycle = makeDebugTelemetryLifecycle(options.factory());
+      const exit = yield* Effect.provideContext(
         Command.runWith(commandTreeWithSelected<E, never>(options.selected), {
           version: PackageJson.version,
           renderErrors: false,
-        })(options.args),
+        })(options.args).pipe(Effect.provideService(DebugTelemetryLifecycle, lifecycle)),
         context,
-      );
+      ).pipe(Effect.exit);
+      yield* lifecycle.finalize;
+      return yield* exit;
     }),
   );

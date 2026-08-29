@@ -21,10 +21,11 @@ export {
 };
 
 type DebugExitObserver = (...[exit]: readonly [unknown]) => void;
-type DebugTelemetrySession = {
+export type DebugTelemetrySession = {
   readonly observe: <A, E, R>(
     ...[effect]: readonly [() => Effect.Effect<A, E, R>]
   ) => Effect.Effect<A, E, R>;
+  readonly forceFlushAndShutdown: Effect.Effect<void>;
   readonly telemetry?: ReturnType<typeof makeDebugTelemetrySession>;
 };
 type DebugTelemetrySessionFactoryShape = {
@@ -64,6 +65,7 @@ export const makeDebugTelemetrySessionFactory = (
 ): DebugTelemetrySessionFactory["Service"] => {
   const session: DebugTelemetrySession = {
     observe: observeWithDebugTelemetry(observer),
+    forceFlushAndShutdown: Effect.void,
   };
   return DebugTelemetrySessionFactory.of({ acquire: Effect.succeed(session) });
 };
@@ -81,7 +83,11 @@ const liveSession: Effect.Effect<DebugTelemetrySession, never, Scope.Scope> = Ef
     const client = Context.get(services, HttpClient.HttpClient);
     const serialization = Context.get(services, OtlpSerialization.OtlpSerialization);
     const telemetry = makeDebugTelemetrySession({ client, serialization });
-    return { observe: observeWithDebugTelemetry(ignoreExit), telemetry };
+    return {
+      observe: observeWithDebugTelemetry(ignoreExit),
+      forceFlushAndShutdown: telemetry.publish,
+      telemetry,
+    };
   },
 );
 

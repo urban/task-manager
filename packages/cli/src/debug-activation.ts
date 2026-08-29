@@ -1,7 +1,8 @@
-import { Effect, Layer, Option, Scope } from "effect";
+import { Effect, Layer, Option } from "effect";
 
 import { DebugEnvironment, DebugEnvironmentLive } from "./debug-environment";
 import { DebugInputRejected, invalidTmDebug } from "./debug-input-rejected";
+import { DebugTelemetryLifecycle } from "./debug-telemetry-lifecycle";
 import {
   DebugTelemetrySessionFactory,
   DebugTelemetrySessionFactoryLive,
@@ -9,6 +10,7 @@ import {
 
 export { DebugEnvironment } from "./debug-environment";
 export { DebugInputRejected } from "./debug-input-rejected";
+export { DebugTelemetryLifecycle } from "./debug-telemetry-lifecycle";
 export { DebugTelemetrySessionFactory } from "./debug-telemetry-session";
 
 export const DebugActivationLive: Layer.Layer<DebugEnvironment | DebugTelemetrySessionFactory> =
@@ -44,18 +46,14 @@ export const runSelectedCommand = <E, R>(
       readonly selected: () => Effect.Effect<void, E, R>;
     }>,
   ]
-): Effect.Effect<
-  void,
-  E | DebugInputRejected,
-  R | DebugEnvironment | DebugTelemetrySessionFactory | Scope.Scope
-> =>
+): Effect.Effect<void, E | DebugInputRejected, R | DebugEnvironment | DebugTelemetryLifecycle> =>
   Effect.gen(function* () {
     const explicitValue = options.explicit[0];
     const enabled = explicitValue ?? (yield* resolveEnvironmentActivation());
     if (enabled) {
-      const factory = yield* DebugTelemetrySessionFactory;
-      const session = yield* factory.acquire;
-      return yield* session.observe(options.selected);
+      const lifecycle = yield* DebugTelemetryLifecycle;
+      const session = yield* lifecycle.activate;
+      return yield* Effect.scoped(session.observe(options.selected));
     }
-    return yield* Effect.suspend(options.selected);
+    return yield* Effect.scoped(Effect.suspend(options.selected));
   });
