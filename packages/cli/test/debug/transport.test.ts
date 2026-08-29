@@ -1,4 +1,3 @@
-/* oxlint-disable typescript/prefer-readonly-parameter-types */
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
@@ -11,8 +10,16 @@ import {
   makeDebugTelemetrySession,
 } from "../../src/debug-telemetry-session";
 
-type Serialization = Readonly<OtlpSerialization.OtlpSerialization["Service"]>;
-type Request = Readonly<HttpClientRequest.HttpClientRequest>;
+type Immutable<T> = T extends globalThis.Function
+  ? T
+  : T extends ReadonlyArray<infer Item>
+    ? ReadonlyArray<Immutable<Item>>
+    : T extends object
+      ? { readonly [Key in keyof T]: Immutable<T[Key]> }
+      : T;
+type Serialization = Immutable<OtlpSerialization.OtlpSerialization["Service"]>;
+type Request = Immutable<HttpClientRequest.HttpClientRequest>;
+const responseRequest = HttpClientRequest.get("http://127.0.0.1/");
 type RecordCall = (signal: "logs" | "traces") => void;
 
 const ignoreSignal = (...[signal]: readonly ["logs" | "traces"]): void => {
@@ -68,7 +75,10 @@ const transportCase = Effect.gen(function* () {
   const client = HttpClient.make((...[request]: readonly [Request]) => {
     requests.push(request);
     return Effect.succeed(
-      HttpClientResponse.fromWeb(request, new globalThis.Response(undefined, { status: 200 })),
+      HttpClientResponse.fromWeb(
+        responseRequest,
+        new globalThis.Response(undefined, { status: 200 }),
+      ),
     );
   });
   const session = makeDebugTelemetrySession({
@@ -80,8 +90,10 @@ const transportCase = Effect.gen(function* () {
 
   session.recordTrace({ name: "CliApplication.run", outcome: "success" });
   session.recordLog({ outcome: "expected_failure" });
-  yield* session.publish;
-  yield* session.publish;
+  yield* Effect.all([session.publish, session.publish], {
+    concurrency: "unbounded",
+    discard: true,
+  });
 
   assert.deepStrictEqual(calls, ["traces", "logs"]);
   assertSafeRequests(requests);
@@ -92,11 +104,11 @@ const failureCase = Effect.gen(function* () {
   for (const status of statuses) {
     let requests = 0;
     const calls: Array<"logs" | "traces"> = [];
-    const client = HttpClient.make((...[request]: readonly [Request]) => {
+    const client = HttpClient.make(() => {
       requests += 1;
       return Effect.succeed(
         HttpClientResponse.fromWeb(
-          request,
+          responseRequest,
           new globalThis.Response(undefined, {
             status,
             headers: { location: "https://example.com/secret" },
@@ -132,10 +144,13 @@ const failureCase = Effect.gen(function* () {
 
 const serializationDefectCase = Effect.gen(function* () {
   let requests = 0;
-  const client = HttpClient.make((...[request]: readonly [Request]) => {
+  const client = HttpClient.make(() => {
     requests += 1;
     return Effect.succeed(
-      HttpClientResponse.fromWeb(request, new globalThis.Response(undefined, { status: 200 })),
+      HttpClientResponse.fromWeb(
+        responseRequest,
+        new globalThis.Response(undefined, { status: 200 }),
+      ),
     );
   });
   const serialization = makeSerialization(ignoreSignal);
@@ -151,6 +166,27 @@ const serializationDefectCase = Effect.gen(function* () {
   assert.strictEqual(requests, 0);
 });
 
+const responseCleanupCase = Effect.gen(function* () {
+  let cancelled = 0;
+  const body = new globalThis.ReadableStream<Uint8Array>({
+    cancel: () => {
+      cancelled += 1;
+    },
+  });
+  const client = HttpClient.make(() =>
+    Effect.succeed(
+      HttpClientResponse.fromWeb(responseRequest, new globalThis.Response(body, { status: 503 })),
+    ),
+  );
+  const session = makeDebugTelemetrySession({
+    client,
+    serialization: makeSerialization(ignoreSignal),
+  });
+  session.recordTrace({ name: "CliApplication.run", outcome: "success" });
+  yield* session.publish;
+  assert.strictEqual(cancelled, 1);
+});
+
 describe("privileged debug OTLP transport", () => {
   it("pins the live fetch adapter to manual redirects and omitted credentials", () => {
     assert.deepStrictEqual(debugFetchRequestInit, {
@@ -164,4 +200,8 @@ describe("privileged debug OTLP transport", () => {
   );
   it.effect("does not follow redirects or retry status and transport failures", () => failureCase);
   it.effect("contains serialization defects before transport", () => serializationDefectCase);
+  it.live(
+    "cancels a never-ending response body within the bounded publish",
+    () => responseCleanupCase,
+  );
 });

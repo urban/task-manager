@@ -1,8 +1,8 @@
-/* oxlint-disable typescript/prefer-readonly-parameter-types */
-import { Effect } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { Effect, Stream } from "effect";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import * as Model from "./debug-telemetry-model";
+import { serializeDebugLogs, serializeDebugTraces } from "./debug-telemetry-serialization";
 
 type Drain = () => ReadonlyArray<Model.SafeRecord>;
 type Serialize<A> = {
@@ -11,19 +11,20 @@ type Serialize<A> = {
 
 const publishBody = (
   ...[client, endpoint, body]: readonly [
-    Readonly<HttpClient.HttpClient>,
+    Model.Immutable<HttpClient.HttpClient>,
     string,
     Readonly<Model.HttpBody>,
   ]
 ): Effect.Effect<void> =>
-  client
-    .execute(HttpClientRequest.post(endpoint).pipe(HttpClientRequest.setBody(body)))
-    .pipe(
-      Effect.provideService(HttpClient.TracerPropagationEnabled, false),
-      Effect.asVoid,
-      Effect.ignoreCause,
-      Effect.withTracerEnabled(false),
-    );
+  client.execute(HttpClientRequest.post(endpoint).pipe(HttpClientRequest.setBody(body))).pipe(
+    Effect.provideService(HttpClient.TracerPropagationEnabled, false),
+    Effect.flatMap(
+      (...[response]: readonly [Model.Immutable<HttpClientResponse.HttpClientResponse>]) =>
+        response.stream.pipe(Stream.take(1), Stream.runDrain, Effect.timeout(10)),
+    ),
+    Effect.ignoreCause,
+    Effect.withTracerEnabled(false),
+  );
 
 const publishSignal = <A>(
   ...[client, endpoint, records, serialize]: readonly [
@@ -36,7 +37,7 @@ const publishSignal = <A>(
   records.length === 0
     ? Effect.void
     : Effect.sync(() => serialize.run(records)).pipe(
-        Effect.flatMap((...[body]: readonly [Model.HttpBody]) =>
+        Effect.flatMap((...[body]: readonly [Readonly<Model.HttpBody>]) =>
           publishBody(client, endpoint, body),
         ),
         Effect.ignoreCause,
@@ -69,11 +70,11 @@ export const makeDebugPublish = (
       [
         publishSignal(client, Model.debugTracesEndpoint, traces, {
           run: (items: ReadonlyArray<Model.SafeTraceRecord>) =>
-            Model.serializeDebugTraces(serialization, items),
+            serializeDebugTraces(serialization, items),
         }),
         publishSignal(client, Model.debugLogsEndpoint, logs, {
           run: (items: ReadonlyArray<Model.SafeLogRecord>) =>
-            Model.serializeDebugLogs(serialization, items),
+            serializeDebugLogs(serialization, items),
         }),
       ],
       { concurrency: "unbounded", discard: true },

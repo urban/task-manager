@@ -1,8 +1,8 @@
-/* oxlint-disable typescript/prefer-readonly-parameter-types */
-import { Effect, Exit, Logger, Option, Tracer } from "effect";
+import { Context, Effect, Exit, Logger, Option, Tracer } from "effect";
 import { CurrentLogAnnotations } from "effect/References";
 import { HttpClient } from "effect/unstable/http";
 
+import { makeBuffer, makeIds, makeRecordLog, makeRecordTrace } from "./debug-telemetry-buffer";
 import * as Model from "./debug-telemetry-model";
 import { makeDebugPublish } from "./debug-telemetry-publisher";
 
@@ -35,137 +35,69 @@ const hex16 = /^[0-9a-f]{16}$/u;
 const hex32 = /^[0-9a-f]{32}$/u;
 const noParentSpanId = (): string | undefined => undefined;
 
-const makeBuffer = (): Buffer => {
-  let records: Array<Model.SafeRecord> = [];
-  let dropped = 0;
-  return {
-    push: (...[record]: readonly [Readonly<Model.SafeRecord>]) => {
-      if (records.length >= Model.debugTelemetryCapacity) {
-        dropped += 1;
-      } else {
-        records.push(record);
-      }
-    },
-    drain: () => {
-      const drained = records;
-      records = [];
-      return drained;
-    },
-    state: () => ({ capacity: Model.debugTelemetryCapacity, dropped, size: records.length }),
-  };
-};
-
-const makeIds = (): Ids => {
-  let next = 1n;
-  return {
-    id: (...[width]: readonly [16 | 32]) => {
-      const value = next.toString(16).padStart(width, "0").slice(-width);
-      next += 1n;
-      return value;
-    },
-    current: () => next,
-    advance: () => {
-      next += 1n;
-    },
-  };
-};
-
-const makeRecordTrace =
-  (...[buffer, ids]: readonly [Buffer, Ids]) =>
-  (
-    ...[record]: readonly [Readonly<{ readonly name: string; readonly outcome: Model.SafeOutcome }>]
-  ) => {
-    if (!Model.isSafeSpanName(record.name)) {
-      return;
-    }
-    const start = ids.current();
-    const outcomeAttribute = Model.safeAttribute("outcome", record.outcome);
-    buffer.push({
-      kind: "trace",
-      name: record.name,
-      traceId: ids.id(32),
-      spanId: ids.id(16),
-      parentSpanId: undefined,
-      startTimeUnixNano: start.toString(),
-      endTimeUnixNano: (start + 1n).toString(),
-      attributes: outcomeAttribute === undefined ? [] : [outcomeAttribute],
-      outcome: record.outcome,
-    });
-  };
-
-const makeRecordLog =
-  (...[buffer, ids]: readonly [Buffer, Ids]) =>
-  (...[record]: readonly [Readonly<{ readonly outcome: "expected_failure" }>]) => {
-    const attribute = Model.safeAttribute("outcome", record.outcome);
-    buffer.push({
-      kind: "log",
-      timeUnixNano: ids.current().toString(),
-      attributes: attribute === undefined ? [] : [attribute],
-    });
-    ids.advance();
-  };
-
 const makeSpanEnd =
   (
     ...[options]: readonly [
-      Readonly<{
+      Model.Immutable<{
         readonly buffer: Buffer;
-        readonly spanOptions: Readonly<Parameters<Tracer.Tracer["span"]>[0]>;
+        readonly spanOptions: Model.Immutable<Parameters<Tracer.Tracer["span"]>[0]>;
         readonly traceId: string;
         readonly spanId: string;
         readonly parentSpanId: string | undefined;
         readonly attributes: ReadonlyMap<string, unknown>;
-        readonly setStatus: (status: Readonly<Tracer.SpanStatus>) => void;
+        readonly setStatus: (status: Model.Immutable<Tracer.SpanStatus>) => void;
       }>,
     ]
   ) =>
-  (...[endTime, exit]: readonly [bigint, Readonly<Exit.Exit<unknown, unknown>>]): void => {
-    options.setStatus({
-      _tag: "Ended",
-      startTime: options.spanOptions.startTime,
-      endTime,
-      exit,
-    });
-    if (!options.spanOptions.sampled || !Model.isSafeSpanName(options.spanOptions.name)) {
-      return;
-    }
-    const outcome = Model.classifyDebugExit(exit);
-    const attributes = Model.safeAttributes(options.attributes.entries());
-    if (
-      !attributes.some(
-        (...[attribute]: readonly [Readonly<{ readonly key: string }>]) =>
-          attribute.key === "outcome",
-      )
-    ) {
-      const outcomeAttribute = Model.safeAttribute("outcome", outcome);
-      if (outcomeAttribute !== undefined) {
-        attributes.push(outcomeAttribute);
+  (...[endTime, exit]: readonly [bigint, Model.Immutable<Exit.Exit<unknown, unknown>>]): void => {
+    try {
+      options.setStatus({
+        _tag: "Ended",
+        startTime: options.spanOptions.startTime,
+        endTime,
+        exit,
+      });
+      if (!options.spanOptions.sampled || !Model.isSafeSpanName(options.spanOptions.name)) {
+        return;
       }
+      const outcome = Model.classifyDebugExit(exit);
+      const attributes = Model.safeAttributes(options.attributes.entries());
+      if (!attributes.some((attribute) => attribute.key === "outcome")) {
+        const outcomeAttribute = Model.safeAttribute("outcome", outcome);
+        if (outcomeAttribute !== undefined) {
+          attributes.push(outcomeAttribute);
+        }
+      }
+      const safe = Model.makeSafeTraceRecord({
+        kind: "trace",
+        name: options.spanOptions.name,
+        traceId: options.traceId,
+        spanId: options.spanId,
+        parentSpanId: options.parentSpanId,
+        startTimeUnixNano: options.spanOptions.startTime.toString(),
+        endTimeUnixNano: endTime.toString(),
+        attributes,
+        outcome,
+      });
+      if (safe !== undefined) {
+        options.buffer.push(safe);
+      }
+    } catch {
+      void 0;
     }
-    options.buffer.push({
-      kind: "trace",
-      name: options.spanOptions.name,
-      traceId: options.traceId,
-      spanId: options.spanId,
-      parentSpanId: options.parentSpanId,
-      startTimeUnixNano: options.spanOptions.startTime.toString(),
-      endTimeUnixNano: endTime.toString(),
-      attributes,
-      outcome,
-    });
   };
 
 const makeSpanIdentity = (
-  ...[ids, parent]: readonly [Readonly<Ids>, Readonly<Option.Option<Tracer.AnySpan>>]
+  ...[ids, parent]: readonly [Readonly<Ids>, Model.Immutable<Option.Option<Tracer.AnySpan>>]
 ) => {
   const traceId = Option.match(parent, {
     onNone: () => ids.id(32),
-    onSome: (...[value]: readonly [Readonly<Tracer.AnySpan>]) =>
+    onSome: (...[value]: readonly [Model.Immutable<Tracer.AnySpan>]) =>
       hex32.test(value.traceId) ? value.traceId : ids.id(32),
   });
   const parentSpanId = Option.match(parent, {
     onNone: noParentSpanId,
-    onSome: (...[value]: readonly [Readonly<Tracer.AnySpan>]) =>
+    onSome: (...[value]: readonly [Model.Immutable<Tracer.AnySpan>]) =>
       hex16.test(value.spanId) ? value.spanId : undefined,
   });
   return { traceId, spanId: ids.id(16), parentSpanId };
@@ -183,7 +115,9 @@ const ignoreSpanEvent = (
   void attributes;
 };
 
-const ignoreSpanLinks = (...[links]: readonly [ReadonlyArray<Tracer.SpanLink>]): void => {
+const ignoreSpanLinks = (
+  ...[links]: readonly [ReadonlyArray<Model.Immutable<Tracer.SpanLink>>]
+): void => {
   void links;
 };
 
@@ -191,7 +125,7 @@ const makeSpan = (
   ...[buffer, ids, spanOptions]: readonly [
     Readonly<Buffer>,
     Readonly<Ids>,
-    Readonly<Parameters<Tracer.Tracer["span"]>[0]>,
+    Model.Immutable<Parameters<Tracer.Tracer["span"]>[0]>,
   ]
 ): Tracer.Span => {
   const attributes = new Map<string, unknown>();
@@ -204,7 +138,7 @@ const makeSpan = (
     spanId,
     parentSpanId,
     attributes,
-    setStatus: (...[value]: readonly [Readonly<Tracer.SpanStatus>]) => {
+    setStatus: (...[value]: readonly [Model.Immutable<Tracer.SpanStatus>]) => {
       status = value;
     },
   });
@@ -224,8 +158,12 @@ const makeSpan = (
     kind: spanOptions.kind,
     end,
     attribute: (...[key, value]: readonly [string, unknown]) => {
-      if (Model.safeAttribute(key, value) !== undefined) {
-        attributes.set(key, value);
+      try {
+        if (Model.safeAttribute(key, value) !== undefined) {
+          attributes.set(key, value);
+        }
+      } catch {
+        void 0;
       }
     },
     event: ignoreSpanEvent,
@@ -233,23 +171,74 @@ const makeSpan = (
   };
 };
 
+const makeFallbackSpan = (...[ids]: readonly [Readonly<Ids>]): Tracer.Span => {
+  const traceId = ids.id(32);
+  const spanId = ids.id(16);
+  let status: Tracer.SpanStatus = { _tag: "Started", startTime: 0n };
+  return {
+    _tag: "Span",
+    name: "CliApplication.run",
+    traceId,
+    spanId,
+    parent: Option.none(),
+    annotations: Context.empty(),
+    get status() {
+      return status;
+    },
+    attributes: new Map(),
+    links: [],
+    sampled: false,
+    kind: "internal",
+    end: (...[endTime, exit]: readonly [bigint, Model.Immutable<Exit.Exit<unknown, unknown>>]) => {
+      status = { _tag: "Ended", startTime: 0n, endTime, exit };
+    },
+    attribute: (...[key, value]: readonly [string, unknown]) => {
+      void key;
+      void value;
+    },
+    event: ignoreSpanEvent,
+    addLinks: ignoreSpanLinks,
+  };
+};
+
+const makeTotalSpan = (
+  ...[buffer, ids, options]: readonly [
+    Readonly<Buffer>,
+    Readonly<Ids>,
+    Model.Immutable<Parameters<Tracer.Tracer["span"]>[0]>,
+  ]
+): Tracer.Span => {
+  try {
+    return makeSpan(buffer, ids, options);
+  } catch {
+    return makeFallbackSpan(ids);
+  }
+};
+
 const makeTracer = (...[buffer, ids]: readonly [Readonly<Buffer>, Readonly<Ids>]): Tracer.Tracer =>
   Tracer.make({
-    span: (...[options]: readonly [Readonly<Parameters<Tracer.Tracer["span"]>[0]>]) =>
-      makeSpan(buffer, ids, options),
+    span: (...[options]: readonly [Model.Immutable<Parameters<Tracer.Tracer["span"]>[0]>]) =>
+      makeTotalSpan(buffer, ids, options),
   });
 
 const makeLogger = (...[buffer]: readonly [Readonly<Buffer>]): Logger.Logger<unknown, void> =>
-  Logger.make((...[options]: readonly [Readonly<Logger.Options<unknown>>]) => {
-    const attributes = Model.safeAttributes(
-      Object.entries(options.fiber.getRef(CurrentLogAnnotations)),
-    );
-    if (attributes.length > 0) {
-      buffer.push({
-        kind: "log",
-        timeUnixNano: String(options.date.getTime() * 1_000_000),
-        attributes,
-      });
+  Logger.make((...[options]: readonly [Model.Immutable<Logger.Options<unknown>>]) => {
+    try {
+      const attributes = Model.safeAttributes(
+        Object.entries(options.fiber.getRef(CurrentLogAnnotations)),
+      );
+      if (attributes.length > 0) {
+        const safe = Model.makeSafeLogRecord({
+          kind: "log",
+          timeUnixNano: String(options.date.getTime() * 1_000_000),
+          attributes,
+        });
+        if (safe !== undefined) {
+          buffer.push(safe);
+        }
+      }
+    } catch {
+      void 0;
     }
   });
 

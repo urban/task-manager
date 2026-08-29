@@ -1,14 +1,19 @@
-/* oxlint-disable typescript/prefer-readonly-parameter-types */
 import { Cause, Exit } from "effect";
-import { OtlpResource, OtlpSerialization } from "effect/unstable/observability";
+import { OtlpSerialization } from "effect/unstable/observability";
 
 import PackageJson from "../package.json" with { type: "json" };
 
 export type OtlpSerializationService = OtlpSerialization.OtlpSerialization["Service"];
 type ReadonlyMember<T> = T extends unknown ? Readonly<T> : never;
-type DebugExit = ReadonlyMember<Exit.Exit<unknown, unknown>>;
-type DebugFailure = Readonly<Exit.Failure<unknown, unknown>>;
-export type HttpBody = ReturnType<OtlpSerializationService["traces"]>;
+export type Immutable<T> = T extends globalThis.Function
+  ? T
+  : T extends ReadonlyArray<infer Item>
+    ? ReadonlyArray<Immutable<Item>>
+    : T extends object
+      ? { readonly [Key in keyof T]: Immutable<T[Key]> }
+      : T;
+type DebugExit = Immutable<ReadonlyMember<Exit.Exit<unknown, unknown>>>;
+export type HttpBody = Immutable<ReturnType<OtlpSerializationService["traces"]>>;
 export type SafeOutcome = "composite_failure" | "defect" | "interrupted" | "success";
 export type SafeKeyValue = {
   readonly key: string;
@@ -34,6 +39,10 @@ export type SafeLogRecord = {
   readonly attributes: ReadonlyArray<SafeKeyValue>;
 };
 export type SafeRecord = SafeLogRecord | SafeTraceRecord;
+
+const safeKeyValues = new WeakSet<SafeKeyValue>();
+const safeTraceRecords = new WeakSet<SafeTraceRecord>();
+const safeLogRecords = new WeakSet<SafeLogRecord>();
 
 export const debugTelemetryCapacity = 128;
 export const debugTracesEndpoint = "http://127.0.0.1:4318/v1/traces";
@@ -79,6 +88,15 @@ const safeSpanNames: ReadonlyArray<string> = [
   "ProcessOutput.publish",
 ];
 const safeSpanNameSet: ReadonlySet<string> = new Set(safeSpanNames);
+const safeOutcomes: ReadonlySet<SafeOutcome> = new Set([
+  "composite_failure",
+  "defect",
+  "interrupted",
+  "success",
+]);
+const hex16 = /^[0-9a-f]{16}$/u;
+const hex32 = /^[0-9a-f]{32}$/u;
+const unsignedNanoTime = /^(?:0|[1-9][0-9]*)$/u;
 const stringAttributeValues: Readonly<Record<string, ReadonlySet<string>>> = {
   command: new Set([
     "init",
@@ -117,16 +135,6 @@ const countAttributeNames: ReadonlySet<string> = new Set([
   "failure.die_count",
   "failure.interrupt_count",
 ]);
-const resource = OtlpResource.make({
-  serviceName: "task-manager",
-  serviceVersion: PackageJson.version,
-  attributes: {
-    "effect.version": "4.0.0-rc.112",
-    "telemetry.schema.version": "1",
-    "telemetry.mode": "privileged-debug",
-  },
-});
-
 export const isSafeSpanName = (...[name]: readonly [string]): boolean => safeSpanNameSet.has(name);
 
 export const safeAttribute = (
@@ -134,7 +142,9 @@ export const safeAttribute = (
 ): SafeKeyValue | undefined => {
   const stringValues = stringAttributeValues[key];
   if (stringValues !== undefined && typeof value === "string" && stringValues.has(value)) {
-    return { key, value: { stringValue: value } };
+    const attribute = Object.freeze({ key, value: Object.freeze({ stringValue: value }) });
+    safeKeyValues.add(attribute);
+    return attribute;
   }
   if (
     countAttributeNames.has(key) &&
@@ -143,10 +153,14 @@ export const safeAttribute = (
     value >= 0 &&
     value <= 255
   ) {
-    return { key, value: { intValue: value } };
+    const attribute = Object.freeze({ key, value: Object.freeze({ intValue: value }) });
+    safeKeyValues.add(attribute);
+    return attribute;
   }
   if (key === "process.exit_code" && (value === 0 || value === 1)) {
-    return { key, value: { intValue: value } };
+    const attribute = Object.freeze({ key, value: Object.freeze({ intValue: value }) });
+    safeKeyValues.add(attribute);
+    return attribute;
   }
   return undefined;
 };
@@ -158,6 +172,46 @@ export const safeAttributes = (
     const attribute = safeAttribute(...entry);
     return attribute === undefined ? [] : [attribute];
   });
+
+export const makeSafeTraceRecord = (
+  ...[record]: readonly [Readonly<SafeTraceRecord>]
+): SafeTraceRecord | undefined => {
+  if (
+    !isSafeSpanName(record.name) ||
+    !hex32.test(record.traceId) ||
+    !hex16.test(record.spanId) ||
+    (record.parentSpanId !== undefined && !hex16.test(record.parentSpanId)) ||
+    !unsignedNanoTime.test(record.startTimeUnixNano) ||
+    !unsignedNanoTime.test(record.endTimeUnixNano) ||
+    !safeOutcomes.has(record.outcome) ||
+    !record.attributes.every((attribute) => safeKeyValues.has(attribute))
+  ) {
+    return undefined;
+  }
+  const safe = Object.freeze({
+    ...record,
+    attributes: Object.freeze([...record.attributes]),
+  });
+  safeTraceRecords.add(safe);
+  return safe;
+};
+
+export const makeSafeLogRecord = (
+  ...[record]: readonly [Readonly<SafeLogRecord>]
+): SafeLogRecord | undefined => {
+  if (
+    !unsignedNanoTime.test(record.timeUnixNano) ||
+    !record.attributes.every((attribute) => safeKeyValues.has(attribute))
+  ) {
+    return undefined;
+  }
+  const safe = Object.freeze({
+    ...record,
+    attributes: Object.freeze([...record.attributes]),
+  });
+  safeLogRecords.add(safe);
+  return safe;
+};
 
 export const projectDebugDefect = (
   ...[defect]: readonly [unknown]
@@ -174,10 +228,8 @@ export const projectDebugDefect = (
   };
 };
 
-const isDebugFailure = (exit: DebugExit): exit is DebugFailure => Exit.isFailure(exit);
-
 export const classifyDebugExit = (...[exit]: readonly [DebugExit]): SafeOutcome => {
-  if (!isDebugFailure(exit)) {
+  if (!Exit.isFailure(exit)) {
     return "success";
   }
   const reasons = exit.cause.reasons;
@@ -185,91 +237,22 @@ export const classifyDebugExit = (...[exit]: readonly [DebugExit]): SafeOutcome 
   if (reasons.length === 1 && firstReason !== undefined && Cause.isDieReason(firstReason)) {
     return "defect";
   }
-  if (
-    reasons.length > 0 &&
-    reasons.every((...[reason]: readonly [Readonly<Cause.Reason<unknown>>]) =>
-      Cause.isInterruptReason(reason),
-    )
-  ) {
+  let everyReasonIsInterruption = reasons.length > 0;
+  for (const reason of reasons) {
+    if (!Cause.isInterruptReason(reason)) {
+      everyReasonIsInterruption = false;
+    }
+  }
+  if (everyReasonIsInterruption) {
     return "interrupted";
   }
   return "composite_failure";
 };
 
-const traceStatus = (
-  ...[outcome]: readonly [SafeOutcome]
-): Readonly<
-  | { readonly code: 1 }
-  | { readonly code: 2 }
-  | { readonly code: 2; readonly message: "Untrusted defect message omitted." }
-> => {
-  if (outcome === "success") {
-    return { code: 1 };
-  }
-  if (outcome === "defect") {
-    return { code: 2, message: "Untrusted defect message omitted." };
-  }
-  return { code: 2 };
-};
+export const safeTracesForSerialization = (
+  ...[records]: readonly [ReadonlyArray<Readonly<SafeTraceRecord>>]
+): ReadonlyArray<SafeTraceRecord> => records.filter((record) => safeTraceRecords.has(record));
 
-export const serializeDebugTraces = (
-  ...[serialization, records]: readonly [
-    Readonly<OtlpSerializationService>,
-    ReadonlyArray<Readonly<SafeTraceRecord>>,
-  ]
-): HttpBody =>
-  serialization.traces({
-    resourceSpans: [
-      {
-        resource,
-        scopeSpans: [
-          {
-            scope: { name: "task-manager" },
-            spans: records.map((...[record]: readonly [Readonly<SafeTraceRecord>]) => ({
-              traceId: record.traceId,
-              spanId: record.spanId,
-              parentSpanId: record.parentSpanId,
-              name: record.name,
-              kind: 1,
-              startTimeUnixNano: record.startTimeUnixNano,
-              endTimeUnixNano: record.endTimeUnixNano,
-              attributes: [...record.attributes],
-              droppedAttributesCount: 0,
-              events: [],
-              droppedEventsCount: 0,
-              status: traceStatus(record.outcome),
-              links: [],
-              droppedLinksCount: 0,
-            })),
-          },
-        ],
-      },
-    ],
-  });
-
-export const serializeDebugLogs = (
-  ...[serialization, records]: readonly [
-    Readonly<OtlpSerializationService>,
-    ReadonlyArray<Readonly<SafeLogRecord>>,
-  ]
-): HttpBody =>
-  serialization.logs({
-    resourceLogs: [
-      {
-        resource,
-        scopeLogs: [
-          {
-            scope: { name: "task-manager" },
-            logRecords: records.map((...[record]: readonly [Readonly<SafeLogRecord>]) => ({
-              timeUnixNano: record.timeUnixNano,
-              observedTimeUnixNano: record.timeUnixNano,
-              severityNumber: 9,
-              severityText: "Info",
-              attributes: [...record.attributes],
-              droppedAttributesCount: 0,
-            })),
-          },
-        ],
-      },
-    ],
-  });
+export const safeLogsForSerialization = (
+  ...[records]: readonly [ReadonlyArray<Readonly<SafeLogRecord>>]
+): ReadonlyArray<SafeLogRecord> => records.filter((record) => safeLogRecords.has(record));
