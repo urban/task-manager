@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, it } from "@effect/vitest";
+import { Effect } from "effect";
 
 import * as TaskManagerCli from "@urban/task-manager-cli";
 
 describe("@urban/task-manager-cli", () => {
-  it("loads the public entrypoint", () => {
-    expect(TaskManagerCli).toBeDefined();
-  });
+  it.effect("loads the public entrypoint through Effect test integration", () =>
+    Effect.sync(() => {
+      assert.isDefined(TaskManagerCli);
+    }),
+  );
 });
