@@ -10,10 +10,9 @@ import {
   makeDebugTelemetrySession,
 } from "../../src/debug-telemetry-session";
 import {
-  interruptedResponseCleanupCase,
-  pendingResponseCleanupCase,
-  responseBodyVariantsCase,
-} from "./transport-body-support";
+  ignoredResponseBodiesCase,
+  repeatedIgnoredResponseBodiesCase,
+} from "./ignored-response-support";
 
 type Immutable<T> = T extends globalThis.Function
   ? T
@@ -171,27 +170,6 @@ const serializationDefectCase = Effect.gen(function* () {
   assert.strictEqual(requests, 0);
 });
 
-const responseCleanupCase = Effect.gen(function* () {
-  let cancelled = 0;
-  const body = new globalThis.ReadableStream<Uint8Array>({
-    cancel: () => {
-      cancelled += 1;
-    },
-  });
-  const client = HttpClient.make(() =>
-    Effect.succeed(
-      HttpClientResponse.fromWeb(responseRequest, new globalThis.Response(body, { status: 503 })),
-    ),
-  );
-  const session = makeDebugTelemetrySession({
-    client,
-    serialization: makeSerialization(ignoreSignal),
-  });
-  session.recordTrace({ name: "CliApplication.run", outcome: "success" });
-  yield* session.publish;
-  assert.strictEqual(cancelled, 1);
-});
-
 describe("privileged debug OTLP transport", () => {
   it("pins the live fetch adapter to manual redirects and omitted credentials", () => {
     assert.deepStrictEqual(debugFetchRequestInit, {
@@ -205,17 +183,12 @@ describe("privileged debug OTLP transport", () => {
   );
   it.effect("does not follow redirects or retry status and transport failures", () => failureCase);
   it.effect("contains serialization defects before transport", () => serializationDefectCase);
-  it.live(
-    "cancels a never-ending response body within the bounded publish",
-    () => responseCleanupCase,
+  it.effect(
+    "returns without opening or cancelling response bodies",
+    () => ignoredResponseBodiesCase,
   );
-  it.live("completes when response cancellation never settles", () => pendingResponseCleanupCase);
-  it.live(
-    "contains empty, finite, and erroring bodies across response statuses",
-    () => responseBodyVariantsCase,
-  );
-  it.live(
-    "does not trap outer interruption in response cleanup",
-    () => interruptedResponseCleanupCase,
+  it.effect(
+    "leaves repeated response bodies unopened and unlocked",
+    () => repeatedIgnoredResponseBodiesCase,
   );
 });

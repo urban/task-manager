@@ -1,5 +1,5 @@
-import { Effect, Fiber, Option, Stream } from "effect";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { Effect } from "effect";
+import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import * as Model from "./debug-telemetry-model";
 import { serializeDebugLogs, serializeDebugTraces } from "./debug-telemetry-serialization";
@@ -9,37 +9,6 @@ type Serialize<A> = {
   readonly run: (records: ReadonlyArray<A>) => Model.HttpBody;
 };
 
-const ownResponseBody = (
-  ...[response]: readonly [Model.Immutable<HttpClientResponse.HttpClientResponse>]
-): Effect.Effect<void> =>
-  Effect.gen(function* () {
-    const consumer = yield* response.stream.pipe(
-      Stream.take(1),
-      Stream.runDrain,
-      Effect.ignoreCause,
-      Effect.withTracerEnabled(false),
-      Effect.forkDetach({ startImmediately: true }),
-    );
-    let cleanupStarted = false;
-    const startCleanup = Effect.suspend(() => {
-      if (cleanupStarted) {
-        return Effect.void;
-      }
-      cleanupStarted = true;
-      return Fiber.interrupt(consumer).pipe(
-        Effect.forkDetach({ startImmediately: true }),
-        Effect.asVoid,
-      );
-    });
-    const completed = yield* Fiber.await(consumer).pipe(
-      Effect.timeoutOption(10),
-      Effect.onInterrupt(() => startCleanup),
-    );
-    if (Option.isNone(completed)) {
-      yield* startCleanup;
-    }
-  });
-
 const publishBody = (
   ...[client, endpoint, body]: readonly [
     Model.Immutable<HttpClient.HttpClient>,
@@ -47,15 +16,14 @@ const publishBody = (
     Readonly<Model.HttpBody>,
   ]
 ): Effect.Effect<void> =>
-  client.execute(HttpClientRequest.post(endpoint).pipe(HttpClientRequest.setBody(body))).pipe(
-    Effect.provideService(HttpClient.TracerPropagationEnabled, false),
-    Effect.flatMap(
-      (...[response]: readonly [Model.Immutable<HttpClientResponse.HttpClientResponse>]) =>
-        ownResponseBody(response),
-    ),
-    Effect.ignoreCause,
-    Effect.withTracerEnabled(false),
-  );
+  client
+    .execute(HttpClientRequest.post(endpoint).pipe(HttpClientRequest.setBody(body)))
+    .pipe(
+      Effect.provideService(HttpClient.TracerPropagationEnabled, false),
+      Effect.asVoid,
+      Effect.ignoreCause,
+      Effect.withTracerEnabled(false),
+    );
 
 const publishSignal = <A>(
   ...[client, endpoint, records, serialize]: readonly [
