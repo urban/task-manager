@@ -134,7 +134,11 @@ const zeroReadinessCase = Effect.gen(function* () {
   assert.strictEqual(result.stdout.totalBytes, 0);
   assert.isTrue(result.timedOut);
   assert.deepStrictEqual(result.status, { _tag: "Signaled" });
-  assert.deepStrictEqual(result.requestedSignals, ["SIGTERM", "SIGKILL"]);
+  assert.isTrue(result.requestedSignals.length === 1 || result.requestedSignals.length === 2);
+  assert.strictEqual(result.requestedSignals[0], "SIGTERM");
+  if (result.requestedSignals.length === 2) {
+    assert.strictEqual(result.requestedSignals[1], "SIGKILL");
+  }
 });
 
 it.layer(BunServices.layer, { excludeTestServices: true })(

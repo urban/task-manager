@@ -38,23 +38,17 @@ const expectedOrdering = [
 const orderingCase = Effect.gen(function* () {
   const events: Array<string> = [];
   const factory = DebugTelemetrySessionFactory.of({
-    acquire: Effect.acquireRelease(
-      Effect.sync(() => {
-        events.push("debug acquired");
-        return {
-          observe: observeWithDebugTelemetry(() => {
-            events.push("selected exit preserved");
-          }),
-          forceFlushAndShutdown: Effect.sync(() => {
-            events.push("debug flushed");
-          }),
-        };
-      }),
-      () =>
-        Effect.sync(() => {
-          events.push("debug released");
+    acquire: Effect.sync(() => {
+      events.push("debug acquired");
+      return {
+        observe: observeWithDebugTelemetry(() => {
+          events.push("selected exit preserved");
         }),
-    ),
+        forceFlushAndShutdown: Effect.sync(() => {
+          events.push("debug flushed", "debug released");
+        }),
+      };
+    }),
   });
   const selected = () =>
     Effect.scoped(
@@ -96,16 +90,10 @@ const deadlineCase = Effect.gen(function* () {
   const telemetry = makeDebugTelemetrySession({ client, serialization });
   telemetry.recordTrace({ name: "CliApplication.run", outcome: "success" });
   const factory = DebugTelemetrySessionFactory.of({
-    acquire: Effect.acquireRelease(
-      Effect.succeed({
-        observe: observeWithDebugTelemetry(ignoreExit),
-        forceFlushAndShutdown: telemetry.publish,
-      }),
-      () =>
-        Effect.sync(() => {
-          events.push("debug released");
-        }),
-    ),
+    acquire: Effect.succeed({
+      observe: observeWithDebugTelemetry(ignoreExit),
+      forceFlushAndShutdown: telemetry.publish,
+    }),
   });
   const fiber = yield* runSelectedWith({
     args: ["--debug"],
@@ -120,18 +108,15 @@ const deadlineCase = Effect.gen(function* () {
   const exit = yield* Fiber.await(fiber);
   assert.isTrue(Exit.isSuccess(exit));
   assert.strictEqual(requests, 1);
-  assert.deepStrictEqual(events, ["debug released"]);
+  assert.deepStrictEqual(events, []);
 });
 
 const defectContainmentCase = Effect.gen(function* () {
   const factory = DebugTelemetrySessionFactory.of({
-    acquire: Effect.acquireRelease(
-      Effect.succeed({
-        observe: observeWithDebugTelemetry(ignoreExit),
-        forceFlushAndShutdown: Effect.die({ identity: "flush defect" }),
-      }),
-      () => Effect.die({ identity: "shutdown defect" }),
-    ),
+    acquire: Effect.succeed({
+      observe: observeWithDebugTelemetry(ignoreExit),
+      forceFlushAndShutdown: Effect.die({ identity: "flush defect" }),
+    }),
   });
   const exit = yield* Effect.exit(
     runSelectedWith({
@@ -142,6 +127,54 @@ const defectContainmentCase = Effect.gen(function* () {
     }),
   );
   assert.isTrue(Exit.isSuccess(exit));
+});
+
+const acquisitionDefectCase = Effect.gen(function* () {
+  const sourceExit = Exit.failCause(Cause.die({ identity: "selected defect" }));
+  let selections = 0;
+  const actual = yield* Effect.exit(
+    runSelectedWith({
+      args: ["--debug"],
+      selected: () => {
+        selections += 1;
+        return sourceExit;
+      },
+      environment: () => disabledEnvironment,
+      factory: () =>
+        DebugTelemetrySessionFactory.of({
+          acquire: Effect.die({ identity: "acquisition defect" }),
+        }),
+    }),
+  );
+  assert.strictEqual(selections, 1);
+  assert.isTrue(Exit.isFailure(actual));
+  if (Exit.isFailure(actual) && Exit.isFailure(sourceExit)) {
+    assert.strictEqual(actual.cause, sourceExit.cause);
+  }
+});
+
+const hangingShutdownCase = Effect.gen(function* () {
+  const shutdownStarted = yield* Deferred.make<void>();
+  const factory = DebugTelemetrySessionFactory.of({
+    acquire: Effect.succeed({
+      observe: observeWithDebugTelemetry(ignoreExit),
+      forceFlushAndShutdown: Deferred.completeWith(shutdownStarted, Effect.void).pipe(
+        Effect.asVoid,
+        Effect.andThen(Effect.never),
+      ),
+    }),
+  });
+  const fiber = yield* runSelectedWith({
+    args: ["--debug"],
+    selected: () => Effect.void,
+    environment: () => disabledEnvironment,
+    factory: () => factory,
+  }).pipe(Effect.forkChild);
+  yield* Deferred.await(shutdownStarted);
+  yield* TestClock.adjust("249 millis");
+  assert.strictEqual(fiber.pollUnsafe(), undefined);
+  yield* TestClock.adjust("1 milli");
+  assert.isTrue(Exit.isSuccess(yield* Fiber.await(fiber)));
 });
 
 const exitPreservationCase = Effect.gen(function* () {
@@ -229,6 +262,11 @@ describe("post-output debug finalization", () => {
   );
   it.effect("uses one total 250 ms deadline and interrupts a hanging request", () => deadlineCase);
   it.effect("contains flush and shutdown defects", () => defectContainmentCase);
+  it.effect(
+    "runs the selected command when debug acquisition defects",
+    () => acquisitionDefectCase,
+  );
+  it.effect("bounds a hanging shutdown by the same total deadline", () => hangingShutdownCase);
   it.effect(
     "preserves success, failure, and defect identity through finalization",
     () => exitPreservationCase,

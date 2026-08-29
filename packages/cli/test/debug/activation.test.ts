@@ -81,14 +81,11 @@ const makeHarness = Effect.fnUntraced(function* (
     readTmDebug: Ref.update(environmentReads, (count) => count + 1).pipe(Effect.as(optionValue)),
   });
   const factory = DebugTelemetrySessionFactory.of({
-    acquire: Effect.acquireRelease(
-      Ref.update(acquisitions, (count) => count + 1).pipe(
-        Effect.as({
-          observe: observeWithDebugTelemetry(ignoreExit),
-          forceFlushAndShutdown: Effect.void,
-        }),
-      ),
-      () => Ref.update(releases, (count) => count + 1),
+    acquire: Ref.update(acquisitions, (count) => count + 1).pipe(
+      Effect.as({
+        observe: observeWithDebugTelemetry(ignoreExit),
+        forceFlushAndShutdown: Ref.update(releases, (count) => count + 1),
+      }),
     ),
   });
   const selected = Effect.gen(function* () {

@@ -29,7 +29,7 @@ export type DebugTelemetrySession = {
   readonly telemetry?: ReturnType<typeof makeDebugTelemetrySession>;
 };
 type DebugTelemetrySessionFactoryShape = {
-  readonly acquire: Effect.Effect<DebugTelemetrySession, never, Scope.Scope>;
+  readonly acquire: Effect.Effect<DebugTelemetrySession>;
 };
 
 const DebugTelemetrySessionFactoryBase: Context.ServiceClass<
@@ -77,19 +77,22 @@ const liveTransportLayer = Layer.merge(
   OtlpSerialization.layerProtobuf,
 );
 
-const liveSession: Effect.Effect<DebugTelemetrySession, never, Scope.Scope> = Effect.gen(
-  function* () {
-    const services = yield* Layer.build(liveTransportLayer);
-    const client = Context.get(services, HttpClient.HttpClient);
-    const serialization = Context.get(services, OtlpSerialization.OtlpSerialization);
-    const telemetry = makeDebugTelemetrySession({ client, serialization });
-    return {
-      observe: observeWithDebugTelemetry(ignoreExit),
-      forceFlushAndShutdown: telemetry.publish,
-      telemetry,
-    };
-  },
-);
+const liveSession: Effect.Effect<DebugTelemetrySession> = Effect.gen(function* () {
+  const scope = yield* Scope.make();
+  const services = yield* Layer.build(liveTransportLayer).pipe(Scope.provide(scope));
+  const client = Context.get(services, HttpClient.HttpClient);
+  const serialization = Context.get(services, OtlpSerialization.OtlpSerialization);
+  const telemetry = makeDebugTelemetrySession({ client, serialization });
+  return {
+    observe: observeWithDebugTelemetry(ignoreExit),
+    forceFlushAndShutdown: Effect.gen(function* () {
+      const publishExit = yield* Effect.exit(telemetry.publish);
+      yield* Scope.close(scope, publishExit);
+      return yield* publishExit;
+    }),
+    telemetry,
+  };
+});
 
 export const DebugTelemetrySessionFactoryLive: Layer.Layer<DebugTelemetrySessionFactory> =
   Layer.succeed(
