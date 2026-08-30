@@ -24,7 +24,7 @@ export const makeBuffer = (): Buffer => {
   let records: Array<Model.SafeRecord> = [];
   let dropped = 0;
   return {
-    push: (...[record]: readonly [Readonly<Model.SafeRecord>]) => {
+    push: (record: Readonly<Model.SafeRecord>) => {
       if (records.length >= Model.debugTelemetryCapacity) {
         dropped += 1;
       } else {
@@ -57,9 +57,7 @@ export const makeIds = (): Ids => {
 
 export const makeRecordTrace =
   (...[buffer, ids]: readonly [Buffer, Ids]): RecordTrace =>
-  (
-    ...[record]: readonly [Readonly<{ readonly name: string; readonly outcome: Model.SafeOutcome }>]
-  ) => {
+  (record: Readonly<{ readonly name: string; readonly outcome: Model.SafeOutcome }>) => {
     try {
       if (!Model.isSafeSpanName(record.name)) {
         return;
@@ -87,7 +85,7 @@ export const makeRecordTrace =
 
 export const makeRecordLog =
   (...[buffer, ids]: readonly [Buffer, Ids]): RecordLog =>
-  (...[record]: readonly [Readonly<{ readonly outcome: "expected_failure" }>]) => {
+  (record: Readonly<{ readonly outcome: "expected_failure" }>) => {
     try {
       const attribute = Model.safeAttribute("outcome", record.outcome);
       const safe = Model.makeSafeLogRecord({

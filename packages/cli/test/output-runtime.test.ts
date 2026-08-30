@@ -54,7 +54,7 @@ const collectBytes = (...[chunks]: readonly [ReadonlyArray<ReadonlyBytes>]): Uin
   return result;
 };
 
-const runtimeLayer = (...[captured]: readonly [CapturedStdio]) => {
+const runtimeLayer = (captured: CapturedStdio) => {
   const stdio = Stdio.layerTest({
     stderr: () =>
       Sink.forEach((...[chunk]: readonly [string | ReadonlyBytes]) =>

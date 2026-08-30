@@ -37,17 +37,15 @@ const noParentSpanId = (): string | undefined => undefined;
 
 const makeSpanEnd =
   (
-    ...[options]: readonly [
-      Model.Immutable<{
-        readonly buffer: Buffer;
-        readonly spanOptions: Model.Immutable<Parameters<Tracer.Tracer["span"]>[0]>;
-        readonly traceId: string;
-        readonly spanId: string;
-        readonly parentSpanId: string | undefined;
-        readonly attributes: ReadonlyMap<string, unknown>;
-        readonly setStatus: (status: Model.Immutable<Tracer.SpanStatus>) => void;
-      }>,
-    ]
+    options: Model.Immutable<{
+      readonly buffer: Buffer;
+      readonly spanOptions: Model.Immutable<Parameters<Tracer.Tracer["span"]>[0]>;
+      readonly traceId: string;
+      readonly spanId: string;
+      readonly parentSpanId: string | undefined;
+      readonly attributes: ReadonlyMap<string, unknown>;
+      readonly setStatus: (status: Model.Immutable<Tracer.SpanStatus>) => void;
+    }>,
   ) =>
   (...[endTime, exit]: readonly [bigint, Model.Immutable<Exit.Exit<unknown, unknown>>]): void => {
     try {
@@ -92,12 +90,12 @@ const makeSpanIdentity = (
 ) => {
   const traceId = Option.match(parent, {
     onNone: () => ids.id(32),
-    onSome: (...[value]: readonly [Model.Immutable<Tracer.AnySpan>]) =>
+    onSome: (value: Model.Immutable<Tracer.AnySpan>) =>
       hex32.test(value.traceId) ? value.traceId : ids.id(32),
   });
   const parentSpanId = Option.match(parent, {
     onNone: noParentSpanId,
-    onSome: (...[value]: readonly [Model.Immutable<Tracer.AnySpan>]) =>
+    onSome: (value: Model.Immutable<Tracer.AnySpan>) =>
       hex16.test(value.spanId) ? value.spanId : undefined,
   });
   return { traceId, spanId: ids.id(16), parentSpanId };
@@ -138,7 +136,7 @@ const makeSpan = (
     spanId,
     parentSpanId,
     attributes,
-    setStatus: (...[value]: readonly [Model.Immutable<Tracer.SpanStatus>]) => {
+    setStatus: (value: Model.Immutable<Tracer.SpanStatus>) => {
       status = value;
     },
   });
@@ -171,7 +169,7 @@ const makeSpan = (
   };
 };
 
-const makeFallbackSpan = (...[ids]: readonly [Readonly<Ids>]): Tracer.Span => {
+const makeFallbackSpan = (ids: Readonly<Ids>): Tracer.Span => {
   const traceId = ids.id(32);
   const spanId = ids.id(16);
   let status: Tracer.SpanStatus = { _tag: "Started", startTime: 0n };
@@ -217,12 +215,12 @@ const makeTotalSpan = (
 
 const makeTracer = (...[buffer, ids]: readonly [Readonly<Buffer>, Readonly<Ids>]): Tracer.Tracer =>
   Tracer.make({
-    span: (...[options]: readonly [Model.Immutable<Parameters<Tracer.Tracer["span"]>[0]>]) =>
+    span: (options: Model.Immutable<Parameters<Tracer.Tracer["span"]>[0]>) =>
       makeTotalSpan(buffer, ids, options),
   });
 
-const makeLogger = (...[buffer]: readonly [Readonly<Buffer>]): Logger.Logger<unknown, void> =>
-  Logger.make((...[options]: readonly [Model.Immutable<Logger.Options<unknown>>]) => {
+const makeLogger = (buffer: Readonly<Buffer>): Logger.Logger<unknown, void> =>
+  Logger.make((options: Model.Immutable<Logger.Options<unknown>>) => {
     try {
       const attributes = Model.safeAttributes(
         Object.entries(options.fiber.getRef(CurrentLogAnnotations)),
@@ -243,12 +241,10 @@ const makeLogger = (...[buffer]: readonly [Readonly<Buffer>]): Logger.Logger<unk
   });
 
 export const makeDebugTelemetrySession = (
-  ...[options]: readonly [
-    Readonly<{
-      readonly client: Readonly<HttpClient.HttpClient>;
-      readonly serialization: Readonly<Model.OtlpSerializationService>;
-    }>,
-  ]
+  options: Readonly<{
+    readonly client: Readonly<HttpClient.HttpClient>;
+    readonly serialization: Readonly<Model.OtlpSerializationService>;
+  }>,
 ): DebugTelemetryRuntimeSession => {
   const buffer = makeBuffer();
   const ids = makeIds();

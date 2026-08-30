@@ -44,11 +44,11 @@ const makeSerialization = (...[recordCall]: readonly [RecordCall]): Serializatio
 
 const assertSafeRequests = (...[requests]: readonly [ReadonlyArray<Request>]): void => {
   assert.deepStrictEqual(
-    requests.map((...[request]: readonly [Request]) => request.url),
+    requests.map((request: Request) => request.url),
     [debugTracesEndpoint, debugLogsEndpoint],
   );
   assert.deepStrictEqual(
-    requests.map((...[request]: readonly [Request]) => request.method),
+    requests.map((request: Request) => request.method),
     ["POST", "POST"],
   );
   for (const request of requests) {
@@ -76,7 +76,7 @@ const assertSafeRequests = (...[requests]: readonly [ReadonlyArray<Request>]): v
 const transportCase = Effect.gen(function* () {
   const requests: Array<Request> = [];
   const calls: Array<"logs" | "traces"> = [];
-  const client = HttpClient.make((...[request]: readonly [Request]) => {
+  const client = HttpClient.make((request: Request) => {
     requests.push(request);
     return Effect.succeed(
       HttpClientResponse.fromWeb(
@@ -133,7 +133,7 @@ const failureCase = Effect.gen(function* () {
   }
 
   let defectRequests = 0;
-  const defectClient = HttpClient.make((...[request]: readonly [Request]) => {
+  const defectClient = HttpClient.make((request: Request) => {
     defectRequests += 1;
     return Effect.die({ request, kind: "transport defect" });
   });

@@ -53,9 +53,7 @@ const makeResponse = (
   return response;
 };
 
-const publishOneTrace = (
-  ...[client]: readonly [Immutable<HttpClient.HttpClient>]
-): Effect.Effect<void> => {
+const publishOneTrace = (client: Immutable<HttpClient.HttpClient>): Effect.Effect<void> => {
   const session = makeDebugTelemetrySession({ client, serialization });
   session.recordTrace({ name: "CliApplication.run", outcome: "success" });
   return session.publish;

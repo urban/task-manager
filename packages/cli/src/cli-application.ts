@@ -8,7 +8,7 @@ import {
   DebugInputRejected,
   DebugTelemetrySessionFactory,
   DebugTelemetryLifecycle,
-  runSelectedCommand,
+  runCommandWithDebugActivation,
 } from "./debug-activation";
 import { makeDebugTelemetryLifecycle } from "./debug-telemetry-lifecycle";
 
@@ -33,7 +33,7 @@ export const commandTreeWithSelected = <E, R>(
 > =>
   commandTree.pipe(
     Command.withHandler(({ debug: debugOccurrences }) =>
-      runSelectedCommand({ explicit: debugOccurrences, selected }),
+      runCommandWithDebugActivation({ explicit: debugOccurrences, selected }),
     ),
   );
 

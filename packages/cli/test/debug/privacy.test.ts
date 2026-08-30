@@ -28,7 +28,7 @@ const responseRequest = HttpClientRequest.get("http://127.0.0.1/");
 
 const stockSerializationCase = Effect.gen(function* () {
   const requests: Array<Request> = [];
-  const client = HttpClient.make((...[request]: readonly [Request]) => {
+  const client = HttpClient.make((request: Request) => {
     requests.push(request);
     return Effect.succeed(
       HttpClientResponse.fromWeb(
@@ -66,7 +66,7 @@ const stockSerializationCase = Effect.gen(function* () {
 
 const overflowCase = Effect.gen(function* () {
   const requests: Array<Request> = [];
-  const client = HttpClient.make((...[request]: readonly [Request]) => {
+  const client = HttpClient.make((request: Request) => {
     requests.push(request);
     return Effect.succeed(
       HttpClientResponse.fromWeb(
@@ -103,7 +103,7 @@ const overflowCase = Effect.gen(function* () {
 
 const serializedFixture = Effect.gen(function* () {
   const requests: Array<Request> = [];
-  const client = HttpClient.make((...[request]: readonly [Request]) => {
+  const client = HttpClient.make((request: Request) => {
     requests.push(request);
     return Effect.succeed(
       HttpClientResponse.fromWeb(
@@ -117,7 +117,7 @@ const serializedFixture = Effect.gen(function* () {
   session.recordTrace({ name: "CliApplication.run", outcome: "success" });
   session.recordLog({ outcome: "expected_failure" });
   yield* session.publish;
-  return requests.flatMap((...[request]: readonly [Request]) =>
+  return requests.flatMap((request: Request) =>
     request.body["_tag"] === "Uint8Array" ? [request.body.body] : [],
   );
 });
@@ -137,7 +137,7 @@ const deterministicBytesCase = Effect.scoped(
   }),
 );
 
-const exerciseHostileCreationAndQueue = (...[session]: readonly [Session]): void => {
+const exerciseHostileCreationAndQueue = (session: Session): void => {
   const span = session.tracer.span({
     get name(): string {
       throw new Error("hostile span name getter");
@@ -165,7 +165,7 @@ const exerciseHostileCreationAndQueue = (...[session]: readonly [Session]): void
   });
 };
 
-const exerciseHostileEnd = (...[session]: readonly [Session]): void => {
+const exerciseHostileEnd = (session: Session): void => {
   const endingSpan = session.tracer.span({
     name: "CliApplication.run",
     parent: Option.none(),
@@ -197,8 +197,8 @@ const exerciseHostileEnd = (...[session]: readonly [Session]): void => {
   );
 };
 
-const makeHostileLogger = (...[session]: readonly [Session]) =>
-  Logger.make((...[options]: readonly [Immutable<Logger.Options<unknown>>]) => {
+const makeHostileLogger = (session: Session) =>
+  Logger.make((options: Immutable<Logger.Options<unknown>>) => {
     session.logger.log({
       ...options,
       fiber: new Proxy(options.fiber, {

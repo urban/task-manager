@@ -1,6 +1,9 @@
-import { Cause, Data } from "effect";
+import { Data } from "effect";
 
-type DebugInputRejectedFields = {
+const DebugInputRejectedBase: ReturnType<typeof Data.TaggedError<"InputRejected">> =
+  Data.TaggedError("InputRejected");
+
+export class DebugInputRejected extends DebugInputRejectedBase<{
   readonly input: {
     readonly source: "environment";
     readonly name: "TM_DEBUG";
@@ -12,14 +15,7 @@ type DebugInputRejectedFields = {
       readonly expected: "true, false, 1, or 0";
     },
   ];
-};
-
-const DebugInputRejectedBase: new (fields: DebugInputRejectedFields) => Cause.YieldableError &
-  DebugInputRejectedFields & {
-    readonly _tag: "InputRejected";
-  } = Data.TaggedError("InputRejected")<DebugInputRejectedFields>;
-
-export class DebugInputRejected extends DebugInputRejectedBase {}
+}> {}
 
 export const invalidTmDebug: DebugInputRejected = new DebugInputRejected({
   input: { source: "environment", name: "TM_DEBUG" },

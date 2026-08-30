@@ -17,9 +17,7 @@ export type RenderedCommandResult = {
   readonly exitCode: ProcessExitCode;
 };
 
-const directFrameworkOutputToStderr = (
-  ...[console]: readonly [Readonly<Console.Console>]
-): Console.Console => ({
+const directFrameworkOutputToStderr = (console: Readonly<Console.Console>): Console.Console => ({
   ...console,
   log: (...args: ReadonlyArray<unknown>) => {
     console.error(...args);
@@ -43,7 +41,7 @@ const CliRuntimeBase: Context.ServiceClass<
 export class CliRuntime extends CliRuntimeBase {}
 
 export const writeCommandResult = (
-  ...[result]: readonly [RenderedCommandResult]
+  result: RenderedCommandResult,
 ): Effect.Effect<void, ExpectedProcessExit, Stdio.Stdio> =>
   Effect.gen(function* () {
     const stdio = yield* Stdio.Stdio;
@@ -62,7 +60,7 @@ export const writeCommandResult = (
 const makeRun: CliRuntimeShape["run"] = function <A, E, R>(
   ...[effect]: readonly [() => Effect.Effect<A, E, R>]
 ): Effect.Effect<A, E | ExpectedProcessExit, R> {
-  return Console.consoleWith((...[console]: readonly [Readonly<Console.Console>]) =>
+  return Console.consoleWith((console: Readonly<Console.Console>) =>
     effect().pipe(
       Effect.provideService(Console.Console, directFrameworkOutputToStderr(console)),
       Effect.provideService(Logger.LogToStderr, true),

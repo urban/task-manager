@@ -64,7 +64,7 @@ const statefulTraceRecord = (...[counter, attribute]: readonly [ReadCounter, Saf
     },
   });
 
-const assertThrowingTraceIsContained = (...[attribute]: readonly [SafeKeyValue]): void => {
+const assertThrowingTraceIsContained = (attribute: SafeKeyValue): void => {
   const record = makeSafeTraceRecord({
     kind: "trace",
     get name(): string {
@@ -193,7 +193,7 @@ export const assertStatefulLogBoundary = (): SafeLog => {
 };
 
 const assertStatefulSerialization = (
-  ...[serialization]: readonly [Readonly<OtlpSerialization.OtlpSerialization["Service"]>]
+  serialization: Readonly<OtlpSerialization.OtlpSerialization["Service"]>,
 ): void => {
   const bodies = [
     serializeDebugTraces(serialization, [assertStatefulTraceBoundary()]),

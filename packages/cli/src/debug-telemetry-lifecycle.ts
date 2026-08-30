@@ -36,7 +36,7 @@ type DebugTelemetryLifecycleState =
 export const debugFinalizationDeadline = "250 millis";
 
 export const makeDebugTelemetryLifecycle = (
-  ...[factory]: readonly [Immutable<Session.DebugTelemetrySessionFactory["Service"]>]
+  factory: Immutable<Session.DebugTelemetrySessionFactory["Service"]>,
 ): DebugTelemetryLifecycle["Service"] => {
   const state = MutableRef.make<DebugTelemetryLifecycleState>({ kind: "inactive" });
   const mutex = Semaphore.makeUnsafe(1);
@@ -56,13 +56,11 @@ export const makeDebugTelemetryLifecycle = (
       }
       return factory.acquire.pipe(
         Effect.exit,
-        Effect.map(
-          (...[acquired]: readonly [Immutable<Exit.Exit<Session.DebugTelemetrySession>>]) => {
-            const session = Exit.isSuccess(acquired) ? acquired.value : unavailableSession;
-            MutableRef.set(state, { kind: "active", session });
-            return session;
-          },
-        ),
+        Effect.map((acquired: Immutable<Exit.Exit<Session.DebugTelemetrySession>>) => {
+          const session = Exit.isSuccess(acquired) ? acquired.value : unavailableSession;
+          MutableRef.set(state, { kind: "active", session });
+          return session;
+        }),
       );
     }),
   );

@@ -175,7 +175,7 @@ export const safeAttributes = (
   });
 
 export const makeSafeTraceRecord = (
-  ...[record]: readonly [Readonly<SafeTraceRecord>]
+  record: Readonly<SafeTraceRecord>,
 ): SafeTraceRecord | undefined => {
   try {
     const kind: unknown = record.kind;
@@ -224,9 +224,7 @@ export const makeSafeTraceRecord = (
   }
 };
 
-export const makeSafeLogRecord = (
-  ...[record]: readonly [Readonly<SafeLogRecord>]
-): SafeLogRecord | undefined => {
+export const makeSafeLogRecord = (record: Readonly<SafeLogRecord>): SafeLogRecord | undefined => {
   try {
     const kind: unknown = record.kind;
     const timeUnixNano: unknown = record.timeUnixNano;
@@ -262,7 +260,7 @@ export const projectDebugDefect = (
   };
 };
 
-export const classifyDebugExit = (...[exit]: readonly [DebugExit]): SafeOutcome => {
+export const classifyDebugExit = (exit: DebugExit): SafeOutcome => {
   if (!Exit.isFailure(exit)) {
     return "success";
   }

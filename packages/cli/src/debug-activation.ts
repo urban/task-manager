@@ -39,13 +39,11 @@ const resolveEnvironmentActivation = Effect.fnUntraced(function* () {
   return yield* resolveEnvironmentValue(Option.getOrUndefined(value));
 });
 
-export const runSelectedCommand = <E, R>(
-  ...[options]: readonly [
-    Readonly<{
-      readonly explicit: ReadonlyArray<boolean>;
-      readonly selected: () => Effect.Effect<void, E, R>;
-    }>,
-  ]
+export const runCommandWithDebugActivation = <E, R>(
+  options: Readonly<{
+    readonly explicit: ReadonlyArray<boolean>;
+    readonly selected: () => Effect.Effect<void, E, R>;
+  }>,
 ): Effect.Effect<void, E | DebugInputRejected, R | DebugEnvironment | DebugTelemetryLifecycle> =>
   Effect.gen(function* () {
     const explicitValue = options.explicit[0];

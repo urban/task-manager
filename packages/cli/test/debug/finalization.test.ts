@@ -7,7 +7,7 @@ import { OtlpSerialization } from "effect/unstable/observability";
 import {
   DebugEnvironment,
   DebugTelemetrySessionFactory,
-  runSelectedCommand,
+  runCommandWithDebugActivation,
 } from "../../src/debug-activation";
 import { runCliApplication } from "../../src/cli-application";
 import { CliRuntime } from "../../src/cli-runtime";
@@ -236,7 +236,7 @@ const interruptionCase = Effect.gen(function* () {
   });
   const actual = yield* Effect.exit(
     runCliApplication(() =>
-      runSelectedCommand({ explicit: [true], selected: () => interruptExit }),
+      runCommandWithDebugActivation({ explicit: [true], selected: () => interruptExit }),
     ).pipe(
       Effect.provideService(CliRuntime, runtime),
       Effect.provideService(DebugTelemetrySessionFactory, factory),

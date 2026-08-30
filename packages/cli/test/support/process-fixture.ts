@@ -123,7 +123,7 @@ const forkCaptureStreams = Effect.fnUntraced(function* (
 });
 
 const captureStream = (
-  ...[input]: readonly [CaptureStreamInput]
+  input: CaptureStreamInput,
 ): Effect.Effect<CapturedBytes, PlatformError.PlatformError> =>
   Effect.gen(function* () {
     const capture: MutableCapture = { chunks: [], retainedBytes: 0, totalBytes: 0 };

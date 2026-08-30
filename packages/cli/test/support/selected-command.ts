@@ -14,14 +14,12 @@ import { makeDebugTelemetryLifecycle } from "../../src/debug-telemetry-lifecycle
 import PackageJson from "../../package.json" with { type: "json" };
 
 export const runSelectedWith = <E>(
-  ...[options]: readonly [
-    Readonly<{
-      readonly args: ReadonlyArray<string>;
-      readonly selected: () => Effect.Effect<void, E>;
-      readonly environment: () => DebugEnvironment["Service"];
-      readonly factory: () => DebugTelemetrySessionFactory["Service"];
-    }>,
-  ]
+  options: Readonly<{
+    readonly args: ReadonlyArray<string>;
+    readonly selected: () => Effect.Effect<void, E>;
+    readonly environment: () => DebugEnvironment["Service"];
+    readonly factory: () => DebugTelemetrySessionFactory["Service"];
+  }>,
 ): Effect.Effect<void, E | DebugInputRejected | CliError.CliError> =>
   Effect.scoped(
     Effect.gen(function* () {

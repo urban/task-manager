@@ -36,9 +36,7 @@ const publishSignal = <A>(
   records.length === 0
     ? Effect.void
     : Effect.sync(() => serialize.run(records)).pipe(
-        Effect.flatMap((...[body]: readonly [Readonly<Model.HttpBody>]) =>
-          publishBody(client, endpoint, body),
-        ),
+        Effect.flatMap((body: Readonly<Model.HttpBody>) => publishBody(client, endpoint, body)),
         Effect.ignoreCause,
         Effect.withTracerEnabled(false),
       );
