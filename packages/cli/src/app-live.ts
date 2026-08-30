@@ -16,7 +16,7 @@ export const CliFrameworkLive: Layer.Layer<Command.Environment | CliRuntime> = L
   CliConfig.layer({
     builtIns: [GlobalFlag.Help, GlobalFlag.Version, GlobalFlag.Completions],
   }),
-  CliOutput.layer(CliOutput.defaultFormatter({ colors: false })),
+  CliOutput.layer(CliOutput.defaultFormatter()),
 );
 
 export const AppLive: Layer.Layer<
