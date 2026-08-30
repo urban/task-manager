@@ -34,14 +34,14 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
             terminationGraceMillis: 1_000,
           },
         });
+        assert.deepStrictEqual(result.stdout.bytes, new Uint8Array());
+        assert.strictEqual(result.stdout.totalBytes, 0);
+        assert.isFalse(result.stdout.truncated);
         assert.deepStrictEqual(
-          result.stdout.bytes,
+          result.stderr.bytes,
           new globalThis.TextEncoder().encode("tm v0.1.0\n"),
         );
-        assert.strictEqual(result.stdout.totalBytes, 10);
-        assert.isFalse(result.stdout.truncated);
-        assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
-        assert.strictEqual(result.stderr.totalBytes, 0);
+        assert.strictEqual(result.stderr.totalBytes, 10);
         assert.isFalse(result.stderr.truncated);
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
         assert.isFalse(result.timedOut);
@@ -60,11 +60,11 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
             terminationGraceMillis: 1_000,
           },
         }).pipe(Effect.timeout("1 second"));
+        assert.deepStrictEqual(result.stdout.bytes, new Uint8Array());
         assert.deepStrictEqual(
-          result.stdout.bytes,
+          result.stderr.bytes,
           new globalThis.TextEncoder().encode("tm v0.1.0\n"),
         );
-        assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
         assert.isFalse(result.timedOut);
         assert.deepStrictEqual(result.requestedSignals, []);

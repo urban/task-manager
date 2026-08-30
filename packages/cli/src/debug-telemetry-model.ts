@@ -85,7 +85,6 @@ const safeSpanNames: ReadonlyArray<string> = [
   "CoordinationStore.runValidation",
   "CoordinationStore.publishInitialization",
   "StoreSqlClient.acquire",
-  "ProcessOutput.publish",
 ];
 const safeSpanNameSet: ReadonlySet<string> = new Set(safeSpanNames);
 const safeOutcomes: ReadonlySet<unknown> = new Set([

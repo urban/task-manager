@@ -7,6 +7,7 @@ import { ChildProcess } from "effect/unstable/process";
 import { captureProcess } from "./support/process-fixture";
 
 const encoder = new globalThis.TextEncoder();
+const decoder = new globalThis.TextDecoder();
 const repositoryRoot = `${import.meta.dirname}/../../..`;
 const assert: typeof EffectVitest.assert = EffectVitest.assert;
 const it: typeof EffectVitest.it = EffectVitest.it;
@@ -32,25 +33,24 @@ const runCli = (...[args]: readonly [ReadonlyArray<string>]) =>
   });
 
 it.layer(BunServices.layer, { excludeTestServices: true })(
-  "real CLI output arbitration",
+  "real CLI output discipline",
   (...[{ effect }]: readonly [TestRegistration]) => {
-    effect("preserves exact framework version bytes and status at the executable", () =>
+    effect("writes framework version output only to stderr", () =>
       Effect.gen(function* () {
         const result = yield* runCli(["--version"]);
-        assert.deepStrictEqual(result.stdout.bytes, encoder.encode("tm v0.1.0\n"));
-        assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
+        assert.deepStrictEqual(result.stdout.bytes, new Uint8Array());
+        assert.deepStrictEqual(result.stderr.bytes, encoder.encode("tm v0.1.0\n"));
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
       }),
     );
 
-    effect("publishes an unknown command once as a human expected failure", () =>
+    effect("writes framework help and parse diagnostics only to stderr", () =>
       Effect.gen(function* () {
         const result = yield* runCli(["unknown"]);
         assert.deepStrictEqual(result.stdout.bytes, new Uint8Array());
-        assert.deepStrictEqual(
-          result.stderr.bytes,
-          encoder.encode('Error: Unexpected positional argument: "unknown"\n'),
-        );
+        const stderr = decoder.decode(result.stderr.bytes);
+        assert.include(stderr, "Local-first agent task manager");
+        assert.include(stderr, 'Unexpected positional argument: "unknown"');
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 1 });
       }),
     );

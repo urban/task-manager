@@ -41,7 +41,6 @@ const commandProgram: Effect.Effect<void, CliError.CliError, Command.Environment
   commandTree,
   {
     version: PackageJson.version,
-    renderErrors: false,
   },
 );
 
