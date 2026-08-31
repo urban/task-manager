@@ -23,7 +23,7 @@ const cliCommand = (...args: ReadonlyArray<string>) =>
 
 it.layer(BunServices.layer, { excludeTestServices: true })(
   "CLI process capture",
-  (...[{ effect }]: readonly [TestRegistration]) => {
+  ({ effect }: TestRegistration) => {
     effect("captures exact CLI stdout, stderr, and successful exit status", () =>
       Effect.gen(function* () {
         const result = yield* captureProcess({
@@ -34,14 +34,14 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
             terminationGraceMillis: 1_000,
           },
         });
-        assert.deepStrictEqual(result.stdout.bytes, new Uint8Array());
-        assert.strictEqual(result.stdout.totalBytes, 0);
-        assert.isFalse(result.stdout.truncated);
         assert.deepStrictEqual(
-          result.stderr.bytes,
+          result.stdout.bytes,
           new globalThis.TextEncoder().encode("tm v0.1.0\n"),
         );
-        assert.strictEqual(result.stderr.totalBytes, 10);
+        assert.strictEqual(result.stdout.totalBytes, 10);
+        assert.isFalse(result.stdout.truncated);
+        assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
+        assert.strictEqual(result.stderr.totalBytes, 0);
         assert.isFalse(result.stderr.truncated);
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
         assert.isFalse(result.timedOut);
@@ -60,11 +60,11 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
             terminationGraceMillis: 1_000,
           },
         }).pipe(Effect.timeout("1 second"));
-        assert.deepStrictEqual(result.stdout.bytes, new Uint8Array());
         assert.deepStrictEqual(
-          result.stderr.bytes,
+          result.stdout.bytes,
           new globalThis.TextEncoder().encode("tm v0.1.0\n"),
         );
+        assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
         assert.isFalse(result.timedOut);
         assert.deepStrictEqual(result.requestedSignals, []);
@@ -75,7 +75,7 @@ it.layer(BunServices.layer, { excludeTestServices: true })(
 
 it.layer(BunServices.layer, { excludeTestServices: true })(
   "bounded process capture",
-  (...[{ effect }]: readonly [TestRegistration]) => {
+  ({ effect }: TestRegistration) => {
     effect("drains stdout and stderr concurrently while retaining bounded bytes", () =>
       Effect.gen(function* () {
         const result = yield* captureProcess({
@@ -143,7 +143,7 @@ const zeroReadinessCase = Effect.gen(function* () {
 
 it.layer(BunServices.layer, { excludeTestServices: true })(
   "process timeout",
-  (...[{ effect }]: readonly [TestRegistration]) => {
+  ({ effect }: TestRegistration) => {
     effect(
       "starts timeout immediately when zero stdout bytes are required",
       () => zeroReadinessCase,
@@ -256,7 +256,7 @@ const boundedInterruptionCase = Effect.scoped(
 
 it.layer(BunServices.layer, { excludeTestServices: true })(
   "process cleanup",
-  (...[{ effect }]: readonly [TestRegistration]) => {
+  ({ effect }: TestRegistration) => {
     effect("interrupting the owning scope leaves no surviving child", () => cooperativeCleanupCase);
     effect("bounds interruption of a TERM-ignoring child writer", () => boundedInterruptionCase);
   },

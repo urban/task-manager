@@ -3,13 +3,7 @@ import { CliError, Command } from "effect/unstable/cli";
 
 import { CliFrameworkLive } from "../../src/app-live";
 import { commandTreeWithSelected } from "../../src/cli-application";
-import {
-  DebugEnvironment,
-  DebugInputRejected,
-  DebugTelemetrySessionFactory,
-  DebugTelemetryLifecycle,
-} from "../../src/debug-activation";
-import { makeDebugTelemetryLifecycle } from "../../src/debug-telemetry-lifecycle";
+import { DebugEnvironment, DebugInputRejected, DebugTelemetry } from "../../src/debug/activation";
 
 import PackageJson from "../../package.json" with { type: "json" };
 
@@ -18,7 +12,7 @@ export const runSelectedWith = <E>(
     readonly args: ReadonlyArray<string>;
     readonly selected: () => Effect.Effect<void, E>;
     readonly environment: () => DebugEnvironment["Service"];
-    readonly factory: () => DebugTelemetrySessionFactory["Service"];
+    readonly telemetry: () => DebugTelemetry["Service"];
   }>,
 ): Effect.Effect<void, E | DebugInputRejected | CliError.CliError> =>
   Effect.scoped(
@@ -27,18 +21,15 @@ export const runSelectedWith = <E>(
         Layer.mergeAll(
           CliFrameworkLive,
           Layer.succeed(DebugEnvironment, options.environment()),
-          Layer.succeed(DebugTelemetrySessionFactory, options.factory()),
+          Layer.succeed(DebugTelemetry, options.telemetry()),
         ),
       );
-      const lifecycle = makeDebugTelemetryLifecycle(options.factory());
-      const exit = yield* Effect.provideContext(
+      return yield* Effect.provideContext(
         Command.runWith(commandTreeWithSelected<E, never>(options.selected), {
           version: PackageJson.version,
           renderErrors: false,
-        })(options.args).pipe(Effect.provideService(DebugTelemetryLifecycle, lifecycle)),
+        })(options.args),
         context,
-      ).pipe(Effect.exit);
-      yield* lifecycle.finalize;
-      return yield* exit;
+      );
     }),
   );

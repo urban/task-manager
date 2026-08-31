@@ -2,25 +2,19 @@ import { assert, describe, it } from "@effect/vitest";
 import { Cause, Effect, Exit, Option, Ref, Schema } from "effect";
 import { CliError } from "effect/unstable/cli";
 
-import {
-  DebugEnvironment,
-  DebugInputRejected,
-  DebugTelemetrySessionFactory,
-} from "../../src/debug-activation";
-import { observeWithDebugTelemetry } from "../../src/debug-telemetry-session";
+import { DebugEnvironment, DebugInputRejected, DebugTelemetry } from "../../src/debug/activation";
 import { runSelectedWith } from "../support/selected-command";
 
 type Harness = {
   readonly environment: () => DebugEnvironment["Service"];
-  readonly factory: () => DebugTelemetrySessionFactory["Service"];
+  readonly telemetry: () => DebugTelemetry["Service"];
   readonly selected: () => Effect.Effect<void>;
   readonly counts: () => Effect.Effect<ExpectedCounts>;
 };
 
 type ExpectedCounts = {
   readonly environmentReads: number;
-  readonly acquisitions: number;
-  readonly releases: number;
+  readonly observations: number;
   readonly selectedCalls: number;
 };
 
@@ -64,61 +58,44 @@ const earlyExitCases: ReadonlyArray<ReadonlyArray<string>> = [
   ["unknown"],
 ];
 
-const ignoreExit = (...[exit]: readonly [unknown]): void => {
-  void exit;
-};
-
-const makeHarness = Effect.fnUntraced(function* (
-  ...[environmentValue]: readonly [environmentValue?: string]
-) {
+const makeHarness = Effect.fnUntraced(function* (environmentValue?: string) {
   const environmentReads = yield* Ref.make(0);
-  const acquisitions = yield* Ref.make(0);
-  const releases = yield* Ref.make(0);
+  const observations = yield* Ref.make(0);
   const selectedCalls = yield* Ref.make(0);
   const optionValue =
     environmentValue === undefined ? Option.none<string>() : Option.some(environmentValue);
   const environment = DebugEnvironment.of({
     readTmDebug: Ref.update(environmentReads, (count) => count + 1).pipe(Effect.as(optionValue)),
   });
-  const factory = DebugTelemetrySessionFactory.of({
-    acquire: Ref.update(acquisitions, (count) => count + 1).pipe(
-      Effect.as({
-        observe: observeWithDebugTelemetry(ignoreExit),
-        forceFlushAndShutdown: Ref.update(releases, (count) => count + 1),
-      }),
-    ),
+  const telemetry = DebugTelemetry.of({
+    observe: <A, E, R>(effect: () => Effect.Effect<A, E, R>) =>
+      Ref.update(observations, (count) => count + 1).pipe(Effect.andThen(Effect.suspend(effect))),
   });
-  const selected = Effect.gen(function* () {
-    assert.strictEqual(yield* Ref.get(releases), 0);
-    yield* Ref.update(selectedCalls, (count) => count + 1);
-  });
-  const harness: Harness = {
+  const selected = Ref.update(selectedCalls, (count) => count + 1);
+  return {
     environment: () => environment,
-    factory: () => factory,
+    telemetry: () => telemetry,
     selected: () => selected,
     counts: () =>
       Effect.all({
         environmentReads: Ref.get(environmentReads),
-        acquisitions: Ref.get(acquisitions),
-        releases: Ref.get(releases),
+        observations: Ref.get(observations),
         selectedCalls: Ref.get(selectedCalls),
       }),
-  };
-  return harness;
+  } satisfies Harness;
 });
 
-const runHarness = (
-  ...[harness, args]: readonly [Readonly<Harness>, ReadonlyArray<string>]
-): Effect.Effect<void, CliError.CliError | DebugInputRejected> =>
+const runHarness = (harness: Readonly<Harness>, args: ReadonlyArray<string>) =>
   runSelectedWith({
     args,
     selected: harness.selected,
     environment: harness.environment,
-    factory: harness.factory,
+    telemetry: harness.telemetry,
   });
 
 const assertCounts = Effect.fnUntraced(function* (
-  ...[harness, expected]: readonly [Readonly<Harness>, Readonly<ExpectedCounts>]
+  harness: Readonly<Harness>,
+  expected: Readonly<ExpectedCounts>,
 ) {
   assert.deepStrictEqual(yield* harness.counts(), expected);
 });
@@ -131,24 +108,18 @@ describe("TM_DEBUG activation", () => {
         yield* runHarness(harness, []);
         yield* assertCounts(harness, {
           environmentReads: 1,
-          acquisitions: enabled ? 1 : 0,
-          releases: enabled ? 1 : 0,
+          observations: enabled ? 1 : 0,
           selectedCalls: 1,
         });
       }
     }),
   );
 
-  it.effect("defaults disabled without acquiring a session", () =>
+  it.effect("defaults disabled without observing the command", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
       yield* runHarness(harness, []);
-      yield* assertCounts(harness, {
-        environmentReads: 1,
-        acquisitions: 0,
-        releases: 0,
-        selectedCalls: 1,
-      });
+      yield* assertCounts(harness, { environmentReads: 1, observations: 0, selectedCalls: 1 });
     }),
   );
 });
@@ -161,8 +132,7 @@ describe("explicit debug precedence", () => {
         yield* runHarness(harness, args);
         yield* assertCounts(harness, {
           environmentReads: 0,
-          acquisitions: enabled ? 1 : 0,
-          releases: enabled ? 1 : 0,
+          observations: enabled ? 1 : 0,
           selectedCalls: 1,
         });
       }
@@ -171,7 +141,7 @@ describe("explicit debug precedence", () => {
 });
 
 describe("invalid debug input", () => {
-  it.effect("rejects every other present environment value before acquisition", () =>
+  it.effect("rejects every other present environment value before telemetry", () =>
     Effect.gen(function* () {
       for (const value of ["", "TRUE", " true", "false ", "yes", "no"]) {
         const harness = yield* makeHarness(value);
@@ -181,20 +151,12 @@ describe("invalid debug input", () => {
         assert.lengthOf(failures, 1);
         assert.instanceOf(failure, DebugInputRejected);
         if (failure instanceof DebugInputRejected) {
-          assert.deepStrictEqual(failure.input, {
-            source: "environment",
-            name: "TM_DEBUG",
-          });
+          assert.deepStrictEqual(failure.input, { source: "environment", name: "TM_DEBUG" });
           assert.deepStrictEqual(failure.issues, [
             { path: [], code: "invalid-value", expected: "true, false, 1, or 0" },
           ]);
         }
-        yield* assertCounts(harness, {
-          environmentReads: 1,
-          acquisitions: 0,
-          releases: 0,
-          selectedCalls: 0,
-        });
+        yield* assertCounts(harness, { environmentReads: 1, observations: 0, selectedCalls: 0 });
       }
     }),
   );
@@ -212,27 +174,17 @@ describe("parser and built-in bypass", () => {
         if (Schema.is(CliError.ShowHelp)(failure)) {
           assert.isTrue(Schema.is(CliError.InvalidValue)(failure.errors[0]));
         }
-        yield* assertCounts(harness, {
-          environmentReads: 0,
-          acquisitions: 0,
-          releases: 0,
-          selectedCalls: 0,
-        });
+        yield* assertCounts(harness, { environmentReads: 0, observations: 0, selectedCalls: 0 });
       }
     }),
   );
 
-  it.effect("bypasses environment and acquisition for built-ins and parse failure", () =>
+  it.effect("bypasses environment and telemetry for built-ins and parse failure", () =>
     Effect.gen(function* () {
       for (const args of earlyExitCases) {
         const harness = yield* makeHarness("true");
         yield* Effect.exit(runHarness(harness, args));
-        yield* assertCounts(harness, {
-          environmentReads: 0,
-          acquisitions: 0,
-          releases: 0,
-          selectedCalls: 0,
-        });
+        yield* assertCounts(harness, { environmentReads: 0, observations: 0, selectedCalls: 0 });
       }
     }),
   );

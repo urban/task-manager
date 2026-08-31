@@ -1,6 +1,6 @@
 import { Config, ConfigProvider, Context, Effect, Layer, Option } from "effect";
 
-import { DebugInputRejected, invalidTmDebug } from "./debug-input-rejected";
+import { DebugInputRejected, invalidTmDebug } from "./input-rejected";
 
 type DebugEnvironmentShape = {
   readonly readTmDebug: Effect.Effect<Option.Option<string>, DebugInputRejected>;
@@ -14,10 +14,10 @@ const readTmDebug = Effect.suspend(() =>
 
 const DebugEnvironmentBase: Context.ServiceClass<
   DebugEnvironment,
-  "@urban/task-manager-cli/debug-activation/DebugEnvironment",
+  "@urban/task-manager-cli/debug/environment/DebugEnvironment",
   DebugEnvironmentShape
 > = Context.Service<DebugEnvironment, DebugEnvironmentShape>()(
-  "@urban/task-manager-cli/debug-activation/DebugEnvironment",
+  "@urban/task-manager-cli/debug/environment/DebugEnvironment",
 );
 
 export class DebugEnvironment extends DebugEnvironmentBase {}

@@ -112,7 +112,7 @@ const invalidBoundsCase = Effect.gen(function* () {
 
 it.layer(BunServices.layer, { excludeTestServices: true })(
   "process fixture options",
-  (...[{ effect }]: readonly [TestRegistration]) => {
+  ({ effect }: TestRegistration) => {
     effect(
       "rejects negative and non-finite bounds before constructing a command",
       () => invalidBoundsCase,

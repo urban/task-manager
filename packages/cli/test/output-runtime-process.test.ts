@@ -16,7 +16,7 @@ type TestRegistration = {
   readonly effect: EffectVitest.Vitest.Test<BunServices.BunServices | Scope.Scope>;
 };
 
-const runCli = (...[args]: readonly [ReadonlyArray<string>]) =>
+const runCli = (args: ReadonlyArray<string>) =>
   captureProcess({
     makeCommand: () =>
       ChildProcess.make("bun", ["packages/cli/src/bin.ts", ...args], {
@@ -34,22 +34,22 @@ const runCli = (...[args]: readonly [ReadonlyArray<string>]) =>
 
 it.layer(BunServices.layer, { excludeTestServices: true })(
   "real CLI output discipline",
-  (...[{ effect }]: readonly [TestRegistration]) => {
-    effect("writes framework version output only to stderr", () =>
+  ({ effect }: TestRegistration) => {
+    effect("writes framework version output to stdout", () =>
       Effect.gen(function* () {
         const result = yield* runCli(["--version"]);
-        assert.deepStrictEqual(result.stdout.bytes, new Uint8Array());
-        assert.deepStrictEqual(result.stderr.bytes, encoder.encode("tm v0.1.0\n"));
+        assert.deepStrictEqual(result.stdout.bytes, encoder.encode("tm v0.1.0\n"));
+        assert.deepStrictEqual(result.stderr.bytes, new Uint8Array());
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 0 });
       }),
     );
 
-    effect("writes framework help and parse diagnostics only to stderr", () =>
+    effect("writes framework help to stdout and parse diagnostics to stderr", () =>
       Effect.gen(function* () {
         const result = yield* runCli(["unknown"]);
-        assert.deepStrictEqual(result.stdout.bytes, new Uint8Array());
+        const stdout = decoder.decode(result.stdout.bytes);
+        assert.include(stdout, "Local-first agent task manager");
         const stderr = decoder.decode(result.stderr.bytes);
-        assert.include(stderr, "Local-first agent task manager");
         assert.include(stderr, 'Unexpected positional argument: "unknown"');
         assert.deepStrictEqual(result.status, { _tag: "Exited", code: 1 });
       }),
